@@ -1,0 +1,10 @@
+/config.json
+/prepared/
+/workspace/
+/std_out_err/
+/grader
+.bsp/
+.idea/
+.scala-build/
+.metals/
+.vscode/
