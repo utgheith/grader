@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal

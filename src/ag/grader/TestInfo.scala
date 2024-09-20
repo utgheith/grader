@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import ag.rules.SignedPath
 import upickle.default.ReadWriter

@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import scala.collection.{mutable, SortedMap, SortedSet}
 import upickle.default.{ReadWriter}

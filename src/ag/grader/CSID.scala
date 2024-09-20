@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import upickle.default.{readwriter, ReadWriter}
 import scala.math.Ordering

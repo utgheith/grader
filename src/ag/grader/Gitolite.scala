@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import ag.rules.{Maker, Periodic, Rule, SignedPath, down, lines, say}
 import upickle.default.read

@@ -1,4 +1,4 @@
-package ag.gitolite
+package ag.grader
 
 import java.io.FileWriter
 import ag.rules.{say, Rule}

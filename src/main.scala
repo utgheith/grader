@@ -1,11 +1,10 @@
-import ag.gitolite.{Course, CSID, HtmlGen, Project}
+import ag.grader.{Course, CSID, HtmlGen, Project, TestId}
 import ag.rules.{Maker, NopStateMonitor, RuleBase, State, given_ReadWriter_SortedMap, say}
 import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main}
 
 import scala.collection.SortedMap
 import scala.util.matching.Regex
 import scala.collection.SortedSet
-import ag.gitolite.TestId
 
 import java.time.ZoneId
 
