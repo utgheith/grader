@@ -333,71 +333,85 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("time")
   }
 
-  def run(csid: CSID, test_id: TestId): Maker[SignedPath[Outcome]] =
+  def empty_run(csid: CSID, test_id: TestId): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
-      prepare(csid) *: cores,
+      prepare(csid),
       SortedSet(),
-      scope / csid.value / test_id.external_name / test_id.internal_name
+      scope / csid.value / test_id.external_name / test_id.internal_name / "0"
     ) {
-      case (out_path, (prepared, cores)) =>
-        started_runs.incrementAndGet()
-        try {
-          if (cores > limit) {
-            throw new Exception(s"need $cores cores, limit is $limit")
-          }
+      case (out_path, _) =>
+        Outcome(course.course_name, project_name, csid, test_id, None, None, tries=0)
+    }
 
-          // all tests for the same project/csid share the same prepared directory
-          Project.run_lock(prepared.path) {
-            governor.down(cores) {
-              val tn = test_id.external_name
-              val m = s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
-              say(f"running $m on $cores cores")
-              val start = System.currentTimeMillis()
-              var s: Option[Double] = None
-              val (rc, stdout, stderr) = try {
-                val _ = os.proc("make", "-k", "clean").run(cwd = prepared.path, check = false)
-                os.proc("make", "-k", s"$tn.test").run(cwd = prepared.path, check = false)
-              } finally {
-                s = Some((System.currentTimeMillis() - start).toDouble / 1000)
-              }
-              val result_path = prepared.path / s"$tn.result"
-              val outcome = if (os.isFile(result_path)) os.read.lines(result_path).headOption else None
-              val how_long = s.map(t => f"$t%.2f")
-              val out_text = outcome.getOrElse("???")
-              val out = if (out_text == "pass") fansi.Color.Green(out_text) else fansi.Color.Red(out_text)
-              say(s"    [${finished_runs.get()}/${started_runs.get()}] finished [$out] $m in $how_long seconds")
-              stderr.foreach { stderr =>
-                os.copy(
-                  from = stderr,
-                  to = out_path / s"$tn.err",
-                  createFolders = true,
-                  replaceExisting = true,
-                  followLinks = false
-                )
-              }
-              copy_results(prepared.path, out_path, test_id)
-              Outcome(project_name, course.course_name, csid, test_id, outcome, time=s)
+  def run(csid: CSID, test_id: TestId, n: Int): Maker[SignedPath[Outcome]] =
+    SignedPath.rule(
+      prepare(csid) *: cores *: (if (n == 1) empty_run(csid, test_id) else run(csid, test_id, n-1)),
+      SortedSet(),
+      scope / csid.value / test_id.external_name / test_id.internal_name / n.toString
+    ) {
+      case (out_path, (prepared, cores, prev)) =>
+        if ((n == 1) || (prev.data.outcome.contains("pass"))) {
+          started_runs.incrementAndGet()
+          try {
+            if (cores > limit) {
+              throw new Exception(s"need $cores cores, limit is $limit")
             }
+
+            // all tests for the same project/csid share the same prepared directory
+            Project.run_lock(prepared.path) {
+              governor.down(cores) {
+                val tn = test_id.external_name
+                val m = s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
+                say(f"running#$n $m on $cores cores")
+                val start = System.currentTimeMillis()
+                var s: Option[Double] = None
+                val (rc, stdout, stderr) = try {
+                  val _ = os.proc("make", "-k", "clean").run(cwd = prepared.path, check = false)
+                  os.proc("make", "-k", s"$tn.test").run(cwd = prepared.path, check = false)
+                } finally {
+                  s = Some((System.currentTimeMillis() - start).toDouble / 1000)
+                }
+                val result_path = prepared.path / s"$tn.result"
+                val outcome = if (os.isFile(result_path)) os.read.lines(result_path).headOption else None
+                val how_long = s.map(t => f"$t%.2f")
+                val out_text = outcome.getOrElse("???")
+                val out = if (out_text == "pass") fansi.Color.Green(out_text) else fansi.Color.Red(out_text)
+                say(s"    [${finished_runs.get()}/${started_runs.get()}] finished [$out] $m in $how_long seconds")
+                stderr.foreach { stderr =>
+                  os.copy(
+                    from = stderr,
+                    to = out_path / s"$tn.err",
+                    createFolders = true,
+                    replaceExisting = true,
+                    followLinks = false
+                  )
+                }
+                copy_results(prepared.path, out_path, test_id)
+                Outcome(project_name, course.course_name, csid, test_id, outcome, time=s, tries=n)
+              }
+            }
+          } finally {
+            finished_runs.incrementAndGet()
           }
-        } finally {
-          finished_runs.incrementAndGet()
-        }
+      } else {
+        prev.data
+      }
     }
 
 
   def student_results_repo_name(csid: CSID): String = 
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
-  def publish_student_results(csid: CSID): Maker[SignedPath[StudentResults]] = 
+  def publish_student_results(csid: CSID, n: Int): Maker[SignedPath[StudentResults]] = 
     SignedPath.rule(
       prepare(csid) *: 
         Gitolite.repo_info(student_results_repo_name(csid)) *: 
-        test_ids.flatMapSeq(test_id => run(csid, test_id)) *:
+        test_ids.flatMapSeq(test_id => run(csid, test_id, n)) *:
         csid_to_alias(csid) *:
         csid_has_test(csid) *:
         course.notifications.peek,
       SortedSet(".git"),
-      scope / csid.value
+      scope / csid.value / n.toString
     ) {
       case (dir, (prepared, student_results_repo, outcomes, alias, has_test, notifications)) =>
         student_results_repo.update(
@@ -458,13 +472,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   lazy val project_results_repo_name = s"${course.course_name}_${project_name}__results"
 
-  lazy val publish_results: Maker[SignedPath[SortedMap[Alias, RedactedStudentResults]]] = 
+  def publish_results(n: Int): Maker[SignedPath[SortedMap[Alias, RedactedStudentResults]]] = 
     SignedPath.rule(
       Gitolite.repo_info(project_results_repo_name) *: 
-        students_with_submission.flatMapSeq((csid: CSID) => publish_student_results(csid).map(r => (csid, r))) *:
+        students_with_submission.flatMapSeq((csid: CSID) => publish_student_results(csid, n).map(r => (csid, r))) *:
         publish_aliases,
       SortedSet(".git"),
-      scope
+      scope / n.toString
     ) {
       case (dir, (repo_info, results, aliases)) =>
         repo_info.update(

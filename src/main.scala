@@ -7,6 +7,7 @@ import scala.util.matching.Regex
 import scala.collection.SortedSet
 
 import java.time.ZoneId
+import scala.annotation.tailrec
 
 class MyMonitor extends NopStateMonitor {
 
@@ -56,6 +57,8 @@ case class CommonArgs(
     students: Regex = """.*""".r,
     @arg(short='t')
     tests: Regex = """.*""".r,
+    @arg(short='n')
+    count: Int = 1,
     workspace: os.Path = os.pwd / "workspace") {
 
   lazy val selected_courses: Maker[Seq[Course]] = for {
@@ -304,28 +307,49 @@ object Main {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
-    val outcomes = for {
-      runs <- commonArgs.runs
-      out <- Maker.sequence {
-        for (
-          (p, csid, test_id) <- runs
-        ) yield p.run(csid, test_id)
-      }
-    } yield out
-      
-    for (p <- outcomes.value) {
-      //println(p)
+    val limit = System.currentTimeMillis() + 5 * 60 * 1000
+
+    @tailrec
+    def loop(c: Int): Unit = if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
+
+      val outcomes = for {
+        runs <- commonArgs.runs
+        out <- Maker.sequence {
+          for (
+            (p, csid, test_id) <- runs
+          ) yield p.run(csid, test_id, c)
+        }
+      } yield out
+
+      val _ = outcomes.value
+
+      println(s"---------------------------> finished iteration #$c/${commonArgs.count}")
+      loop(c+1)
+
     }
+
+    loop(1)
+
   }
 
   @main
   def publish_results(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
-    for (p <- commonArgs.selected_projects.value) {
-      val _ = p.publish_results.value
-      //println(upickle.default.write(results, indent=2))
+
+    val limit = System.currentTimeMillis() + 5 * 60 * 1000
+
+    @tailrec
+    def loop(c: Int): Unit = if ((c <= commonArgs.count) && (System.currentTimeMillis() < limit)) {
+      for (p <- commonArgs.selected_projects.value) {
+        val _ = p.publish_results(c).value
+        //println(upickle.default.write(results, indent=2))
+      }
+      println(s"-------> finished iteration #$c/${commonArgs.count}")
+      loop(c+1)
     }
+
+    loop(1)
   }
 
   @main
