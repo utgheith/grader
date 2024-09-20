@@ -9,9 +9,8 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.locks.ReentrantLock
 import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
-import java.time.ZonedDateTime
-import java.time.Instant
-import java.time.ZoneOffset
+import java.time.{Instant, ZonedDateTime, ZoneId, ZoneOffset}
+import java.time.format.DateTimeFormatter
 
 // TODO: introduce a better abstraction
 val limit = Runtime.getRuntime.nn.availableProcessors() - 1
@@ -36,6 +35,22 @@ case class RawProject(
     test_extensions: Seq[String],
     weights: Seq[Weight]
 ) derives ReadWriter
+
+enum CutoffTime:
+  case Manual(cutoff: ZonedDateTime)
+  case Default
+  case None
+
+  def label: String = this match
+      case Manual(time) => time.withZoneSameInstant(ZoneId.systemDefault).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+      case Default => "deadline"
+      case None => "latest"
+
+object CutoffTime:
+  def fromString(s: Option[String]): CutoffTime = s match
+      case Some("default") | Some("deadline") => CutoffTime.Default
+      case Some("none") | scala.None => CutoffTime.None
+      case Some(t) => CutoffTime.Manual(ZonedDateTime.of(LocalDateTime.parse(t), ZoneId.systemDefault))
 
 private val started_runs = AtomicLong(0)
 private val finished_runs = AtomicLong(0)
@@ -235,25 +250,17 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       initial_report.signature != student_report.signature
   }
 
-  def prepare(csid: CSID): Maker[SignedPath[Option[PrepareInfo]]] =
+  def prepare(csid: CSID, cutoff: CutoffTime): Maker[SignedPath[Option[PrepareInfo]]] =
     SignedPath.rule(
-      submission(csid) *: has_student_report(csid) *: publish_override_repo *: test_extensions *: publish_tests,
+      submission(csid) *: has_student_report(csid) *: publish_override_repo *: test_extensions *: publish_tests *: code_cutoff,
       SortedSet(".git"),
-      scope / csid.value
+      scope / csid.value / cutoff.label
     ) {
-      case (dir, (Some(submission_repo), has_student_report, override_repo, test_extensions, tests)) =>
+      case (dir, (Some(submission_repo), has_student_report, override_repo, test_extensions, tests, code_cutoff)) =>
 
         os.remove.all(dir)
 
-        // (1) what commit should we use
-        val commit_id_file = submission_repo.path / "commit_id"
-        val commit_id = if (os.exists(commit_id_file)) {
-          os.read.lines(commit_id_file).head.trim.nn
-        } else {
-          "master"
-        }
-
-        // (2) prepare code, no checkout
+        // (1) prepare code, no checkout
         val _ = os
           .proc(
             "git",
@@ -265,13 +272,47 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           )
           .run()
 
+        val default_branch = "master"
+
+        // (2) what commit should we use
+        val commit_id_file = submission_repo.path / "commit_id"
+        val commit_id = if (os.exists(commit_id_file)) {
+          os.read.lines(commit_id_file).head.trim.nn
+        } else {
+          val cutoff_time = cutoff match
+            case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
+            case CutoffTime.Default => Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
+            case CutoffTime.None => None
+
+          cutoff_time match
+            case Some(cutoff_time) => {
+              // Find the last commit in the main branch before the cutoff time.
+              // Example: git log master --first-parent --before="2024-09-12 16:00" --pretty=format:"%H %cI %f"
+
+              // Note that git log shows author time by default, not commit time; this can
+              // lead to cases where it looks like this fails to select a commit before the
+              // date. Add --pretty=fuller to make git log show both times.
+
+              // --first-parent is used to prevent this from using commits from other branches
+              // that were merged into master after the cutoff point.
+
+              val cutoff_string = cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+              os.proc(
+                "git", "log", default_branch,
+                "--before", cutoff_string,
+                "--first-parent",
+                "--pretty=format:%H"
+              ).lines(cwd = dir).head.trim.nn
+            }
+            case None => default_branch
+        }
+
         // (3) checkout the correct commit_id
         val _ = os.proc("git", "checkout", commit_id).run(cwd = dir)
 
         val git_sha = os.proc("git", "rev-parse", "HEAD").lines(cwd = dir).head.trim.nn
         val commit_time = os.proc("git", "show", "-s", "--format=%ct").lines(cwd = dir).head.trim.nn.toLong
         val zdt = ZonedDateTime.ofInstant(Instant.ofEpochSecond(commit_time), ZoneOffset.UTC)
-        
 
         // (4) override
         os.copy(
@@ -282,7 +323,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           createFolders = true,
           mergeFolders = true
         )
-
 
         // (5) remove all tests
         for {
@@ -302,7 +342,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           }
         }
 
-
         // (7) remove .git
         os.remove.all(dir / ".git")
 
@@ -312,7 +351,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           has_report = has_student_report
         ))
 
-      case (_, (None, _, _, _, _)) =>
+      case (_, (None, _, _, _, _, _)) =>
         None
 
     }
@@ -333,21 +372,21 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("time")
   }
 
-  def empty_run(csid: CSID, test_id: TestId): Maker[SignedPath[Outcome]] =
+  def empty_run(csid: CSID, cutoff: CutoffTime, test_id: TestId): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
-      prepare(csid),
+      prepare(csid, cutoff),
       SortedSet(),
-      scope / csid.value / test_id.external_name / test_id.internal_name / "0"
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / "0"
     ) {
       case (out_path, _) =>
         Outcome(course.course_name, project_name, csid, test_id, None, None, tries=0)
     }
 
-  def run(csid: CSID, test_id: TestId, n: Int): Maker[SignedPath[Outcome]] =
+  def run(csid: CSID, cutoff: CutoffTime, test_id: TestId, n: Int): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
-      prepare(csid) *: cores *: (if (n == 1) empty_run(csid, test_id) else run(csid, test_id, n-1)),
+      prepare(csid, cutoff) *: cores *: (if (n == 1) empty_run(csid, cutoff, test_id) else run(csid, cutoff, test_id, n-1)),
       SortedSet(),
-      scope / csid.value / test_id.external_name / test_id.internal_name / n.toString
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
     ) {
       case (out_path, (prepared, cores, prev)) =>
         if ((n == 1) || (prev.data.outcome.contains("pass"))) {
@@ -405,9 +444,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   def publish_student_results(csid: CSID, n: Int): Maker[SignedPath[StudentResults]] = 
     SignedPath.rule(
-      prepare(csid) *: 
+      prepare(csid, CutoffTime.None) *:
         Gitolite.repo_info(student_results_repo_name(csid)) *: 
-        test_ids.flatMapSeq(test_id => run(csid, test_id, n)) *:
+        test_ids.flatMapSeq(test_id => run(csid, CutoffTime.None, test_id, n)) *:
         csid_to_alias(csid) *:
         csid_has_test(csid) *:
         course.notifications.peek,
