@@ -1,4 +1,4 @@
-import ag.grader.{Course, CSID, HtmlGen, Project, TestId}
+import ag.grader.{Course, CSID, CutoffTime, HtmlGen, Project, TestId}
 import ag.rules.{Maker, NopStateMonitor, RuleBase, State, given_ReadWriter_SortedMap, say}
 import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main}
 
@@ -45,6 +45,15 @@ given TokensReader.Simple[Regex] with {
   } else {
     Right(Regex(strs.mkString("|")))
   }
+}
+
+given TokensReader.Simple[CutoffTime] with {
+  override def shortName: String = "datetime"
+  override def allowEmpty: Boolean = true
+  override def alwaysRepeatable: Boolean = false
+
+  override def read(strs: Seq[String]): Either[String, CutoffTime] =
+    Right(CutoffTime.fromString(strs.headOption))
 }
 
 //@main
@@ -214,7 +223,11 @@ object Main {
   }
 
   @main
-  def prepare(commonArgs: CommonArgs): Unit = {
+  def prepare(
+    commonArgs: CommonArgs,
+    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
+    cutoff: CutoffTime,
+  ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
@@ -235,7 +248,7 @@ object Main {
           (csid, _) <- enrollment
           if commonArgs.students.matches(csid.value)
         } {
-          val prep = p.prepare(csid).value
+          val prep = p.prepare(csid, cutoff).value
           val target_name = s"${c.course_name}_${pn}_${csid}"
           val target_path = base / target_name
 
@@ -303,7 +316,11 @@ object Main {
   }
   
   @main
-  def run(commonArgs: CommonArgs): Unit = {
+  def run(
+    commonArgs: CommonArgs,
+    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
+    cutoff: CutoffTime,
+  ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
@@ -317,7 +334,7 @@ object Main {
         out <- Maker.sequence {
           for (
             (p, csid, test_id) <- runs
-          ) yield p.run(csid, test_id, c)
+          ) yield p.run(csid, cutoff, test_id, c)
         }
       } yield out
 
