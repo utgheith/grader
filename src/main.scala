@@ -57,6 +57,22 @@ given TokensReader.Simple[CutoffTime] with {
     Right(CutoffTime.fromString(strs.headOption))
 }
 
+enum AliasSortMode:
+  case CSID
+  case Alias
+
+given TokensReader.Simple[AliasSortMode] with {
+  override def shortName: String = "mode"
+  override def allowEmpty: Boolean = false
+  override def alwaysRepeatable: Boolean = false
+
+  override def read(strs: Seq[String]): Either[String, AliasSortMode] =
+    strs.head match
+      case "alias" => Right(AliasSortMode.Alias)
+      case "csid" => Right(AliasSortMode.CSID)
+      case s => Left(s"Invalid sort mode '${s}'; possible modes are 'alias' or 'csid'")
+}
+
 //@main
 case class CommonArgs(
     @arg(short='c')
@@ -71,6 +87,7 @@ case class CommonArgs(
     count: Int = 1,
     workspace: os.Path = os.pwd / "workspace") {
 
+  // TODO: warn when no courses matched
   lazy val selected_courses: Maker[Seq[Course]] = for {
     courses <- Course.active_courses
     selected_courses = for {
@@ -79,6 +96,7 @@ case class CommonArgs(
     } yield course
   } yield selected_courses
 
+  // TODO: warn when no projects matched
   lazy val selected_projects: Maker[Seq[Project]] = for {
     // <- Maker
     selected_courses: Seq[Course] <- this.selected_courses
@@ -218,6 +236,45 @@ object Main {
           if commonArgs.students.matches(csid.value)
         } {
           println(p.work_repo(csid).value)
+        }
+      }
+    }
+  }
+
+  @main
+  def aliases(
+    commonArgs: CommonArgs,
+    @arg(name = "sort", doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'.")
+    sortMode: AliasSortMode = AliasSortMode.CSID,
+  ): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+
+    val sort = sortMode match
+      case AliasSortMode.CSID => false
+      case AliasSortMode.Alias => true
+
+    for (c <- commonArgs.selected_courses.value) {
+      val enrollment = c.enrollment.value
+
+      for {
+        (pn, p) <- c.active_projects.value
+        if commonArgs.projects.matches(pn)
+      } {
+        val aliases = p.get_aliases.value
+        val csids = enrollment.map(_._1).filter((id: CSID) => commonArgs.students.matches(id.value)).toIndexedSeq
+        val sorted = if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
+
+        val base_name = s"${c.course_name}_${pn}"
+        val longest_csid = sorted.maxBy(_.value.length)
+        val max_width = longest_csid.value.length + base_name.length + 1
+
+        println(s"\n${base_name}:")
+
+        for (csid <- sorted) {
+          val target_name = s"${base_name}_${csid}"
+          val padded_name = String.format(s"%-${max_width}s", target_name)
+          println(s"${padded_name}  ${aliases.getOrElse(csid, "?")}")
         }
       }
     }
