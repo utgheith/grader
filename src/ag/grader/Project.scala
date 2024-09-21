@@ -616,7 +616,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     }
 
   lazy val get_aliases: Maker[SortedMap[CSID, Alias]] =
-    Rule(Gitolite.mirror(aliases_repo_name), null) {
+    Rule(Gitolite.mirror(aliases_repo_name), scope) {
       aliases =>
         val path = aliases.path / "aliases.json"
         if (os.isFile(path)) {
