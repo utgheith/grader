@@ -394,6 +394,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             finished_runs.incrementAndGet()
           }
       } else {
+        copy_results(prev.path, out_path, test_id)
         prev.data
       }
     }

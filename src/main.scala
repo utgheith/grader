@@ -337,19 +337,10 @@ object Main {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
-    val limit = System.currentTimeMillis() + 5 * 60 * 1000
-
-    @tailrec
-    def loop(c: Int): Unit = if ((c <= commonArgs.count) && (System.currentTimeMillis() < limit)) {
-      for (p <- commonArgs.selected_projects.value) {
-        val _ = p.publish_results(c).value
-        //println(upickle.default.write(results, indent=2))
-      }
-      println(s"-------> finished iteration #$c/${commonArgs.count}")
-      loop(c+1)
+    for (p <- commonArgs.selected_projects.value) {
+      val _ = p.publish_results(commonArgs.count).value
+      //println(upickle.default.write(results, indent=2))
     }
-
-    loop(1)
   }
 
   @main
