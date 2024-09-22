@@ -228,8 +228,9 @@ class HtmlGen(p: Project) {
                   text("")
                 }
                 testNames.foreach { t =>
+                  val o: Option[RedactedOutcome] = outcome.get(t.external_name)
                   val (status_class, the_text) =
-                    outcome.get(t.external_name).flatMap(_.outcome) match {
+                    o.flatMap(_.outcome) match {
                       case Some("pass") =>
                         ("pass", ".")
                       case Some(_) =>
@@ -239,7 +240,15 @@ class HtmlGen(p: Project) {
                     }
                   val chosen_class = if (chosen.contains(t.external_name)) List("chosen") else List.empty
                   val the_class = List(status_class) ::: chosen_class
-                  td.css_class(the_class) {
+                  val ttl = o match {
+                    case Some(RedactedOutcome(_, _, _, _, Some(time), tries)) =>
+                      s"$tries tries, last took ${time.round}s"
+                    case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
+                      s"$tries tries"
+                    case _ =>
+                      null
+                  }
+                  td.css_class(the_class).title(ttl) {
                     text(the_text)
                   }
                 }
