@@ -7,6 +7,7 @@ import scala.util.matching.Regex
 import scala.collection.SortedSet
 
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
 
 class MyMonitor extends NopStateMonitor {
@@ -269,6 +270,62 @@ object Main {
     }
 
     println(s"copied to $base")
+  }
+
+  @main
+  def late_commits(
+    commonArgs: CommonArgs,
+    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
+    cutoff: CutoffTime,
+  ): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+
+    val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+    for (c <- commonArgs.selected_courses.value) {
+      val enrollment = c.enrollment.value
+
+      for {
+        (pn, p) <- c.active_projects.value
+        if commonArgs.projects.matches(pn)
+      } {
+        val project_deadline = p.code_cutoff.value.format(datetime_format)
+
+        val late_repos = enrollment.map((csid, _) => csid)
+          .filter((csid) => commonArgs.students.matches(csid.value))
+          .map((csid) => (csid, p.late_commits(csid, cutoff).value.data))
+          .filter((_, late_commits) => !late_commits.isEmpty)
+          .toSeq
+
+        println(s"\nFound ${late_repos.length} repositories with late commits for ${c.course_name}_${pn}")
+        println(s"Using deadline: ${project_deadline}\n")
+
+        for ((csid, late_commits) <- late_repos) {
+          val target_name = s"${c.course_name}_${pn}_${csid}"
+          println(target_name)
+          for (commit <- late_commits) {
+            val time_str = commit.time.withZoneSameInstant(ZoneId.systemDefault)
+              .format(datetime_format)
+
+            val days = commit.delay.toDays()
+            val hours = commit.delay.toHours() % 24
+            val minutes = commit.delay.toMinutes() % 60
+            val seconds = commit.delay.getSeconds() % 60
+            val duration_str = days match
+              case 0 => f"$hours%02d:$minutes%02d:$seconds%02d"
+              case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
+              case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
+
+            val message = commit.message.length > 64 match
+              case true => commit.message.take(61) ++ "..."
+              case false => commit.message
+
+            println(s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}")
+          }
+        }
+      }
+    }
   }
 
   @main
