@@ -5,7 +5,7 @@ import upickle.default.{ReadWriter, readwriter}
 import java.nio.charset.{Charset, StandardCharsets}
 import java.security.MessageDigest
 import scala.collection.{SortedMap, SortedSet}
-import java.time.LocalDateTime
+import java.time.{Duration, LocalDateTime}
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicLong
@@ -59,6 +59,11 @@ given ReadWriter[ZonedDateTime] = readwriter[(LocalDateTime, ZoneId)].bimap[Zone
   zdt => (zdt.toLocalDateTime, zdt.getZone),
   pair => ZonedDateTime.of(pair._1, pair._2)
 )
+
+//////// ReadWriter for ZonedDateTime //////
+
+given ReadWriter[Duration] = readwriter[String]
+  .bimap[Duration](dur => dur.toString, str => Duration.parse(str))
 
 /*****************/
 /* MessageDigest */

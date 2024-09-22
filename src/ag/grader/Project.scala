@@ -9,7 +9,7 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.locks.ReentrantLock
 import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
-import java.time.{Instant, ZonedDateTime, ZoneId, ZoneOffset}
+import java.time.{Duration, Instant, ZonedDateTime, ZoneId, ZoneOffset}
 import java.time.format.DateTimeFormatter
 
 // TODO: introduce a better abstraction
@@ -353,6 +353,61 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
       case (_, (None, _, _, _, _, _)) =>
         None
+
+    }
+
+  def late_commits(csid: CSID, cutoff: CutoffTime): Maker[SignedPath[Seq[LateCommit]]] =
+    SignedPath.rule(
+      submission(csid) *: code_cutoff,
+      SortedSet(".git"),
+      scope / csid.value / cutoff.label
+    ) {
+      case (dir, (Some(submission_repo), code_cutoff)) =>
+        os.remove.all(dir)
+
+        val _ = os
+          .proc(
+            "git",
+            "clone",
+            "--shared",
+            "--no-checkout",
+            submission_repo.path,
+            dir
+          )
+          .run()
+
+        val default_branch = "master"
+
+        val cutoff_time = cutoff match
+          case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
+          case CutoffTime.Default => Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
+          case CutoffTime.None => None
+
+        cutoff_time match
+          case Some(cutoff_time) => {
+            val cutoff_string = cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val lines = os.proc(
+              "git", "log", default_branch,
+              "--since", cutoff_string,
+              "--first-parent",
+              "--reverse",
+              "--pretty=format:%H%x00%ct%x00%s",
+            ).lines(cwd = dir)
+
+            lines.map(line => {
+              val (hash, commit_timestamp, message) = line.split("\u0000") match
+                case Array(hash, timestamp, message) => (hash, timestamp, message)
+                case Array(hash, timestamp) => (hash, timestamp, "")
+
+              val commit_time = ZonedDateTime.ofInstant(Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong), ZoneOffset.UTC)
+              val delay = Duration.between(cutoff_time, commit_time)
+              LateCommit(hash, commit_time, delay, message)
+            })
+          }
+          case None => Seq()
+
+      case (_, (None, _)) =>
+        Seq()
 
     }
 
