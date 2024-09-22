@@ -66,7 +66,7 @@ object Gitolite {
           case NonFatal(_) =>
             os.remove.all(dir)
             os.makeDir.all(dir)
-            server.SshProc("git", "clone", server.git_uri(repo), ".").run(cwd = dir)
+            server.SshProc("git", "clone", "--template=", server.git_uri(repo), ".").run(cwd = dir)
         }
         true
       case (_, _) =>
