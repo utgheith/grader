@@ -23,7 +23,7 @@ case class RepoInfo(server: RemoteServer, repo_name: String, latest: Option[Opti
         os.makeDir.all(path)
         try {
           say(s"cloning ${repo_name}")
-          server.SshProc("git", "clone", server.git_uri(repo_name), ".").run(cwd = path)
+          server.SshProc("git", "clone", "--template=", server.git_uri(repo_name), ".").run(cwd = path)
         } catch {
           case NonFatal(_) =>
             /* Least common path: the repo doesn't exists, fork it then clone it */
@@ -43,7 +43,7 @@ case class RepoInfo(server: RemoteServer, repo_name: String, latest: Option[Opti
               server.SshProc("ssh", server.ssh_uri, "perms", repo_name, "+", "WRITERS", w).run(os.pwd)
             }
             say(s"cloning $repo_name")
-            server.SshProc("git", "clone", server.git_uri(repo_name), ".").run(cwd = path)
+            server.SshProc("git", "clone", "--template=", server.git_uri(repo_name), ".").run(cwd = path)
         }
     }
 

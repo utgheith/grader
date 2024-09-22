@@ -266,6 +266,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             "git",
             "clone",
             "--shared",
+            "--template=",
             "--no-checkout",
             submission_repo.path,
             dir
@@ -370,6 +371,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             "git",
             "clone",
             "--shared",
+            "--template=",
             "--no-checkout",
             submission_repo.path,
             dir
@@ -619,7 +621,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       case (dir, (Some(submission), test_extensions, test_cutoff)) =>
         os.remove.all(dir)
         // clone, no checkout
-        val _ = os.proc("git", "clone", submission.path, "--no-checkout", dir).run(cwd = os.pwd)
+        val _ = os.proc("git", "clone", submission.path, "--shared", "--template=", "--no-checkout", dir).run(cwd = os.pwd)
         // find the latest commit after the cutoff
         val rev = os.proc("git", "rev-list", "-n", "1", "--first-parent", "--until", test_cutoff.toString, "master").lines(cwd = dir).head.trim.nn
         // get a list of top level file names
