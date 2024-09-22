@@ -104,6 +104,8 @@ val pre = Element()
 val table = Element()
 val td = Element()
 val tr = Element()
+val thead = Element()
+val tbody = Element()
 val script = Element()
 val style = Element()
 val head = Element()
@@ -145,7 +147,7 @@ class HtmlGen(p: Project) {
       case (Some(results), Some(site_base), chosen, weights, bad_tests, test_extensions_, test_cutoff, code_cutoff, enrollment) =>
 
         val test_extensions = test_extensions_.to(IndexedSeq)
-        
+
         val (chosenTestNames, otherTestNames) = results.values.to(List)
             .flatMap(
               _.outcomes.keys.filterNot(test => bad_tests.contains(test.external_name))
@@ -175,7 +177,7 @@ class HtmlGen(p: Project) {
               else test_extensions(rowNum)
             val fileName = s"$t.$ext"
 
-            td {
+            td.attr("data-id", t) {
               a.href(s"${p.tests_repo_name}/$t.$ext").title(fileName) {
                 text(ch.toString)
               }
@@ -200,56 +202,62 @@ class HtmlGen(p: Project) {
 
         // Display the results table
         def tbl(using HtmlContext) = table.css_class("results") {
-            /* 3 headers */
-            for (i <- 0 to 2) {
-              tr {
-                td { text("") }
-                td { text("") }
-                testNames.foreach { t =>
-                  testTitle(t.external_name, i)
+            thead {
+              /* 3 headers */
+              for (i <- 0 to 2) {
+                tr {
+                  td.css_class("alias") { text("") }
+                  td { text("") }
+                  testNames.foreach { t =>
+                    testTitle(t.external_name, i)
+                  }
                 }
               }
             }
 
-            /* the actual results, one row per submission */
-            submissions.foreach { case (alias, sha) =>
-              val short_name = s"${alias.toString}_$sha".toString.take(8)
-              val result = results(alias)
-              val outcome: SortedMap[String, RedactedOutcome] = result.outcomes.map { case (k,v) => (k.external_name, v) }
+            tbody {
+              /* the actual results, one row per submission */
+              submissions.foreach { case (alias, sha) =>
+                val short_name = s"${alias.toString}_$sha".toString.take(8)
+                val result = results(alias)
+                val outcome: SortedMap[String, RedactedOutcome] = result.outcomes.map { case (k,v) => (k.external_name, v) }
 
-              val is_mine = false // outcome.is_mine
-              val is_late = result.prepare_info.commit_time.isAfter(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault()))
-              tr.css_class(if (is_mine) "mine" else null) {
-                td.title(sha) {
-                  if (is_late) text(s"$short_name*")
-                  else text(short_name)
-                }
-                td {
-                  text("")
-                }
-                testNames.foreach { t =>
-                  val o: Option[RedactedOutcome] = outcome.get(t.external_name)
-                  val (status_class, the_text) =
-                    o.flatMap(_.outcome) match {
-                      case Some("pass") =>
-                        ("pass", ".")
-                      case Some(_) =>
-                        ("fail", "X")
-                      case None =>
-                        ("compilefail", "?")
-                    }
-                  val chosen_class = if (chosen.contains(t.external_name)) List("chosen") else List.empty
-                  val the_class = List(status_class) ::: chosen_class
-                  val ttl = o match {
-                    case Some(RedactedOutcome(_, _, _, _, Some(time), tries)) =>
-                      s"$tries tries, last took ${time.round}s"
-                    case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
-                      s"$tries tries"
-                    case _ =>
-                      null
+                val is_mine = false // outcome.is_mine
+                val is_late = result.prepare_info.commit_time.isAfter(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault()))
+                tr.css_class(if (is_mine) "mine" else null)
+                  .attr("data-alias", alias.toString) {
+
+                  td.title(sha).css_class("alias") {
+                    if (is_late) text(s"$short_name*")
+                    else text(short_name)
                   }
-                  td.css_class(the_class).title(ttl) {
-                    text(the_text)
+                  td {
+                    text("")
+                  }
+                  testNames.foreach { t =>
+                    val o: Option[RedactedOutcome] = outcome.get(t.external_name)
+                    val (status_class, the_text) =
+                      o.flatMap(_.outcome) match {
+                        case Some("pass") =>
+                          ("pass", ".")
+                        case Some(_) =>
+                          ("fail", "X")
+                        case None =>
+                          ("compilefail", "?")
+                      }
+                    val chosen_class = if (chosen.contains(t.external_name)) List("chosen") else List.empty
+                    val the_class = List(status_class) ::: chosen_class
+                    val ttl = o match {
+                      case Some(RedactedOutcome(_, _, _, _, Some(time), tries)) =>
+                        s"$tries tries, last took ${time.round}s"
+                      case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
+                        s"$tries tries"
+                      case _ =>
+                        null
+                    }
+                    td.css_class(the_class).title(ttl) {
+                      text(the_text)
+                    }
                   }
                 }
               }
@@ -332,11 +340,54 @@ class HtmlGen(p: Project) {
                 meta.attr("name", "viewport").attr("content", "width=device-width,initial-scale=1") { }
                 title(text(s"${p.course.course_name}_${p.project_name}"))
                 style(text("""
-.pass { color: green; }
-.fail { color: red; }
-.compilefail { color: #933; }
-.chosen { background-color: #DDD; }
-.mine, .mine td { background-color: hsl(53.5, 100%, 71.2%) !important; }
+:root {
+  color-scheme: light dark;
+  --bg-page: #FFF;
+  --fg-text: #000;
+
+  --fg-pass: green;
+  --fg-fail: red;
+  --fg-compilefail: #933;
+  --bg-highlight: hsl(53.5, 100%, 71.2%);
+
+  --bg-chosen: hsl(120, 0%, 95%);
+  --bg-chosen-alt: hsl(120, 0%, 88%);
+  --bg-row: #FFF;
+  --bg-row-alt: #F5F5F5;
+
+  --border-table: #CCC;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page: #222;
+    --fg-text: #EEE;
+
+    --fg-pass: hsl(150, 80%, 60%);
+    --fg-fail: hsl(0, 100%, 55%);
+    --fg-compilefail: hsl(30, 100%, 55%);
+    --bg-highlight: hsl(53.5, 70%, 25%);
+
+    --bg-chosen: hsl(120, 0%, 30%);
+    --bg-chosen-alt: hsl(120, 0%, 26%);
+    --bg-row: hsl(120, 0%, 20%);
+    --bg-row-alt: hsl(120, 0%, 16%);
+
+    --border-table: #888;
+  }
+  .pass { font-weight: bold; }
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--fg-text);
+}
+
+.pass { color: var(--fg-pass); }
+.fail { color: var(--fg-fail); }
+.compilefail { color: var(--fg-compilefail); }
+.chosen { background-color: var(--bg-chosen); }
+.mine, .mine td { background-color: var(--bg-highlight) !important; }
 
 h3, pre { margin: 0; }
 h1 { margin: 0 0 0.67em 0; }
@@ -346,16 +397,30 @@ h1 { margin: 0 0 0.67em 0; }
 .weights td:first-child { padding-right: 0.5em; }
 .weights td:nth-child(2) { text-align: right; }
 
-.results td:nth-child(2) { border-right: 1px solid #CCC; }
-.results tr:nth-child(3) { border-bottom: 1px solid #CCC; }
+.results td.alias + td { border-right: 1px solid var(--border-table); }
+.results thead { position: sticky; top: 0; z-index: 1; }
+.results thead tr:last-child td { border-bottom: 1px solid var(--border-table); }
+
+.results thead td { background: var(--bg-page); }
+.results td.alias { position: sticky; left: 0; }
+.results td.alias::after {
+  --width: 0.6em;
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  right: calc(-1 * var(--width) - 1px);
+  width: var(--width);
+  background: inherit;
+  border-right: 1px solid var(--border-table);
+}
 
 /* Alternating row styles: */
-.results { border-collapse: collapse; }
+.results { border-collapse: separate; border-spacing: 0; }
 .results td { padding: 2px; }
-.results tr:nth-child(2n) { background: #FFF; }
-.results tr:nth-child(2n + 5) { background: #F5F5F5; }
-.results tr:nth-child(2n) .chosen { background: hsl(120, 0%, 95%); }
-.results tr:nth-child(2n + 5) .chosen { background: hsl(120, 0%, 88%); }
+.results tbody tr:nth-child(2n + 1) td { background: var(--bg-row); }
+.results tbody tr:nth-child(2n) td { background: var(--bg-row-alt); }
+.results tbody tr:nth-child(2n + 1) .chosen { background: var(--bg-chosen); }
+.results tbody tr:nth-child(2n) .chosen { background: var(--bg-chosen-alt); }
 
 /* Original (unintentional) spacing: */
 /* .results td { padding-bottom: calc(1em + 1px); } */
