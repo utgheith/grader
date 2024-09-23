@@ -1,4 +1,6 @@
-build:
+all : compile
+
+native:
 	./scala-cli.sh --power package src -o grader -f --native-image --graalvm-jvm-id graalvm-java21:21
 
 compile:

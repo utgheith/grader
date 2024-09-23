@@ -340,94 +340,94 @@ class HtmlGen(p: Project) {
                 meta.attr("name", "viewport").attr("content", "width=device-width,initial-scale=1") { }
                 title(text(s"${p.course.course_name}_${p.project_name}"))
                 style(text("""
-:root {
-  color-scheme: light dark;
-  --bg-page: #FFF;
-  --fg-text: #000;
-
-  --fg-pass: green;
-  --fg-fail: red;
-  --fg-compilefail: #933;
-  --bg-highlight: hsl(53.5, 100%, 71.2%);
-
-  --bg-chosen: hsl(120, 0%, 95%);
-  --bg-chosen-alt: hsl(120, 0%, 88%);
-  --bg-row: #FFF;
-  --bg-row-alt: #F5F5F5;
-
-  --border-table: #CCC;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-page: #222;
-    --fg-text: #EEE;
-
-    --fg-pass: hsl(150, 80%, 60%);
-    --fg-fail: hsl(0, 100%, 55%);
-    --fg-compilefail: hsl(30, 100%, 55%);
-    --bg-highlight: hsl(53.5, 70%, 25%);
-
-    --bg-chosen: hsl(120, 0%, 30%);
-    --bg-chosen-alt: hsl(120, 0%, 26%);
-    --bg-row: hsl(120, 0%, 20%);
-    --bg-row-alt: hsl(120, 0%, 16%);
-
-    --border-table: #888;
-  }
-  .pass { font-weight: bold; }
-}
-
-body {
-  background: var(--bg-page);
-  color: var(--fg-text);
-}
-
-.pass { color: var(--fg-pass); }
-.fail { color: var(--fg-fail); }
-.compilefail { color: var(--fg-compilefail); }
-.chosen { background-color: var(--bg-chosen); }
-.mine, .mine td { background-color: var(--bg-highlight) !important; }
-
-h3, pre { margin: 0; }
-h1 { margin: 0 0 0.67em 0; }
-
-.results { font-family: monospace; }
-.weights { font-family: monospace; }
-.weights td:first-child { padding-right: 0.5em; }
-.weights td:nth-child(2) { text-align: right; }
-
-.results td.alias + td { border-right: 1px solid var(--border-table); }
-.results thead { position: sticky; top: 0; z-index: 1; }
-.results thead tr:last-child td { border-bottom: 1px solid var(--border-table); }
-
-.results thead td { background: var(--bg-page); }
-.results td.alias { position: sticky; left: 0; }
-.results td.alias::after {
-  --width: 0.6em;
-  content: "";
-  position: absolute;
-  top: 0; bottom: 0;
-  right: calc(-1 * var(--width) - 1px);
-  width: var(--width);
-  background: inherit;
-  border-right: 1px solid var(--border-table);
-}
-
-/* Alternating row styles: */
-.results { border-collapse: separate; border-spacing: 0; }
-.results td { padding: 2px; }
-.results tbody tr:nth-child(2n + 1) td { background: var(--bg-row); }
-.results tbody tr:nth-child(2n) td { background: var(--bg-row-alt); }
-.results tbody tr:nth-child(2n + 1) .chosen { background: var(--bg-chosen); }
-.results tbody tr:nth-child(2n) .chosen { background: var(--bg-chosen-alt); }
-
-/* Original (unintentional) spacing: */
-/* .results td { padding-bottom: calc(1em + 1px); } */
-
-/* More relaxed spacing: */
-.results td { padding: 0.15em 0.3em; }
-"""))
+                  |:root {
+                  |  color-scheme: light dark;
+                  |  --bg-page: #FFF;
+                  |  --fg-text: #000;
+                  |
+                  |  --fg-pass: green;
+                  |  --fg-fail: red;
+                  |  --fg-compilefail: #933;
+                  |  --bg-highlight: hsl(53.5, 100%, 71.2%);
+                  |
+                  |  --bg-chosen: hsl(120, 0%, 95%);
+                  |  --bg-chosen-alt: hsl(120, 0%, 88%);
+                  |  --bg-row: #FFF;
+                  |  --bg-row-alt: #F5F5F5;
+                  |
+                  |  --border-table: #CCC;
+                  |}
+                  |
+                  |@media (prefers-color-scheme: dark) {
+                  |  :root {
+                  |    --bg-page: #222;
+                  |    --fg-text: #EEE;
+                  |
+                  |    --fg-pass: hsl(150, 80%, 60%);
+                  |    --fg-fail: hsl(0, 100%, 55%);
+                  |    --fg-compilefail: hsl(30, 100%, 55%);
+                  |    --bg-highlight: hsl(53.5, 70%, 25%);
+                  |
+                  |    --bg-chosen: hsl(120, 0%, 30%);
+                  |    --bg-chosen-alt: hsl(120, 0%, 26%);
+                  |    --bg-row: hsl(120, 0%, 20%);
+                  |    --bg-row-alt: hsl(120, 0%, 16%);
+                  |
+                  |    --border-table: #888;
+                  |  }
+                  |  .pass { font-weight: bold; }
+                  |}
+                  |
+                  |body {
+                  |  background: var(--bg-page);
+                  |  color: var(--fg-text);
+                  |}
+                  |
+                  |.pass { color: var(--fg-pass); }
+                  |.fail { color: var(--fg-fail); }
+                  |.compilefail { color: var(--fg-compilefail); }
+                  |.chosen { background-color: var(--bg-chosen); }
+                  |.mine, .mine td { background-color: var(--bg-highlight) !important; }
+                  |
+                  |h3, pre { margin: 0; }
+                  |h1 { margin: 0 0 0.67em 0; }
+                  |
+                  |.results { font-family: monospace; }
+                  |.weights { font-family: monospace; }
+                  |.weights td:first-child { padding-right: 0.5em; }
+                  |.weights td:nth-child(2) { text-align: right; }
+                  |
+                  |.results td.alias + td { border-right: 1px solid var(--border-table); }
+                  |.results thead { position: sticky; top: 0; z-index: 1; }
+                  |.results thead tr:last-child td { border-bottom: 1px solid var(--border-table); }
+                  |
+                  |.results thead td { background: var(--bg-page); }
+                  |.results td.alias { position: sticky; left: 0; }
+                  |.results td.alias::after {
+                  |  --width: 0.6em;
+                  |  content: "";
+                  |  position: absolute;
+                  |  top: 0; bottom: 0;
+                  |  right: calc(-1 * var(--width) - 1px);
+                  |  width: var(--width);
+                  |  background: inherit;
+                  |  border-right: 1px solid var(--border-table);
+                  |}
+                  |
+                  |/* Alternating row styles: */
+                  |.results { border-collapse: separate; border-spacing: 0; }
+                  |.results td { padding: 2px; }
+                  |.results tbody tr:nth-child(2n + 1) td { background: var(--bg-row); }
+                  |.results tbody tr:nth-child(2n) td { background: var(--bg-row-alt); }
+                  |.results tbody tr:nth-child(2n + 1) .chosen { background: var(--bg-chosen); }
+                  |.results tbody tr:nth-child(2n) .chosen { background: var(--bg-chosen-alt); }
+                  |
+                  |/* Original (unintentional) spacing: */
+                  |/* .results td { padding-bottom: calc(1em + 1px); } */
+                  |
+                  |/* More relaxed spacing: */
+                  |.results td { padding: 0.15em 0.3em; }
+                  |""".stripMargin))
                 // script(src = "https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" )
               }
               body {
@@ -452,136 +452,136 @@ h1 { margin: 0 0 0.67em 0; }
                 }
                 //script.src("highlight_on_click.js")
                 script(text("""
-// Highlight row when its alias/hash is clicked
-document.querySelectorAll(".results td[title]")
-  .forEach((e) => {
-    e.addEventListener("click", () => {
-      e.parentElement.classList.toggle("mine");
-    })
-  });
-"""))
+                  |// Highlight row when its alias/hash is clicked
+                  |document.querySelectorAll(".results td[title]")
+                  |  .forEach((e) => {
+                  |    e.addEventListener("click", () => {
+                  |      e.parentElement.classList.toggle("mine");
+                  |    })
+                  |  });
+                  |""".stripMargin))
 
                 // Script to allow pinning certain cases to the left side of the matrix
                 style(text("""
-.selectors td { padding: 0; text-align: center; }
-.selectors input { margin: 0; }
-.row-pin { padding: 0; }
-.row-pin input { margin: 0; }
-"""))
+                  |.selectors td { padding: 0; text-align: center; }
+                  |.selectors input { margin: 0; }
+                  |.row-pin { padding: 0; }
+                  |.row-pin input { margin: 0; }
+                  """.stripMargin))
                 script(text("""
-let assignment = document.querySelector("h1").textContent;
-let config_key = `~gheith/${assignment}.html#config`;
-let config = JSON.parse(window.localStorage.getItem(config_key) || "{}");
-config.pinned_tests = config.pinned_tests || {};
-config.pinned_aliases = config.pinned_aliases || {};
-
-function saveConfig() {
-  window.localStorage.setItem(config_key, JSON.stringify(config));
-}
-
-let table = document.querySelector(".results");
-let head = table.querySelector("thead");
-let body = table.querySelector("tbody");
-
-let first_header_row = head.querySelector("tr:first-child");
-let first_body_row = body.querySelector("tr:first-child");
-let selectors;
-let base_col_idx = 2;
-
-// Sort the columns of a table; if initial_index is specified,
-// assumes that only that column has moved for performance.
-function sortTableColumns(initial_index) {
-  let selector_cells = selectors.children;
-  let first_row_cells = first_body_row.children;
-  let columns = Array.from(first_header_row.children)
-    .map((cell, i) => [
-      i,
-      cell.dataset.id || "",
-      first_row_cells[i].classList.contains("chosen"),
-      selector_cells[i].firstElementChild?.checked || false,
-    ])
-    .sort(([ai, aid, achosen, aselected], [bi, bid, bchosen, bselected]) => {
-      return (+(bi < base_col_idx) - +(ai < base_col_idx)) || (+bselected - +aselected)
-        || (+bchosen - +achosen) || (aid.length - bid.length)
-        || aid.localeCompare(bid);
-    });
-
-  table.style.display = "none";
-  if (initial_index != undefined) {
-    let dest_index;
-    columns.forEach(([i,], j) => {
-      if (initial_index == i) dest_index = j;
-    });
-    if (dest_index >= initial_index) dest_index += 1;
-
-    table.querySelectorAll("tr").forEach((row) => {
-      row.insertBefore(row.children[initial_index], row.children[dest_index]);
-    });
-  } else {
-    table.querySelectorAll("tr").forEach((row) => {
-      let children = Array.from(row.children);
-      let reordered_children = columns.map(([i,]) => children[i]);
-      row.replaceChildren(...reordered_children);
-    });
-  }
-  table.style.display = "initial";
-}
-
-// Create a row of checkboxes to set whether each column is pinned
-selectors = document.createElement("tr");
-selectors.classList.add("selectors");
-for (let i = 0; i < first_header_row.childElementCount; i++) {
-  let cell = document.createElement("td");
-  if (i >= base_col_idx) {
-    let id = first_header_row.children[i].dataset.id;
-    let input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = config.pinned_tests[id] || false;
-    input.addEventListener("change", () => {
-      config.pinned_tests[id] = input.checked;
-      sortTableColumns(Array.prototype.indexOf.call(selectors.children, cell));
-      saveConfig();
-    });
-    cell.appendChild(input);
-  }
-  if (i == 0) {
-    cell.classList.add("alias");
-    cell.textContent = "pinned:";
-  }
-  selectors.appendChild(cell);
-}
-head.appendChild(selectors);
-sortTableColumns();
-
-function sortRows(element) {
-  let sorted = Array.from(element.children)
-    .sort((a, b) => (a.dataset.alias || "").localeCompare(b.dataset.alias || ""));
-  element.replaceChildren(...sorted);
-}
-// Create a column of checkboxes to set whether each row is pinned
-table.querySelectorAll("tr").forEach((row) => {
-  let cell = document.createElement("td");
-  cell.classList.add("row-pin");
-  if (row.parentElement == body) {
-    let input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = config.pinned_aliases[row.dataset.alias] || false;
-    if (input.checked) head.appendChild(row);
-
-    input.addEventListener("change", () => {
-      let target = input.checked ? head : body;
-      target.appendChild(row);
-      sortRows(target);
-      config.pinned_aliases[row.dataset.alias] = input.checked;
-      saveConfig();
-    });
-    cell.appendChild(input);
-  }
-  row.insertBefore(cell, row.firstChild);
-});
-base_col_idx = 3;
-sortRows(head);
-"""))
+                  |let assignment = document.querySelector("h1").textContent;
+                  |let config_key = `~gheith/${assignment}.html#config`;
+                  |let config = JSON.parse(window.localStorage.getItem(config_key) || "{}");
+                  |config.pinned_tests = config.pinned_tests || {};
+                  |config.pinned_aliases = config.pinned_aliases || {};
+                  |
+                  |function saveConfig() {
+                  |  window.localStorage.setItem(config_key, JSON.stringify(config));
+                  |}
+                  |
+                  |let table = document.querySelector(".results");
+                  |let head = table.querySelector("thead");
+                  |let body = table.querySelector("tbody");
+                  |
+                  |let first_header_row = head.querySelector("tr:first-child");
+                  |let first_body_row = body.querySelector("tr:first-child");
+                  |let selectors;
+                  |let base_col_idx = 2;
+                  |
+                  |// Sort the columns of a table; if initial_index is specified,
+                  |// assumes that only that column has moved for performance.
+                  |function sortTableColumns(initial_index) {
+                  |  let selector_cells = selectors.children;
+                  |  let first_row_cells = first_body_row.children;
+                  |  let columns = Array.from(first_header_row.children)
+                  |    .map((cell, i) => [
+                  |      i,
+                  |      cell.dataset.id || "",
+                  |      first_row_cells[i].classList.contains("chosen"),
+                  |      selector_cells[i].firstElementChild?.checked || false,
+                  |    ])
+                  |    .sort(([ai, aid, achosen, aselected], [bi, bid, bchosen, bselected]) => {
+                  |      return (+(bi < base_col_idx) - +(ai < base_col_idx)) || (+bselected - +aselected)
+                  |        || (+bchosen - +achosen) || (aid.length - bid.length)
+                  |        || aid.localeCompare(bid);
+                  |    });
+                  |
+                  |  table.style.display = "none";
+                  |  if (initial_index != undefined) {
+                  |    let dest_index;
+                  |    columns.forEach(([i,], j) => {
+                  |      if (initial_index == i) dest_index = j;
+                  |    });
+                  |    if (dest_index >= initial_index) dest_index += 1;
+                  |
+                  |    table.querySelectorAll("tr").forEach((row) => {
+                  |      row.insertBefore(row.children[initial_index], row.children[dest_index]);
+                  |    });
+                  |  } else {
+                  |    table.querySelectorAll("tr").forEach((row) => {
+                  |      let children = Array.from(row.children);
+                  |      let reordered_children = columns.map(([i,]) => children[i]);
+                  |      row.replaceChildren(...reordered_children);
+                  |    });
+                  |  }
+                  |  table.style.display = "initial";
+                  |}
+                  |
+                  |// Create a row of checkboxes to set whether each column is pinned
+                  |selectors = document.createElement("tr");
+                  |selectors.classList.add("selectors");
+                  |for (let i = 0; i < first_header_row.childElementCount; i++) {
+                  |  let cell = document.createElement("td");
+                  |  if (i >= base_col_idx) {
+                  |    let id = first_header_row.children[i].dataset.id;
+                  |    let input = document.createElement("input");
+                  |    input.type = "checkbox";
+                  |    input.checked = config.pinned_tests[id] || false;
+                  |    input.addEventListener("change", () => {
+                  |      config.pinned_tests[id] = input.checked;
+                  |      sortTableColumns(Array.prototype.indexOf.call(selectors.children, cell));
+                  |      saveConfig();
+                  |    });
+                  |    cell.appendChild(input);
+                  |  }
+                  |  if (i == 0) {
+                  |    cell.classList.add("alias");
+                  |    cell.textContent = "pinned:";
+                  |  }
+                  |  selectors.appendChild(cell);
+                  |}
+                  |head.appendChild(selectors);
+                  |sortTableColumns();
+                  |
+                  |function sortRows(element) {
+                  |  let sorted = Array.from(element.children)
+                  |    .sort((a, b) => (a.dataset.alias || "").localeCompare(b.dataset.alias || ""));
+                  |  element.replaceChildren(...sorted);
+                  |}
+                  |// Create a column of checkboxes to set whether each row is pinned
+                  |table.querySelectorAll("tr").forEach((row) => {
+                  |  let cell = document.createElement("td");
+                  |  cell.classList.add("row-pin");
+                  |  if (row.parentElement == body) {
+                  |    let input = document.createElement("input");
+                  |    input.type = "checkbox";
+                  |    input.checked = config.pinned_aliases[row.dataset.alias] || false;
+                  |    if (input.checked) head.appendChild(row);
+                  |
+                  |    input.addEventListener("change", () => {
+                  |      let target = input.checked ? head : body;
+                  |      target.appendChild(row);
+                  |      sortRows(target);
+                  |      config.pinned_aliases[row.dataset.alias] = input.checked;
+                  |      saveConfig();
+                  |    });
+                  |    cell.appendChild(input);
+                  |  }
+                  |  row.insertBefore(cell, row.firstChild);
+                  |});
+                  |base_col_idx = 3;
+                  |sortRows(head);
+                  |""".stripMargin))
               }
             }
           }
