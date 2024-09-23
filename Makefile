@@ -4,6 +4,9 @@ build:
 compile:
 	./scala-cli.sh compile src
 
+test:
+	./scala-cli.sh test src
+
 clean:
 	./scala-cli.sh clean src
 	rm -rf grader

@@ -11,11 +11,12 @@ case class SignedPath[D](path: os.Path, signature: Signature, ignore_last: Sorte
 
 object SignedPath {
 
-  def rule[In, D: ReadWriter](in: Maker[In], ignore_last: SortedSet[String], rest: os.RelPath)(f: (os.Path, In) => D)(using
+  def rule[In, D: ReadWriter](in: Maker[In], ignore_last: SortedSet[String], rest: os.RelPath|Null)(f: (os.Path, In) => D)(using
       fn: sourcecode.FullName
   ): Rule[In, SignedPath[D]] = new Rule[In, SignedPath[D]] {
     override val path: os.RelPath =
-      os.RelPath(fn.value.replace('.', '/').nn) / rest
+      val first: os.RelPath = os.RelPath(fn.value.replace('.', '/').nn)
+      if (rest == null) first else first / rest
 
     override def needs: Maker[In] = in
 
