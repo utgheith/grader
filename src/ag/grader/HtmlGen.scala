@@ -2,11 +2,9 @@ package ag.grader
 
 import java.io.FileWriter
 import ag.rules.{say, Rule}
-import java.time.format.DateTimeFormatter
-import java.time.LocalDateTime
 import scala.collection.SortedMap
-import java.time.ZonedDateTime
-import java.time.ZoneId
+import java.time.{LocalDateTime, ZonedDateTime, ZoneId}
+import java.time.format.DateTimeFormatter
 
 trait HtmlContext {
   def doctype(): Unit
@@ -255,11 +253,11 @@ class HtmlGen(p: Project) {
                       outcome.get(t.external_name)
                     val (status_class, the_text) =
                       o.flatMap(_.outcome) match {
-                        case Some("pass") =>
+                        case Some(OutcomeStatus.Pass) =>
                           ("pass", ".")
-                        case Some(_) =>
+                        case Some(OutcomeStatus.Fail | OutcomeStatus.Timeout) =>
                           ("fail", "X")
-                        case None =>
+                        case None | Some(OutcomeStatus.Unknown) =>
                           ("compilefail", "?")
                       }
                     val chosen_class =
@@ -270,7 +268,7 @@ class HtmlGen(p: Project) {
                       case Some(
                             RedactedOutcome(_, _, _, _, Some(time), tries)
                           ) =>
-                        s"$tries tries, last took ${time.round}s"
+                        f"$tries%s tries, last took ${time}%.2fs"
                       case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
                         s"$tries tries"
                       case _ =>

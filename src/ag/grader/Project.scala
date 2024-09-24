@@ -22,6 +22,12 @@ import java.util.concurrent.atomic.AtomicLong
 import java.time.{Duration, Instant, ZonedDateTime, ZoneId, ZoneOffset}
 import java.time.format.DateTimeFormatter
 
+// Extractor to convert nullable regex matches to Scala Options.
+// Originally sourced from https://stackoverflow.com/a/1843127
+object Optional {
+  def unapply[T](a: T) = if (null == a) Some(None) else Some(Some(a))
+}
+
 // TODO: introduce a better abstraction
 val limit = Runtime.getRuntime.nn.availableProcessors() - 1
 val governor = new Semaphore(limit)
@@ -558,6 +564,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       )
     }
 
+  // The output of time's %E format, output by the Makefile build system for test runtimes
+  private val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
+
   def run(
       csid: CSID,
       cutoff: CutoffTime,
@@ -572,7 +581,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       SortedSet(),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
     ) { case (out_path, (prepared, cores, prev)) =>
-      if ((n == 1) || (prev.data.outcome.contains("pass"))) {
+      if ((n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))) {
         started_runs.incrementAndGet()
         try {
           if (cores > limit) {
@@ -586,8 +595,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               val m =
                 s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
               say(f"running#$n $m on $cores cores")
+
               val start = System.currentTimeMillis()
-              var s: Option[Double] = None
+              var run_time: Option[Double] = None
               val (rc, stdout, stderr) =
                 try {
                   val _ = os
@@ -596,20 +606,45 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                   os.proc("make", "-k", s"$tn.test")
                     .run(cwd = prepared.path, check = false)
                 } finally {
-                  s = Some((System.currentTimeMillis() - start).toDouble / 1000)
+                  val end = System.currentTimeMillis()
+                  run_time = Some((end - start).toDouble / 1000)
                 }
+
               val result_path = prepared.path / s"$tn.result"
-              val outcome =
+              val outcome_str =
                 if (os.isFile(result_path))
                   os.read.lines(result_path).headOption
                 else None
-              val how_long = s.map(t => f"$t%.2f")
-              val out_text = outcome.getOrElse("???")
-              val out =
-                if (out_text == "pass") fansi.Color.Green(out_text)
-                else fansi.Color.Red(out_text)
+
+              val time_path = prepared.path / s"$tn.time"
+              val qemu_runtime_str =
+                if (os.isFile(time_path)) os.read.lines(time_path).headOption
+                else None
+
+              val qemu_runtime = qemu_runtime_str match
+                case Some(TimeFormat(Optional(None), min, sec)) =>
+                  Some(min.toDouble * 60 + sec.toDouble)
+                case Some(TimeFormat(Optional(Some(hours)), min, sec)) =>
+                  Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
+                case Some("timeout") => None
+                case _               => None
+
+              val outcome = (outcome_str, qemu_runtime_str) match
+                case (_, Some("timeout")) => OutcomeStatus.Timeout
+                case (Some("pass"), _)    => OutcomeStatus.Pass
+                case (Some("fail"), _)    => OutcomeStatus.Fail
+                case (_, _)               => OutcomeStatus.Unknown
+
+              val how_long = run_time.map(t => f"$t%.2f")
+              val out = outcome match
+                case OutcomeStatus.Pass    => fansi.Color.Green("pass")
+                case OutcomeStatus.Fail    => fansi.Color.Red("fail")
+                case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
+                case OutcomeStatus.Unknown => fansi.Color.Red("???")
+
               say(s"    [${finished_runs.get()}/${started_runs
                   .get()}] finished [$out] $m in $how_long seconds")
+
               stderr.foreach { stderr =>
                 os.copy(
                   from = stderr,
@@ -625,8 +660,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                 course.course_name,
                 csid,
                 test_id,
-                outcome,
-                time = s,
+                Some(outcome),
+                // In the case of a timeout, show the outer runtime
+                time = qemu_runtime.orElse(run_time),
                 tries = n
               )
             }
