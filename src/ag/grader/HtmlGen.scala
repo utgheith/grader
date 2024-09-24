@@ -255,8 +255,10 @@ class HtmlGen(p: Project) {
                       o.flatMap(_.outcome) match {
                         case Some(OutcomeStatus.Pass) =>
                           ("pass", ".")
-                        case Some(OutcomeStatus.Fail | OutcomeStatus.Timeout) =>
+                        case Some(OutcomeStatus.Fail) =>
                           ("fail", "X")
+                        case Some(OutcomeStatus.Timeout) =>
+                          ("fail", "T")
                         case None | Some(OutcomeStatus.Unknown) =>
                           ("compilefail", "?")
                       }
