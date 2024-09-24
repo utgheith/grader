@@ -9,6 +9,9 @@ compile:
 test:
 	./scala-cli.sh test src
 
+format:
+	./scala-cli.sh format src
+
 clean:
 	./scala-cli.sh clean src
 	rm -rf grader

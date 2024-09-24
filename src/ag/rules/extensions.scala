@@ -19,7 +19,6 @@ given [K: Ordering: ReadWriter, V: ReadWriter]: ReadWriter[SortedMap[K, V]] =
   readwriter[Seq[(K, V)]]
     .bimap[SortedMap[K, V]](sm => sm.to(Seq), s => s.to(SortedMap))
 
-
 ////// ReadWriter for SortedSet //////
 
 given [K: Ordering: ReadWriter]: ReadWriter[SortedSet[K]] =
@@ -55,19 +54,22 @@ given ReadWriter[ZoneId] = readwriter[String].bimap[ZoneId](
 
 //////// ReadWriter for ZonedDateTime //////
 
-given ReadWriter[ZonedDateTime] = readwriter[(LocalDateTime, ZoneId)].bimap[ZonedDateTime](
-  zdt => (zdt.toLocalDateTime, zdt.getZone),
-  pair => ZonedDateTime.of(pair._1, pair._2)
-)
+given ReadWriter[ZonedDateTime] =
+  readwriter[(LocalDateTime, ZoneId)].bimap[ZonedDateTime](
+    zdt => (zdt.toLocalDateTime, zdt.getZone),
+    pair => ZonedDateTime.of(pair._1, pair._2)
+  )
 
 //////// ReadWriter for ZonedDateTime //////
 
 given ReadWriter[Duration] = readwriter[String]
   .bimap[Duration](dur => dur.toString, str => Duration.parse(str))
 
-/*****************/
+/** **************
+  */
 /* MessageDigest */
-/*****************/
+/** **************
+  */
 
 extension (md: MessageDigest) {
   def update(s: String, charset: Charset = StandardCharsets.UTF_8.nn): Unit =
@@ -78,9 +80,11 @@ def say(msg: Any): Unit = say.synchronized {
   println(s"[${Thread.currentThread().nn.getName}] $msg")
 }
 
-/***********/
+/** ********
+  */
 /* os.proc */
-/***********/
+/** ********
+  */
 
 val next_std_id = new AtomicLong(0)
 
@@ -100,8 +104,10 @@ case class ProcException(
     std_out_err: os.Path,
     cmd_id: Long,
     thread_id: String,
-    rc: Int) extends Exception {
-  override def getMessage: String = s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[$std_out_err]"
+    rc: Int
+) extends Exception {
+  override def getMessage: String =
+    s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[$std_out_err]"
 }
 
 val default_timeout: Int = 5 * 60 * 1000
@@ -111,10 +117,10 @@ val default_stdin: os.ProcessInput = ""
 
 extension (p: os.proc) {
   def run(
-    cwd: os.Path = default_cwd, 
-    check: Boolean = default_check, 
-    timeout: Int = default_timeout,
-    stdin: os.ProcessInput = default_stdin
+      cwd: os.Path = default_cwd,
+      check: Boolean = default_check,
+      timeout: Int = default_timeout,
+      stdin: os.ProcessInput = default_stdin
   ): (Int, os.Path, Option[os.Path]) = {
     val id = next_std_id.getAndIncrement()
     val stdout = std_dir / s"$id.out"
@@ -122,8 +128,8 @@ extension (p: os.proc) {
     val cmd = std_dir / s"$id.cmd"
     val rc = std_dir / s"$id.rc"
     val thread = std_dir / s"$id.thread"
-    
-    //say(s"---> $id:${p.commandChunks.mkString("[", ",", "]")} @ ${cwd.relativeTo(os.pwd)}")
+
+    // say(s"---> $id:${p.commandChunks.mkString("[", ",", "]")} @ ${cwd.relativeTo(os.pwd)}")
 
     val thread_id = Thread.currentThread().nn.getName.nn
 
@@ -143,14 +149,15 @@ extension (p: os.proc) {
     )
     val exit_code = out.exitCode
     if (exit_code != 0) {
-      //say(s"---> $id:rc=${exit_code}")
+      // say(s"---> $id:rc=${exit_code}")
       os.write(rc, exit_code.toString)
-      if (check) throw ProcException(
-        std_out_err = std_dir,
-        rc = exit_code,
-        cmd_id = id,
-        thread_id = thread_id
-      )
+      if (check)
+        throw ProcException(
+          std_out_err = std_dir,
+          rc = exit_code,
+          cmd_id = id,
+          thread_id = thread_id
+        )
     }
     val err = if (os.size(stderr) == 0) {
       os.remove.all(stderr)
@@ -161,12 +168,15 @@ extension (p: os.proc) {
     (exit_code, stdout, err)
   }
 
-  def check(cwd: os.Path = default_cwd, timeout: Int = default_timeout): Unit = {
-    val _ = run(cwd, check=true, timeout=timeout)
+  def check(
+      cwd: os.Path = default_cwd,
+      timeout: Int = default_timeout
+  ): Unit = {
+    val _ = run(cwd, check = true, timeout = timeout)
   }
 
-  def lines(cwd: os.Path=os.pwd): Seq[String] = {
-    val (_, stdout, _) = run(cwd=cwd)
+  def lines(cwd: os.Path = os.pwd): Seq[String] = {
+    val (_, stdout, _) = run(cwd = cwd)
     os.read.lines(stdout)
   }
 }
@@ -191,11 +201,10 @@ extension (path: os.Path) {
   def is_working_repo: Boolean = is_git_repo && path != os.pwd
 }
 
-
 // () => A
 
 extension [A](fa: Function0[A]) {
-  def ||[B](fb: Function0[B]): Function0[A|B] = { () =>
+  def ||[B](fb: Function0[B]): Function0[A | B] = { () =>
     try {
       fa()
     } catch {

@@ -16,7 +16,10 @@ object Signature {
     val it = bytes.map(b => f"$b%02x").mkString("")
     Signature(it)
 
-  def of(paths: SortedSet[os.Path], ignore_last: SortedSet[String]): Signature = {
+  def of(
+      paths: SortedSet[os.Path],
+      ignore_last: SortedSet[String]
+  ): Signature = {
     val md = MessageDigest.getInstance("sha1").nn
 
     def one(base: os.Path, path: os.Path): Unit = {
@@ -24,7 +27,8 @@ object Signature {
         md.update(path.relativeTo(base).toString)
         if (os.isLink(path)) {
           md.update("L")
-          os.followLink(path).foreach(p => md.update(p.relativeTo(base).toString))
+          os.followLink(path)
+            .foreach(p => md.update(p.relativeTo(base).toString))
           md.update("l")
         } else if (os.isFile(path)) {
           // chuncks, stream, ...

@@ -32,7 +32,10 @@ class FileContext(path: os.Path) extends HtmlContext with AutoCloseable {
     w.write(">")
   }
 
-  def start_self_closing(tag: String, attributes: Seq[(String, String)]): Unit = {
+  def start_self_closing(
+      tag: String,
+      attributes: Seq[(String, String)]
+  ): Unit = {
     w.write(s"<$tag")
     attributes.foreach { (k, v) =>
       w.write(s" $k='$v'")
@@ -58,7 +61,7 @@ val self_closing_tags = Set("meta")
 case class Element(tag: String, attributes: Seq[(String, String)]) {
   def attr(name: String, value: String | Null): Element = value match {
     case s: String => this.copy(attributes = attributes :+ (name, s))
-    case null         => this
+    case null      => this
   }
   def bgcolor(c: String | Null): Element =
     attr("bgcolor", c)
@@ -124,17 +127,15 @@ def text(s: String)(using c: HtmlContext): Unit = {
   c.text(s)
 }
 
-
 class HtmlGen(p: Project) {
 
   val displayFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
-
   val gen_html =
     Rule(
-      p.results *: 
-        Config.site_base *: 
+      p.results *:
+        Config.site_base *:
         p.chosen *:
         p.weights *:
         p.bad_tests *:
@@ -144,22 +145,34 @@ class HtmlGen(p: Project) {
         p.course.enrollment,
       p.scope
     ) {
-      case (Some(results), Some(site_base), chosen, weights, bad_tests, test_extensions_, test_cutoff, code_cutoff, enrollment) =>
-
+      case (
+            Some(results),
+            Some(site_base),
+            chosen,
+            weights,
+            bad_tests,
+            test_extensions_,
+            test_cutoff,
+            code_cutoff,
+            enrollment
+          ) =>
         val test_extensions = test_extensions_.to(IndexedSeq)
 
-        val (chosenTestNames, otherTestNames) = results.values.to(List)
-            .flatMap(
-              _.outcomes.keys.filterNot(test => bad_tests.contains(test.external_name))
+        val (chosenTestNames, otherTestNames) = results.values
+          .to(List)
+          .flatMap(
+            _.outcomes.keys.filterNot(test =>
+              bad_tests.contains(test.external_name)
             )
-            .sorted
-            .distinct
-            .groupBy(_.external_name.length)
-            .toSeq
-            .map { case (len, names) => (len, names.sorted) }
-            .sortBy(_._1)
-            .flatMap(_._2)
-            .partition(test => chosen.contains(test.external_name))
+          )
+          .sorted
+          .distinct
+          .groupBy(_.external_name.length)
+          .toSeq
+          .map { case (len, names) => (len, names.sorted) }
+          .sortBy(_._1)
+          .flatMap(_._2)
+          .partition(test => chosen.contains(test.external_name))
 
         // All the test name properly ordered
         val testNames: Seq[RedactedTestId] = chosenTestNames ++ otherTestNames
@@ -171,61 +184,64 @@ class HtmlGen(p: Project) {
         } yield (a, sha)).to(List).sortBy(_._1)
 
         def testTitle(t: String, rowNum: Int)(using HtmlContext) = {
-            val ch = if (rowNum >= t.length) "." else t(rowNum)
-            val ext =
-              if (rowNum >= test_extensions.size) test_extensions.last
-              else test_extensions(rowNum)
-            val fileName = s"$t.$ext"
+          val ch = if (rowNum >= t.length) "." else t(rowNum)
+          val ext =
+            if (rowNum >= test_extensions.size) test_extensions.last
+            else test_extensions(rowNum)
+          val fileName = s"$t.$ext"
 
-            td.attr("data-id", t) {
-              a.href(s"${p.tests_repo_name}/$t.$ext").title(fileName) {
-                text(ch.toString)
-              }
+          td.attr("data-id", t) {
+            a.href(s"${p.tests_repo_name}/$t.$ext").title(fileName) {
+              text(ch.toString)
             }
+          }
         }
 
         // Display the different time stamps
         def times(using HtmlContext) = table {
-            tr {
-              td { text("generated") }
-              td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
-            }
-            tr {
-              td { text("test cutoff") }
-              td { text(displayFormat.format(test_cutoff).nn) }
-            }
-            tr {
-              td { text("code cutoff") }
-              td { text(displayFormat.format(code_cutoff).nn) }
-            }
+          tr {
+            td { text("generated") }
+            td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
+          }
+          tr {
+            td { text("test cutoff") }
+            td { text(displayFormat.format(test_cutoff).nn) }
+          }
+          tr {
+            td { text("code cutoff") }
+            td { text(displayFormat.format(code_cutoff).nn) }
+          }
         }
 
         // Display the results table
         def tbl(using HtmlContext) = table.css_class("results") {
-            thead {
-              /* 3 headers */
-              for (i <- 0 to 2) {
-                tr {
-                  td.css_class("alias") { text("") }
-                  td { text("") }
-                  testNames.foreach { t =>
-                    testTitle(t.external_name, i)
-                  }
+          thead {
+            /* 3 headers */
+            for (i <- 0 to 2) {
+              tr {
+                td.css_class("alias") { text("") }
+                td { text("") }
+                testNames.foreach { t =>
+                  testTitle(t.external_name, i)
                 }
               }
             }
+          }
 
-            tbody {
-              /* the actual results, one row per submission */
-              submissions.foreach { case (alias, sha) =>
-                val short_name = s"${alias.toString}_$sha".toString.take(8)
-                val result = results(alias)
-                val outcome: SortedMap[String, RedactedOutcome] = result.outcomes.map { case (k,v) => (k.external_name, v) }
+          tbody {
+            /* the actual results, one row per submission */
+            submissions.foreach { case (alias, sha) =>
+              val short_name = s"${alias.toString}_$sha".toString.take(8)
+              val result = results(alias)
+              val outcome: SortedMap[String, RedactedOutcome] =
+                result.outcomes.map { case (k, v) => (k.external_name, v) }
 
-                val is_mine = false // outcome.is_mine
-                val is_late = result.prepare_info.commit_time.isAfter(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault()))
-                tr.css_class(if (is_mine) "mine" else null)
-                  .attr("data-alias", alias.toString) {
+              val is_mine = false // outcome.is_mine
+              val is_late = result.prepare_info.commit_time.isAfter(
+                ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+              )
+              tr.css_class(if (is_mine) "mine" else null)
+                .attr("data-alias", alias.toString) {
 
                   td.title(sha).css_class("alias") {
                     if (is_late) text(s"$short_name*")
@@ -235,7 +251,8 @@ class HtmlGen(p: Project) {
                     text("")
                   }
                   testNames.foreach { t =>
-                    val o: Option[RedactedOutcome] = outcome.get(t.external_name)
+                    val o: Option[RedactedOutcome] =
+                      outcome.get(t.external_name)
                     val (status_class, the_text) =
                       o.flatMap(_.outcome) match {
                         case Some("pass") =>
@@ -245,10 +262,14 @@ class HtmlGen(p: Project) {
                         case None =>
                           ("compilefail", "?")
                       }
-                    val chosen_class = if (chosen.contains(t.external_name)) List("chosen") else List.empty
+                    val chosen_class =
+                      if (chosen.contains(t.external_name)) List("chosen")
+                      else List.empty
                     val the_class = List(status_class) ::: chosen_class
                     val ttl = o match {
-                      case Some(RedactedOutcome(_, _, _, _, Some(time), tries)) =>
+                      case Some(
+                            RedactedOutcome(_, _, _, _, Some(time), tries)
+                          ) =>
                         s"$tries tries, last took ${time.round}s"
                       case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
                         s"$tries tries"
@@ -260,21 +281,20 @@ class HtmlGen(p: Project) {
                     }
                   }
                 }
-              }
             }
           }
-        
+        }
+
         def ignored(using HtmlContext) = table {
-            tr { td { h3 { pre { text("Ignored tests") } } } }
-            tr {
-              td {
-                table {
-                  bad_tests.foreach { test_name =>
-                    tr {
-                      td {
-                        pre {
-                          text(test_name)
-                        }
+          tr { td { h3 { pre { text("Ignored tests") } } } }
+          tr {
+            td {
+              table {
+                bad_tests.foreach { test_name =>
+                  tr {
+                    td {
+                      pre {
+                        text(test_name)
                       }
                     }
                   }
@@ -282,64 +302,67 @@ class HtmlGen(p: Project) {
               }
             }
           }
+        }
 
         def weights_table(using HtmlContext) = table {
-            tr { td { h3 { pre { text("Selected test weights") } } } }
-            tr {
-              td {
-                table.css_class("weights") {
+          tr { td { h3 { pre { text("Selected test weights") } } } }
+          tr {
+            td {
+              table.css_class("weights") {
+                tr {
+                  td.style("font-weight: bold;") { text("test") }
+                  td.style("font-weight: bold;") { text("weight") }
+                }
+                var total_weight = 0
+
+                // Match the sorting of test cases elsewhere (t0-4 before user test cases)
+                val sorted = chosen.toList.sortBy(c => (c.length, c))
+                sorted.foreach { c =>
+                  val weight = weights.find { w =>
+                    scala.util.matching.Regex(w.pattern).matches(c)
+                  }
+                  total_weight += (weight match {
+                    case Some(w) => w.weight
+                    case None    => 0
+                  })
+
+                  val weight_str = weight match {
+                    case Some(w) => w.weight.toString
+                    case None    => "?"
+                  }
                   tr {
-                    td.style("font-weight: bold;") { text("test") }
-                    td.style("font-weight: bold;") { text("weight") }
+                    td { text(c) }
+                    td { text(weight_str) }
                   }
-                  var total_weight = 0
+                }
 
-                  // Match the sorting of test cases elsewhere (t0-4 before user test cases)
-                  val sorted = chosen.toList.sortBy(c => (c.length, c))
-                  sorted.foreach { c =>
-                    val weight = weights.find { w =>
-                      scala.util.matching.Regex(w.pattern).matches(c)
-                    }
-                    total_weight += (weight match {
-                      case Some(w) => w.weight
-                      case None => 0
-                    })
-
-                    val weight_str = weight match {
-                      case Some(w) => w.weight.toString
-                      case None => "?"
-                    }
-                    tr {
-                      td { text(c) }
-                      td { text(weight_str) }
-                    }
-                  }
-
-                  tr {
-                    td.style("font-weight: bold;") { text("total") }
-                    td { text(total_weight.toString) }
-                  }
+                tr {
+                  td.style("font-weight: bold;") { text("total") }
+                  td { text(total_weight.toString) }
                 }
               }
             }
           }
+        }
 
-        val f = os.Path(site_base) / s"${p.course.course_name}_${p.project_name}.html"
-          val perms = os.PermSet.fromString("rwxr--r--")
+        val f =
+          os.Path(site_base) / s"${p.course.course_name}_${p.project_name}.html"
+        val perms = os.PermSet.fromString("rwxr--r--")
 
-          say(s"  $f")
+        say(s"  $f")
 
-          os.write.over(f, "")
-          os.perms.set(f, perms)
+        os.write.over(f, "")
+        os.perms.set(f, perms)
 
-          scala.util.Using(FileContext(f)) { file =>
-
-            html(file) {
-              head {
-                meta.attr("charset", "utf8") { }
-                meta.attr("name", "viewport").attr("content", "width=device-width,initial-scale=1") { }
-                title(text(s"${p.course.course_name}_${p.project_name}"))
-                style(text("""
+        scala.util.Using(FileContext(f)) { file =>
+          html(file) {
+            head {
+              meta.attr("charset", "utf8") {}
+              meta
+                .attr("name", "viewport")
+                .attr("content", "width=device-width,initial-scale=1") {}
+              title(text(s"${p.course.course_name}_${p.project_name}"))
+              style(text("""
                   |:root {
                   |  color-scheme: light dark;
                   |  --bg-page: #FFF;
@@ -428,30 +451,30 @@ class HtmlGen(p: Project) {
                   |/* More relaxed spacing: */
                   |.results td { padding: 0.15em 0.3em; }
                   |""".stripMargin))
-                // script(src = "https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" )
-              }
-              body {
-                table {
-                  tr(td(h1(text(s"${p.course.course_name}_${p.project_name}"))))
-                  tr(td(times))
-                  tr(td(tbl))
-                  tr(td(text("")))
-                  tr(td(text(s"${enrollment.keySet.size} enrollments")))
-                  tr(td(text(s"${submissions.size} submissions")))
-                  tr(td(text(s"${testNames.size} tests")))
-                  tr {
-                    td.colspan("3") {
-                      ignored
-                    }
-                  }
-                  tr {
-                    td.colspan("3") {
-                      weights_table
-                    }
+              // script(src = "https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" )
+            }
+            body {
+              table {
+                tr(td(h1(text(s"${p.course.course_name}_${p.project_name}"))))
+                tr(td(times))
+                tr(td(tbl))
+                tr(td(text("")))
+                tr(td(text(s"${enrollment.keySet.size} enrollments")))
+                tr(td(text(s"${submissions.size} submissions")))
+                tr(td(text(s"${testNames.size} tests")))
+                tr {
+                  td.colspan("3") {
+                    ignored
                   }
                 }
-                //script.src("highlight_on_click.js")
-                script(text("""
+                tr {
+                  td.colspan("3") {
+                    weights_table
+                  }
+                }
+              }
+              // script.src("highlight_on_click.js")
+              script(text("""
                   |// Highlight row when its alias/hash is clicked
                   |document.querySelectorAll(".results td[title]")
                   |  .forEach((e) => {
@@ -461,14 +484,14 @@ class HtmlGen(p: Project) {
                   |  });
                   |""".stripMargin))
 
-                // Script to allow pinning certain cases to the left side of the matrix
-                style(text("""
+              // Script to allow pinning certain cases to the left side of the matrix
+              style(text("""
                   |.selectors td { padding: 0; text-align: center; }
                   |.selectors input { margin: 0; }
                   |.row-pin { padding: 0; }
                   |.row-pin input { margin: 0; }
                   """.stripMargin))
-                script(text("""
+              script(text("""
                   |let assignment = document.querySelector("h1").textContent;
                   |let config_key = `~gheith/${assignment}.html#config`;
                   |let config = JSON.parse(window.localStorage.getItem(config_key) || "{}");
@@ -582,19 +605,17 @@ class HtmlGen(p: Project) {
                   |base_col_idx = 3;
                   |sortRows(head);
                   |""".stripMargin))
-              }
             }
           }
-            
+        }
 
         // sorted submissions
-        
+
         ()
       case _ =>
-        say(s"---> not generating results for ${p.course.course_name}:${p.project_name}")
+        say(
+          s"---> not generating results for ${p.course.course_name}:${p.project_name}"
+        )
     }
-
-
-
 
 }

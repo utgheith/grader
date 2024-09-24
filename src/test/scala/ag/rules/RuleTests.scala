@@ -8,7 +8,6 @@ import scala.collection.{mutable, SortedSet}
 import upickle.default.write
 
 class RuleTests extends munit.FunSuite {
-  
 
   val dir = FunFixture[os.Path](
     setup = { test =>
@@ -31,10 +30,10 @@ class RuleTests extends munit.FunSuite {
       "goodbye"
     }
 
-    val nice: Rule[(String, Long), (String, Long)] = Rule(goodbye *: hello, null) {
-      (h: String, g: Long) =>
+    val nice: Rule[(String, Long), (String, Long)] =
+      Rule(goodbye *: hello, null) { (h: String, g: Long) =>
         (h, g)
-    }
+      }
 
     {
       val counts = CountingStateMonitor()
@@ -112,7 +111,7 @@ class RuleTests extends munit.FunSuite {
       barrier.getAndDecrement()
     }
 
-    val d: Maker[Int] = Rule(a *: b *: c, null) (_+_+_)
+    val d: Maker[Int] = Rule(a *: b *: c, null)(_ + _ + _)
     {
       val thread_names: mutable.Set[String] = mutable.Set[String]()
       val counts: CountingStateMonitor = new CountingStateMonitor() {
@@ -157,7 +156,9 @@ class RuleTests extends munit.FunSuite {
     val a = Rule() {
       10
     }
-    def b(x: String): Rule[Int, (Int, String)] = Rule(a, os.RelPath(x)) { a => (a, x) }
+    def b(x: String): Rule[Int, (Int, String)] = Rule(a, os.RelPath(x)) { a =>
+      (a, x)
+    }
 
     given State = State.of(base_dir)
 
@@ -178,7 +179,7 @@ class RuleTests extends munit.FunSuite {
 
     assert(clue(found) == clue(expected))
   }
-  
+
   dir.test("parts") { base_dir =>
     given State = State.of(base_dir)
     val a: Maker[String] = Rule() { "this is a" }

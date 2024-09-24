@@ -22,7 +22,7 @@ trait Rule[In, +Out: ReadWriter] extends Maker[Out] { self =>
   //   - we don't a cached value
   //   - we have a cached value put our dependency changed
   def compute(context: Context, in: In): Out
-  
+
   // what is my path
   def path: os.RelPath
 
@@ -33,7 +33,7 @@ trait Rule[In, +Out: ReadWriter] extends Maker[Out] { self =>
   def signature(using s: State): Signature = {
     s.get(this).block.signature
   }
-  
+
   override lazy val toString: String = s"Rule(path=$path, needs=$needs)"
 }
 
@@ -44,7 +44,7 @@ object Rule {
   given Ordering[Rule[?, ?]] = Ordering.by(_.path)
 
   // Rule() { ... }
-  def apply[Out: ReadWriter](rest: os.RelPath|Null = null)(
+  def apply[Out: ReadWriter](rest: os.RelPath | Null = null)(
       f: => Out
   )(using fn: sourcecode.FullName): Rule[Unit, Out] = new Rule[Unit, Out] {
     override val path: os.RelPath = {
@@ -58,7 +58,7 @@ object Rule {
   }
 
   // Rule(ma) { a => ... }
-  def apply[In, Out: ReadWriter](r1: Maker[In], rest: os.RelPath|Null)(
+  def apply[In, Out: ReadWriter](r1: Maker[In], rest: os.RelPath | Null)(
       f: In => Out
   )(using fn: sourcecode.FullName): Rule[In, Out] = new Rule[In, Out] {
     override val path: os.RelPath = {
@@ -72,7 +72,7 @@ object Rule {
   }
 
   // Rule((ma, mb, ...), ...) { (a,b, ...) => ... }
-  def apply[Out: ReadWriter, T <: Tuple](tu: T, rest: os.RelPath|Null)(
+  def apply[Out: ReadWriter, T <: Tuple](tu: T, rest: os.RelPath | Null)(
       f: Maker.StripMaker[T] => Out
   )(using fn: sourcecode.FullName): Rule[Maker.StripMaker[T], Out] =
     new Rule[Maker.StripMaker[T], Out] {
@@ -80,7 +80,6 @@ object Rule {
         val start = os.RelPath(fn.value.replace('.', '/').nn)
         if (rest != null) start / rest else start
       }
-
 
       override def needs: Maker[Maker.StripMaker[T]] = Maker.sequence(tu)
 

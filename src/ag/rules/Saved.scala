@@ -8,4 +8,3 @@ case class Saved[+T](
     signature: Signature,
     dependsOn: SortedMap[os.RelPath, Signature]
 ) derives ReadWriter
-

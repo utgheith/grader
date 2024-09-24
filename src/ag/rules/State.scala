@@ -11,7 +11,6 @@ import scala.util.Success
 import scala.util.Try
 import scala.util.Failure
 
-
 object State {
 
   def apply()(using State): State = summon[State]
@@ -44,7 +43,11 @@ class NopStateMonitor extends StateMonitor {
 
   override def onStart(s: State, rule: RuleBase): Unit = ()
 
-  override def onSuccess[A](s: State, rule: RuleBase, result: Result[A]): Result[A] =
+  override def onSuccess[A](
+      s: State,
+      rule: RuleBase,
+      result: Result[A]
+  ): Result[A] =
     result
 
   override def onFailure(s: State, rule: RuleBase, e: RuleException): Unit =
@@ -88,7 +91,11 @@ class CountingStateMonitor extends StateMonitor {
       saved: Saved[Any]
   ): Unit = saves.incrementAndGet()
 
-  override def onSuccess[A](s: State, rule: RuleBase, result: Result[A]): Result[A] =
+  override def onSuccess[A](
+      s: State,
+      rule: RuleBase,
+      result: Result[A]
+  ): Result[A] =
     successes.incrementAndGet()
     result
 
@@ -192,18 +199,18 @@ class State private (
     }
 
     if (new_dependencies.nonEmpty && os.exists(file)) {
-      //logger.debug(
+      // logger.debug(
       //  s"$file exists"
-      //) // We have some old data, see if any of the dependencies changed.
+      // ) // We have some old data, see if any of the dependencies changed.
 
-      
       Try(read[Saved[Out]](os.read(file))) match { // read the old state
         case Success(saved) =>
           // iterate over all dependencies and see if they're identical to the old ones
           val use_old_result = new_dependencies.zip(new_signatures).forall {
             case (d, sig) => saved.dependsOn.get(d.path).contains(sig)
           }
-          if (use_old_result) Result(saved.value, saved.signature) else evaluate()
+          if (use_old_result) Result(saved.value, saved.signature)
+          else evaluate()
         case Failure(e) =>
           say(s"failed to read from $file, remove and retry", e)
           val _ = os.remove(file)
@@ -212,15 +219,5 @@ class State private (
     } else {
       evaluate()
     }
-
-    /*
-
-    f.onComplete {
-      case Success(result) => monitor.onSuccess(this, r, result)
-      case Failure(e) => monitor.onFailure(this, r, e)
-    }
-
-    f*/
-
   }
 }

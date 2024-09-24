@@ -15,7 +15,8 @@ object Gitolite {
     Rule(Periodic(ms = 60 * 1000) *: Config.gitolite, null) { (_, g) =>
       val lines =
         sem.down {
-          os.proc("ssh", "-p", g.port, s"${g.user}@${g.host}", "history").lines()
+          os.proc("ssh", "-p", g.port, s"${g.user}@${g.host}", "history")
+            .lines()
         }
       val pairs = for {
         l <- lines
@@ -42,12 +43,11 @@ object Gitolite {
     }
 
   val latest: Maker[SortedMap[String, Option[String]]] =
-    Rule(history *: info, null) {
-      case (history, info) =>
-        val pairs = for {
-          repo <- info.toSeq
-        } yield (repo, history.get(repo))
-        SortedMap(pairs*)
+    Rule(history *: info, null) { case (history, info) =>
+      val pairs = for {
+        repo <- info.toSeq
+      } yield (repo, history.get(repo))
+      SortedMap(pairs*)
     }
 
   def repo_info(repo: String): Maker[RepoInfo] =
@@ -55,8 +55,8 @@ object Gitolite {
       RepoInfo(server, repo, latest.get(repo))
     }
 
-  //def repo_exists(repo: String): Maker[Boolean] = Rule(latest_for(repo), repo)(_.isDefined)
-  
+  // def repo_exists(repo: String): Maker[Boolean] = Rule(latest_for(repo), repo)(_.isDefined)
+
   def mirror(repo: String): Maker[SignedPath[Boolean]] =
     SignedPath.rule(repo_info(repo), SortedSet(".git"), os.RelPath(repo)) {
       case (dir, RepoInfo(server, _, Some(_))) =>
@@ -66,28 +66,28 @@ object Gitolite {
           case NonFatal(_) =>
             os.remove.all(dir)
             os.makeDir.all(dir)
-            server.SshProc("git", "clone", "--template=", server.git_uri(repo), ".").run(cwd = dir)
+            server
+              .SshProc("git", "clone", "--template=", server.git_uri(repo), ".")
+              .run(cwd = dir)
         }
         true
       case (_, _) =>
         false
-        //throw Exception(s"repo $repo does not exist")
+      // throw Exception(s"repo $repo does not exist")
     }
 
-
   val raw_courses: Maker[SortedMap[String, RawCourse]] =
-    Rule(mirror("courses_config"), null) {
-      path =>
-        if (path.data) {
-          val file = path.path / "courses.json"
-          val not_sorted = read[Map[String, RawCourseNotSorted]](os.read(file))
-          not_sorted.view.mapValues(_.sorted).to(SortedMap)
-        } else {
-          say("courses_config repo is missing")
-          SortedMap()
-        }
+    Rule(mirror("courses_config"), null) { path =>
+      if (path.data) {
+        val file = path.path / "courses.json"
+        val not_sorted = read[Map[String, RawCourseNotSorted]](os.read(file))
+        not_sorted.view.mapValues(_.sorted).to(SortedMap)
+      } else {
+        say("courses_config repo is missing")
+        SortedMap()
+      }
 
-        //read[SortedMap[String, RawCourse]](os.read(file))
+      // read[SortedMap[String, RawCourse]](os.read(file))
     }
 
   val course_names: Maker[SortedSet[String]] =
@@ -109,15 +109,5 @@ object Gitolite {
   ) { course =>
     course.projects(project_name)
   }
-  /*
-  lazy val keys: Maker[SortedMap[String, String]] = Rule(mirror2("gitolite-admin"), null) {
-    path =>
-      (for {
-        f <- os.list(path.path / "keydir")
-        if os.isFile(f)
-        if f.last.endsWith(".pub")
-      } yield (f.baseName, os.read(f))).to(SortedMap)
-
-  }*/
 
 }

@@ -30,7 +30,9 @@ trait Maker[+Out] { self =>
     override lazy val toString: String = s"Maker.flatMap(${self}, ...)"
   }
 
-  def flatMapSeq[U, B](f: U => Maker[B])(using ev: Out <:< Iterable[U]): Maker[Seq[B]] = for {
+  def flatMapSeq[U, B](
+      f: U => Maker[B]
+  )(using ev: Out <:< Iterable[U]): Maker[Seq[B]] = for {
     out <- this
     seq_u = ev(out).toSeq
     seq_b <- Maker.sequence(seq_u.map(f))
@@ -42,7 +44,7 @@ trait Maker[+Out] { self =>
     } yield f(out)
 
     override def parts(using State): Task[SortedSet[RuleBase]] = self.parts
-    
+
     override lazy val toString: String = s"Maker.map(${self}, ...)"
   }
 
@@ -56,7 +58,7 @@ trait Maker[+Out] { self =>
       out <- self.parts
       b <- rhs.parts
     } yield out ++ b
-    
+
     override lazy val toString: String = s"Maker.zip(${self}, ${rhs})"
   }
 
@@ -80,20 +82,21 @@ trait Maker[+Out] { self =>
   // allow another Rule to check my value without creating a dependency
   def peek: Maker[Out] = new Maker[Out] {
     override def make(using State): Task[Out] = self.make
-    override def parts(using State): Task[SortedSet[RuleBase]] = Task.success(SortedSet[RuleBase]())
+    override def parts(using State): Task[SortedSet[RuleBase]] =
+      Task.success(SortedSet[RuleBase]())
   }
 }
 
 type MakerBase = Maker[?]
 
 object Maker {
-  
+
   def apply[Out](f: State => Task[Out]): Maker[Out] = new Maker[Out] {
     override def make(using s: State): Task[Out] = f(s)
     override def parts(using State): Task[SortedSet[RuleBase]] =
       Task.success(SortedSet())
   }
-  
+
   def unit[Out](o: Out): Maker[Out] = new Maker[Out] {
     override def make(using State): Task[Out] = Task.success(o)
 
@@ -158,17 +161,19 @@ object Maker {
     a <- sa
     if f(a)
   } yield a
-    
-  def select[A](sma: Maker[Seq[A]])(f: A => Maker[Boolean]): Maker[Seq[A]] = for {
-    sa <- sma
-    flags <- Maker.sequence(for {
-      a <- sa
-    } yield f(a))
-  } yield for {
-    (a, flag) <- sa.zip(flags)
-    if flag
-  } yield a
-  
-  def select[A](msa: Seq[Maker[A]])(f: A => Maker[Boolean]): Maker[Seq[A]] = select(Maker.sequence(msa))(f)
+
+  def select[A](sma: Maker[Seq[A]])(f: A => Maker[Boolean]): Maker[Seq[A]] =
+    for {
+      sa <- sma
+      flags <- Maker.sequence(for {
+        a <- sa
+      } yield f(a))
+    } yield for {
+      (a, flag) <- sa.zip(flags)
+      if flag
+    } yield a
+
+  def select[A](msa: Seq[Maker[A]])(f: A => Maker[Boolean]): Maker[Seq[A]] =
+    select(Maker.sequence(msa))(f)
 
 }

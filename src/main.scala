@@ -1,5 +1,12 @@
 import ag.grader.{Course, CSID, CutoffTime, HtmlGen, Project, TestId}
-import ag.rules.{Maker, NopStateMonitor, RuleBase, State, given_ReadWriter_SortedMap, say}
+import ag.rules.{
+  Maker,
+  NopStateMonitor,
+  RuleBase,
+  State,
+  given_ReadWriter_SortedMap,
+  say
+}
 import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main}
 
 import scala.collection.SortedMap
@@ -23,7 +30,9 @@ class MyMonitor extends NopStateMonitor {
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
 
-  override def read(strs: Seq[String]): Either[String, os.Path] = if (strs.isEmpty) {
+  override def read(strs: Seq[String]): Either[String, os.Path] = if (
+    strs.isEmpty
+  ) {
     Right(os.pwd / "workspace")
   } else {
     val one = strs.mkString("/")
@@ -40,8 +49,10 @@ given TokensReader.Simple[Regex] with {
   override def shortName: String = "regex"
 
   override def alwaysRepeatable: Boolean = true
-  
-  override def read(strs: Seq[String]): Either[String, Regex] = if (strs.isEmpty) {
+
+  override def read(strs: Seq[String]): Either[String, Regex] = if (
+    strs.isEmpty
+  ) {
     Right(""".*""".r)
   } else {
     Right(Regex(strs.mkString("|")))
@@ -69,23 +80,25 @@ given TokensReader.Simple[AliasSortMode] with {
   override def read(strs: Seq[String]): Either[String, AliasSortMode] =
     strs.head match
       case "alias" => Right(AliasSortMode.Alias)
-      case "csid" => Right(AliasSortMode.CSID)
-      case s => Left(s"Invalid sort mode '${s}'; possible modes are 'alias' or 'csid'")
+      case "csid"  => Right(AliasSortMode.CSID)
+      case s =>
+        Left(s"Invalid sort mode '${s}'; possible modes are 'alias' or 'csid'")
 }
 
 //@main
 case class CommonArgs(
-    @arg(short='c')
+    @arg(short = 'c')
     courses: Regex = """.*""".r,
-    @arg(short='p')
+    @arg(short = 'p')
     projects: Regex = """.*""".r,
-    @arg(short='s')
+    @arg(short = 's')
     students: Regex = """.*""".r,
-    @arg(short='t')
+    @arg(short = 't')
     tests: Regex = """.*""".r,
-    @arg(short='n')
+    @arg(short = 'n')
     count: Int = 1,
-    workspace: os.Path = os.pwd / "workspace") {
+    workspace: os.Path = os.pwd / "workspace"
+) {
 
   // TODO: warn when no courses matched
   lazy val selected_courses: Maker[Seq[Course]] = for {
@@ -129,7 +142,9 @@ case class CommonArgs(
   } yield for {
     (p, test_ids) <- projects.zip(per_project_test_ids)
     test_id <- test_ids
-    if tests.matches(test_id.external_name) || tests.matches(test_id.internal_name)
+    if tests.matches(test_id.external_name) || tests.matches(
+      test_id.internal_name
+    )
   } yield (p, test_id)
 
   lazy val runs: Maker[Seq[(Project, CSID, TestId)]] = for {
@@ -141,8 +156,12 @@ case class CommonArgs(
       p <- projects
     } yield p.test_ids)
   } yield for {
-    ((p, csids), test_ids) <- projects.zip(per_project_csids).zip(per_project_test_ids)
-    the_test_ids = test_ids.filter(id => tests.matches(id.external_name) || tests.matches(id.internal_name))
+    ((p, csids), test_ids) <- projects
+      .zip(per_project_csids)
+      .zip(per_project_test_ids)
+    the_test_ids = test_ids.filter(id =>
+      tests.matches(id.external_name) || tests.matches(id.internal_name)
+    )
     if the_test_ids.nonEmpty
     csid <- csids.toSeq
     if students.matches(csid.value)
@@ -162,7 +181,7 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
-      println(upickle.default.write(c.dropbox.value, indent=2))
+      println(upickle.default.write(c.dropbox.value, indent = 2))
     }
   }
 
@@ -172,7 +191,7 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
-      println(upickle.default.write(c.publish_keys.value.data.size, indent=2))
+      println(upickle.default.write(c.publish_keys.value.data.size, indent = 2))
     }
   }
 
@@ -183,7 +202,7 @@ object Main {
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
       println(c.publish_enrollment.value.data.size)
-      //println(upickle.default.write(c.publish_enrollment.value, indent=2))
+      // println(upickle.default.write(c.publish_enrollment.value, indent=2))
     }
   }
 
@@ -194,10 +213,9 @@ object Main {
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
       println(c.enrollment.value.size)
-      //println(upickle.default.write(c.publish_enrollment.value, indent=2))
+      // println(upickle.default.write(c.publish_enrollment.value, indent=2))
     }
   }
-
 
   @main
   def courses(commonArgs: CommonArgs): Unit = {
@@ -205,7 +223,7 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
     println(commonArgs.selected_courses.value)
   }
-  
+
   @main
   def projects(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
@@ -243,15 +261,18 @@ object Main {
 
   @main
   def aliases(
-    commonArgs: CommonArgs,
-    @arg(name = "sort", doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'.")
-    sortMode: AliasSortMode = AliasSortMode.CSID,
+      commonArgs: CommonArgs,
+      @arg(
+        name = "sort",
+        doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'."
+      )
+      sortMode: AliasSortMode = AliasSortMode.CSID
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
     val sort = sortMode match
-      case AliasSortMode.CSID => false
+      case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
 
     for (c <- commonArgs.selected_courses.value) {
@@ -262,8 +283,12 @@ object Main {
         if commonArgs.projects.matches(pn)
       } {
         val aliases = p.get_aliases.value
-        val csids = enrollment.map(_._1).filter((id: CSID) => commonArgs.students.matches(id.value)).toIndexedSeq
-        val sorted = if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
+        val csids = enrollment
+          .map(_._1)
+          .filter((id: CSID) => commonArgs.students.matches(id.value))
+          .toIndexedSeq
+        val sorted =
+          if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
 
         val base_name = s"${c.course_name}_${pn}"
         val longest_csid = sorted.maxBy(_.value.length)
@@ -282,9 +307,13 @@ object Main {
 
   @main
   def prepare(
-    commonArgs: CommonArgs,
-    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
-    cutoff: CutoffTime,
+      commonArgs: CommonArgs,
+      @arg(
+        name = "code-cutoff",
+        doc =
+          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      )
+      cutoff: CutoffTime
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -312,10 +341,13 @@ object Main {
 
           prep.data match {
             case Some(data) =>
-              println(s"${aliases.getOrElse(csid, "?")} $target_name ${data.commit_time.withZoneSameInstant(ZoneId.systemDefault)} ${data.sha}")
+              println(
+                s"${aliases.getOrElse(csid, "?")} $target_name ${data.commit_time
+                    .withZoneSameInstant(ZoneId.systemDefault)} ${data.sha}"
+              )
               os.copy.over(
-                from=prep.path,
-                to=target_path,
+                from = prep.path,
+                to = target_path,
                 followLinks = false,
                 replaceExisting = true,
                 createFolders = true
@@ -331,9 +363,13 @@ object Main {
 
   @main
   def late_commits(
-    commonArgs: CommonArgs,
-    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
-    cutoff: CutoffTime,
+      commonArgs: CommonArgs,
+      @arg(
+        name = "code-cutoff",
+        doc =
+          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      )
+      cutoff: CutoffTime
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -349,20 +385,24 @@ object Main {
       } {
         val project_deadline = p.code_cutoff.value.format(datetime_format)
 
-        val late_repos = enrollment.map((csid, _) => csid)
+        val late_repos = enrollment
+          .map((csid, _) => csid)
           .filter((csid) => commonArgs.students.matches(csid.value))
           .map((csid) => (csid, p.late_commits(csid, cutoff).value.data))
           .filter((_, late_commits) => !late_commits.isEmpty)
           .toSeq
 
-        println(s"\nFound ${late_repos.length} repositories with late commits for ${c.course_name}_${pn}")
+        println(
+          s"\nFound ${late_repos.length} repositories with late commits for ${c.course_name}_${pn}"
+        )
         println(s"Using deadline: ${project_deadline}\n")
 
         for ((csid, late_commits) <- late_repos) {
           val target_name = s"${c.course_name}_${pn}_${csid}"
           println(target_name)
           for (commit <- late_commits) {
-            val time_str = commit.time.withZoneSameInstant(ZoneId.systemDefault)
+            val time_str = commit.time
+              .withZoneSameInstant(ZoneId.systemDefault)
               .format(datetime_format)
 
             val days = commit.delay.toDays()
@@ -375,10 +415,12 @@ object Main {
               case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
 
             val message = commit.message.length > 64 match
-              case true => commit.message.take(61) ++ "..."
+              case true  => commit.message.take(61) ++ "..."
               case false => commit.message
 
-            println(s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}")
+            println(
+              s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}"
+            )
           }
         }
       }
@@ -409,12 +451,11 @@ object Main {
     }
   }
 
-
-  @main 
+  @main
   def submissions(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
-    for ((p,csid) <- commonArgs.submissions.value) {
+    for ((p, csid) <- commonArgs.submissions.value) {
       println(s"$p $csid")
     }
   }
@@ -428,12 +469,16 @@ object Main {
     }
 
   }
-  
+
   @main
   def run(
-    commonArgs: CommonArgs,
-    @arg(name = "code-cutoff", doc = "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'.")
-    cutoff: CutoffTime,
+      commonArgs: CommonArgs,
+      @arg(
+        name = "code-cutoff",
+        doc =
+          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      )
+      cutoff: CutoffTime
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -441,21 +486,23 @@ object Main {
     val limit = System.currentTimeMillis() + 5 * 60 * 1000
 
     @tailrec
-    def loop(c: Int): Unit = if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
+    def loop(c: Int): Unit = if (
+      c <= commonArgs.count && System.currentTimeMillis() < limit
+    ) {
 
       val outcomes = for {
         runs <- commonArgs.runs
         out <- Maker.sequence {
-          for (
-            (p, csid, test_id) <- runs
-          ) yield p.run(csid, cutoff, test_id, c)
+          for ((p, csid, test_id) <- runs) yield p.run(csid, cutoff, test_id, c)
         }
       } yield out
 
       val _ = outcomes.value
 
-      println(s"---------------------------> finished iteration #$c/${commonArgs.count}")
-      loop(c+1)
+      println(
+        s"---------------------------> finished iteration #$c/${commonArgs.count}"
+      )
+      loop(c + 1)
 
     }
 
@@ -470,7 +517,7 @@ object Main {
 
     for (p <- commonArgs.selected_projects.value) {
       val _ = p.publish_results(commonArgs.count).value
-      //println(upickle.default.write(results, indent=2))
+      // println(upickle.default.write(results, indent=2))
     }
   }
 
@@ -492,9 +539,12 @@ object Main {
           val res = p.get_student_results(csid).value
           res.foreach { res =>
             val count = res.outcomes.size
-            val pass = res.outcomes.values.filter(_.outcome.contains("pass")).size
-            println(s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count")
-            
+            val pass =
+              res.outcomes.values.filter(_.outcome.contains("pass")).size
+            println(
+              s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
+            )
+
           }
         }
       }
@@ -514,7 +564,7 @@ object Main {
           (csid, _) <- c.enrollment.value
           if commonArgs.students.matches(csid.value)
         } {
-          //say(s"---> ${c.course_name}:$pn:$csid")
+          // say(s"---> ${c.course_name}:$pn:$csid")
           p.notify_student_results(csid).value
         }
       }
@@ -530,18 +580,15 @@ object Main {
         (pn, p) <- c.active_projects.value
         if commonArgs.projects.matches(pn)
       } {
-        
-          HtmlGen(p).gen_html.value
-        
+
+        HtmlGen(p).gen_html.value
+
       }
     }
-    
+
   }
 
   def main(args: Array[String]): Unit = {
     ParserForMethods(this).runOrExit(args.toIndexedSeq)
   }
 }
-
-
-
