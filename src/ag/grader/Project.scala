@@ -9,7 +9,8 @@ import ag.rules.{
   given_ReadWriter_SortedSet,
   lines,
   run,
-  say
+  say,
+  Optional
 }
 import upickle.default.ReadWriter
 
@@ -21,12 +22,6 @@ import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
 import java.time.{Duration, Instant, ZonedDateTime, ZoneId, ZoneOffset}
 import java.time.format.DateTimeFormatter
-
-// Extractor to convert nullable regex matches to Scala Options.
-// Originally sourced from https://stackoverflow.com/a/1843127
-object Optional {
-  def unapply[T](a: T) = if (null == a) Some(None) else Some(Some(a))
-}
 
 // TODO: introduce a better abstraction
 val limit = Runtime.getRuntime.nn.availableProcessors() - 1

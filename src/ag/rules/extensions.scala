@@ -223,3 +223,9 @@ extension [A](fa: Function0[A]) {
     }
   }
 }
+
+// Extractor to convert nullable regex matches to Scala Options
+// Originally sourced from https://stackoverflow.com/a/1843127
+object Optional {
+  def unapply[T](a: T) = if (null == a) Some(None) else Some(Some(a))
+}
