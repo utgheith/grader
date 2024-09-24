@@ -1,4 +1,12 @@
-import ag.grader.{Course, CSID, CutoffTime, HtmlGen, Project, TestId}
+import ag.grader.{
+  Course,
+  CSID,
+  CutoffTime,
+  HtmlGen,
+  OutcomeStatus,
+  Project,
+  TestId
+}
 import ag.rules.{
   Maker,
   NopStateMonitor,
@@ -539,12 +547,12 @@ object Main {
           val res = p.get_student_results(csid).value
           res.foreach { res =>
             val count = res.outcomes.size
-            val pass =
-              res.outcomes.values.filter(_.outcome.contains("pass")).size
+            val pass = res.outcomes.values
+              .filter(_.outcome == Some(OutcomeStatus.Pass))
+              .size
             println(
               s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
             )
-
           }
         }
       }

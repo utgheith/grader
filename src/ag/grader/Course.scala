@@ -107,8 +107,9 @@ case class NotificationConfig(
     val alias = student_results.alias
 
     val n_tests = student_results.outcomes.size
-    val n_pass =
-      student_results.outcomes.values.filter(_.outcome.contains("pass")).size
+    val n_pass = student_results.outcomes.values
+      .filter(_.outcome == Some(OutcomeStatus.Pass))
+      .size
 
     val short_sha = student_results.prepare_info.sha.substring(6).nn
     val has_report = if (student_results.prepare_info.has_report) "+" else "-"
@@ -119,8 +120,8 @@ case class NotificationConfig(
 
     val not_passing = (for {
       (_, outcome) <- student_results.outcomes
-      if !outcome.outcome.contains("pass")
-    } yield s"${outcome.test_id.external_name} ... ${outcome.outcome.getOrElse("?")}")
+      if outcome.outcome != Some(OutcomeStatus.Pass)
+    } yield s"${outcome.test_id.external_name} ... ${outcome.outcome.map(_.label).getOrElse("?")}")
       .mkString("\n")
 
     val web_page = site_base match {
