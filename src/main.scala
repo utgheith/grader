@@ -17,12 +17,12 @@ import ag.rules.{
   say
 }
 import mainargs.{
+  Flag,
   ParserForClass,
   ParserForMethods,
   TokensReader,
   arg,
-  main,
-  Flag
+  main
 }
 
 import scala.collection.SortedMap
