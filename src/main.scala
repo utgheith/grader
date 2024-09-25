@@ -411,16 +411,20 @@ object Main {
       )
       cutoff: CutoffTime,
       @arg(
-        name = "anonymize",
-        doc =
-          "If selected, prints only the commits and not the csid or commit message"
+        short = 'd',
+        doc = "Show repository names, commit hashes, and commit messages"
       )
-      anonymize: Flag
+      details: Flag,
+      @arg(
+        doc = "Sort all commits by date rather than grouping commits by repo"
+      )
+      sort: Flag
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+    val show_details = details.value
 
     for (c <- commonArgs.selected_courses.value) {
       val enrollment = c.enrollment.value
@@ -443,37 +447,54 @@ object Main {
         )
         println(s"Using deadline: ${project_deadline}\n")
 
-        for (((csid, late_commits), i) <- late_repos.zipWithIndex) {
-          val target_name = if (anonymize.value) {
-            s"Submission ${i}"
-          } else {
-            s"${c.course_name}_${pn}_${csid}"
+        val print_commit = (commit: ag.grader.LateCommit) => {
+          val time = commit.time
+            .withZoneSameInstant(ZoneId.systemDefault)
+            .format(datetime_format)
+
+          val days = commit.delay.toDays()
+          val hours = commit.delay.toHours() % 24
+          val minutes = commit.delay.toMinutes() % 60
+          val seconds = commit.delay.getSeconds() % 60
+          val duration = days match
+            case 0 => f"$hours%02d:$minutes%02d:$seconds%02d"
+            case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
+            case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
+
+          val msg = commit.message.length > 64 match
+            case true  => commit.message.take(61) ++ "..."
+            case false => commit.message
+
+          val commit_hash = commit.hash.take(8)
+          val line = show_details match
+            case true  => s"| ${time} (${duration} late); ${commit_hash} ${msg}"
+            case false => s"| ${time} (${duration} late)"
+
+          println(line)
+        }
+
+        if (sort.value) {
+          val commits = late_repos
+            .flatMap((_, late_commits) => late_commits)
+            .sortBy(_.time)
+
+          for (commit <- commits) {
+            print_commit(commit)
           }
-          println(target_name)
-          for (commit <- late_commits) {
-            val time_str = commit.time
-              .withZoneSameInstant(ZoneId.systemDefault)
-              .format(datetime_format)
+        } else {
+          val repos = show_details match
+            case true  => late_repos
+            case false => scala.util.Random.shuffle(late_repos)
 
-            val days = commit.delay.toDays()
-            val hours = commit.delay.toHours() % 24
-            val minutes = commit.delay.toMinutes() % 60
-            val seconds = commit.delay.getSeconds() % 60
-            val duration_str = days match
-              case 0 => f"$hours%02d:$minutes%02d:$seconds%02d"
-              case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
-              case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
+          for (((csid, late_commits), i) <- repos.zipWithIndex) {
+            val target_name = show_details match
+              case true  => s"${c.course_name}_${pn}_${csid}"
+              case false => s"Submission ${i}"
 
-            val message =
-              if (anonymize.value) ""
-              else
-                commit.message.length > 64 match
-                  case true  => commit.message.take(61) ++ "..."
-                  case false => commit.message
-
-            println(
-              s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}"
-            )
+            println(target_name)
+            for (commit <- late_commits) {
+              print_commit(commit)
+            }
           }
         }
       }
