@@ -143,7 +143,8 @@ class HtmlGen(p: Project) {
         p.code_cutoff *:
         p.course.enrollment *:
         p.anti_aliases *:
-        p.course.staff,
+        p.course.staff *:
+        p.staff,
       p.scope
     ) {
       case (
@@ -157,7 +158,8 @@ class HtmlGen(p: Project) {
             code_cutoff,
             enrollment,
             anti_aliases,
-            staff
+            course_staff,
+            project_staff
           ) =>
         val test_extensions = test_extensions_.to(IndexedSeq)
 
@@ -240,7 +242,7 @@ class HtmlGen(p: Project) {
                 result.outcomes.map { case (k, v) => (k.external_name, v) }
 
               val is_mine = anti_aliases.get(alias) match {
-                case Some(csid) => staff.contains(csid)
+                case Some(csid) => course_staff.contains(csid) || project_staff.contains(csid)
                 case None       => false
               }
               val is_late = result.prepare_info.commit_time.isAfter(

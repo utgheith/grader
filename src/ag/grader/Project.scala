@@ -44,7 +44,8 @@ case class RawProject(
     bad_tests: Seq[String],
     docker_file: Option[String],
     test_extensions: Seq[String],
-    weights: Seq[Weight]
+    weights: Seq[Weight],
+    staff: Seq[CSID]
 ) derives ReadWriter
 
 enum CutoffTime:
@@ -118,6 +119,11 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   lazy val project_repo: Maker[SignedPath[Boolean]] =
     Gitolite.mirror(project_repo_name)
+
+  lazy val staff: Maker[SortedSet[CSID]] =
+    Rule(info, scope) { p => 
+      SortedSet(p.staff*)
+    }
 
   ///////////////////
   /* Override Repo */
