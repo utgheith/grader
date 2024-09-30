@@ -127,66 +127,73 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   lazy val publish_override_repo: Maker[SignedPath[Unit]] =
     SignedPath.rule(
-      Gitolite.repo_info(override_repo_name) *: test_extensions *: project_repo,
+      Gitolite.repo_info(
+        override_repo_name
+      ) *: test_extensions *: project_repo *: Config.can_push_repo,
       SortedSet(".git"),
       scope
-    ) { case (dir, (override_repo_info, test_extensions, project_repo)) =>
-      override_repo_info.update(
-        path = dir,
-        fork_from = Some("empty"),
-        msg = "update override",
-        readers = Seq(s"@all"),
-        writers = Seq(course.staff_group_name)
-      ) { _ =>
+    ) {
+      case (
+            dir,
+            (override_repo_info, test_extensions, project_repo, can_push_repo)
+          ) =>
+        override_repo_info.update(
+          path = dir,
+          fork_from = Some("empty"),
+          msg = "update override",
+          readers = Seq(s"@all"),
+          writers = Seq(course.staff_group_name),
+          can_push_repo
+        ) { _ =>
 
-        val initialized_marker = dir / ".initialized"
+          val initialized_marker = dir / ".initialized"
 
-        if (!os.exists(initialized_marker)) {
+          if (!os.exists(initialized_marker)) {
 
-          /* find the original tests */
-          for {
-            f <- os.list(project_repo.path)
-            if !f.last.startsWith(".")
-            if test_extensions.contains(f.ext)
-          } {
-            val target = dir / f.relativeTo(project_repo.path)
-            if (!os.exists(target)) {
-              os.copy(
-                from = f,
-                to = target,
-                followLinks = false,
-                createFolders = true,
-                copyAttributes = true
-              )
-            }
-          }
-
-          /* copy other files */
-          os.walk
-            .stream(path = project_repo.path, followLinks = false)
-            .foreach { f =>
-              if (
-                os.isFile(f) && Project.automatic_override_names.contains(
-                  f.last
+            /* find the original tests */
+            for {
+              f <- os.list(project_repo.path)
+              if !f.last.startsWith(".")
+              if test_extensions.contains(f.ext)
+            } {
+              val target = dir / f.relativeTo(project_repo.path)
+              if (!os.exists(target)) {
+                os.copy(
+                  from = f,
+                  to = target,
+                  followLinks = false,
+                  createFolders = true,
+                  copyAttributes = true
                 )
-              ) {
-                val target = dir / f.relativeTo(project_repo.path)
-                if (!os.exists(target)) {
-                  os.copy(
-                    from = f,
-                    to = target,
-                    followLinks = false,
-                    createFolders = true,
-                    copyAttributes = true
-                  )
-                }
               }
             }
 
-          os.write(initialized_marker, "")
-        }
+            /* copy other files */
+            os.walk
+              .stream(path = project_repo.path, followLinks = false)
+              .foreach { f =>
+                if (
+                  os.isFile(f) && Project.automatic_override_names.contains(
+                    f.last
+                  )
+                ) {
+                  val target = dir / f.relativeTo(project_repo.path)
+                  if (!os.exists(target)) {
+                    os.copy(
+                      from = f,
+                      to = target,
+                      followLinks = false,
+                      createFolders = true,
+                      copyAttributes = true
+                    )
+                  }
+                }
+              }
 
-      }
+            os.write(initialized_marker, "")
+          }
+
+        }
     }
 
   /** *********************
@@ -202,19 +209,22 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   def publish_work_repo(csid: CSID): Maker[SignedPath[Unit]] =
     SignedPath.rule(
-      Gitolite.repo_info(work_repo_name(csid)) *: course.notifications,
+      Gitolite.repo_info(
+        work_repo_name(csid)
+      ) *: course.notifications *: Config.can_send_mail *: Config.can_push_repo,
       SortedSet(".git"),
       scope / csid.value
-    ) { case (dir, (repo_info, n)) =>
+    ) { case (dir, (repo_info, n, can_send_mail, can_push_repo)) =>
       repo_info.update(
         path = dir,
         fork_from = Some(project_repo_name),
         readers = Seq(csid.value, course.staff_group_name),
         writers = Seq(csid.value),
-        msg = s"create"
+        msg = s"create",
+        can_push_repo
       ) { forked =>
         if (forked) {
-          n.send_repo_created(this, repo_info, csid)
+          n.send_repo_created(this, repo_info, csid, can_send_mail)
         }
         ()
       }
@@ -686,7 +696,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         ) *:
         csid_to_alias(csid) *:
         csid_has_test(csid) *:
-        course.notifications.peek,
+        course.notifications.peek *: Config.can_push_repo,
       SortedSet(".git"),
       scope / csid.value / n.toString
     ) {
@@ -698,7 +708,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               outcomes,
               alias,
               has_test,
-              notifications
+              notifications,
+              can_push_repo
             )
           ) =>
         student_results_repo.update(
@@ -706,7 +717,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           fork_from = Some("empty"),
           msg = "updated results",
           readers = Seq(csid.value, course.staff_group_name),
-          writers = Seq()
+          writers = Seq(),
+          can_push_repo
         ) { _ =>
 
           for {
@@ -760,16 +772,18 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     Rule(
       get_student_results(
         csid
-      ) *: course.notifications *: Config.gitolite *: work_repo(csid),
+      ) *: course.notifications *: Config.gitolite *: work_repo(
+        csid
+      ) *: Config.can_send_mail,
       scope / csid.value
     ) {
-      case (Some(sr), n, g, work_repo) =>
+      case (Some(sr), n, g, work_repo, can_send_mail) =>
         if (os.exists(work_repo.path / "spamon")) {
-          n.send_result_update(this, csid, g, sr)
+          n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
           say(s"no spamon for ${course.course_name}:${project_name}:$csid")
         }
-      case (None, _, _, _) =>
+      case (None, _, _, _, _) =>
     }
 
   lazy val project_results_repo_name =
@@ -783,16 +797,17 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         students_with_submission.flatMapSeq((csid: CSID) =>
           publish_student_results(csid, n).map(r => (csid, r))
         ) *:
-        publish_aliases,
+        publish_aliases *: Config.can_push_repo,
       SortedSet(".git"),
       scope / n.toString
-    ) { case (dir, (repo_info, results, aliases)) =>
+    ) { case (dir, (repo_info, results, aliases, can_push_repo)) =>
       repo_info.update(
         path = dir,
         fork_from = Some("empty"),
         msg = "update results",
         readers = Seq("@all"),
-        writers = Seq()
+        writers = Seq(),
+        can_push_repo
       ) { _ =>
         val data = (for {
           (csid, student_results) <- results
@@ -920,16 +935,19 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   lazy val publish_aliases: Maker[SignedPath[SortedMap[CSID, Alias]]] =
     SignedPath.rule(
-      Gitolite.repo_info(aliases_repo_name) *: students_with_submission,
+      Gitolite.repo_info(
+        aliases_repo_name
+      ) *: students_with_submission *: Config.can_push_repo,
       SortedSet(".git"),
       scope
-    ) { case (dir, (repo_info, students_with_submission)) =>
+    ) { case (dir, (repo_info, students_with_submission, can_push_repo)) =>
       repo_info.update(
         path = dir,
         fork_from = Some("empty"),
         msg = "more aliases",
         readers = Seq(course.staff_group_name),
-        writers = Seq()
+        writers = Seq(),
+        can_push_repo
       ) { _ =>
         val file = dir / "aliases.json"
         val old_aliases = if (os.exists(file)) {
@@ -1045,7 +1063,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     SignedPath.rule(
       Gitolite.repo_info(
         tests_repo_name
-      ) *: student_tests_by_csid *: publish_aliases *: override_tests *: test_extensions *: bad_tests,
+      ) *: student_tests_by_csid *: publish_aliases *: override_tests *: test_extensions *: bad_tests *: Config.can_push_repo,
       SortedSet(".git"),
       scope
     ) {
@@ -1057,7 +1075,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               aliases,
               override_tests,
               test_extensions,
-              bad_tests
+              bad_tests,
+              can_push_repo
             )
           ) =>
         tests_repo_info.update(
@@ -1065,7 +1084,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           fork_from = Some("empty"),
           msg = "tests",
           readers = Seq("@all"),
-          writers = Seq()
+          writers = Seq(),
+          can_push_repo
         ) { _ =>
           // delete all tests
           for {

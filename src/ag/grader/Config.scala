@@ -45,7 +45,9 @@ object RemoteServer {
 case class Config(
     gitolite: RemoteServer,
     dropbox_path: Option[os.RelPath] = None,
-    site_base: Option[String] = None
+    site_base: Option[String] = None,
+    can_send_mail: Option[Boolean] = None,
+    can_push_repo: Option[Boolean] = None
 ) derives ReadWriter {}
 
 object Config {
@@ -65,4 +67,8 @@ object Config {
   val dropbox_path: Maker[Option[os.RelPath]] =
     Rule(config, null)(_.dropbox_path)
   val site_base: Maker[Option[String]] = Rule(config, null)(_.site_base)
+  val can_send_mail: Maker[Boolean] =
+    Rule(config, null)(_.can_send_mail.getOrElse(false))
+  val can_push_repo: Maker[Boolean] =
+    Rule(config, null)(_.can_push_repo.getOrElse(false))
 }

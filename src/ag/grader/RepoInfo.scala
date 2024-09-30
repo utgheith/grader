@@ -16,7 +16,8 @@ case class RepoInfo(
       fork_from: Option[String],
       msg: String,
       readers: Seq[String],
-      writers: Seq[String]
+      writers: Seq[String],
+      can_push_repo: Boolean
   )(f: Boolean => A): A = {
     var forked: Boolean = false
 
@@ -47,6 +48,8 @@ case class RepoInfo(
             /* Least common path: the repo doesn't exists, fork it then clone it */
             fork_from match {
               case Some(fork_from) =>
+                if (!can_push_repo)
+                  throw Exception(s"not allowed to fork $repo_name")
                 say(s"forking ${repo_name}")
                 server
                   .SshProc("ssh", server.ssh_uri, "fork", fork_from, repo_name)
@@ -102,6 +105,7 @@ case class RepoInfo(
     val _ = os.proc("git", "add", ".").run(cwd = path)
     Try(os.proc("git", "commit", "-a", "-m", msg).run(cwd = path)) match {
       case Success(_) =>
+        if (!can_push_repo) throw Exception(s"not allowed to push $repo_name")
         say(s"pushing $repo_name")
         val _ = server.SshProc("git", "push").run(cwd = path)
       case Failure(_) =>
