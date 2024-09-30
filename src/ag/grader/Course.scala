@@ -162,12 +162,14 @@ case class NotificationConfig(
 case class RawCourseNotSorted(
     active: Boolean,
     notifications: NotificationConfig,
-    projects: Map[String, RawProject]
+    projects: Map[String, RawProject],
+    staff: SortedSet[CSID] = SortedSet()
 ) derives ReadWriter {
   lazy val sorted: RawCourse = RawCourse(
     active = active,
     notifications = notifications,
-    projects = projects.to(SortedMap)
+    projects = projects.to(SortedMap),
+    staff = staff
   )
 }
 
@@ -175,7 +177,8 @@ case class RawCourseNotSorted(
 case class RawCourse(
     active: Boolean,
     notifications: NotificationConfig,
-    projects: SortedMap[String, RawProject]
+    projects: SortedMap[String, RawProject],
+    staff: SortedSet[CSID] = SortedSet()
 ) derives ReadWriter
 
 case class Course(course_name: String) derives ReadWriter {
@@ -200,6 +203,8 @@ case class Course(course_name: String) derives ReadWriter {
   lazy val active: Maker[Boolean] = Rule(raw, scope) { rc =>
     rc.active
   }
+
+  lazy val staff: Maker[SortedSet[CSID]] = Rule(raw, scope) { rc => rc.staff }
 
   lazy val active_projects: Maker[SortedMap[String, Project]] =
     Rule(Maker.select(projects.map(_.values.toSeq))(_.active), scope) {

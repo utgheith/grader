@@ -1,10 +1,11 @@
 package ag.grader
 
 import java.io.FileWriter
-import ag.rules.{say, Rule}
+import ag.rules.{Maker, say, Rule}
 import scala.collection.SortedMap
 import java.time.{LocalDateTime, ZonedDateTime, ZoneId}
 import java.time.format.DateTimeFormatter
+import scala.collection.SortedSet
 
 trait HtmlContext {
   def doctype(): Unit
@@ -130,7 +131,7 @@ class HtmlGen(p: Project) {
   val displayFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
-  val gen_html =
+  val gen_html: Maker[Unit] =
     Rule(
       p.results *:
         Config.site_base *:
@@ -140,7 +141,9 @@ class HtmlGen(p: Project) {
         p.test_extensions *:
         p.test_cutoff *:
         p.code_cutoff *:
-        p.course.enrollment,
+        p.course.enrollment *:
+        p.anti_aliases *:
+        p.course.staff,
       p.scope
     ) {
       case (
@@ -152,7 +155,9 @@ class HtmlGen(p: Project) {
             test_extensions_,
             test_cutoff,
             code_cutoff,
-            enrollment
+            enrollment,
+            anti_aliases,
+            staff
           ) =>
         val test_extensions = test_extensions_.to(IndexedSeq)
 
@@ -234,7 +239,10 @@ class HtmlGen(p: Project) {
               val outcome: SortedMap[String, RedactedOutcome] =
                 result.outcomes.map { case (k, v) => (k.external_name, v) }
 
-              val is_mine = false // outcome.is_mine
+              val is_mine = anti_aliases.get(alias) match {
+                case Some(csid) => staff.contains(csid)
+                case None => false
+              }
               val is_late = result.prepare_info.commit_time.isAfter(
                 ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
               )

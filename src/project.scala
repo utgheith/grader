@@ -7,7 +7,7 @@
 //> using dep com.lihaoyi::mainargs:0.7.5
 //> using dep com.lihaoyi::os-lib:0.10.7
 //> using dep com.lihaoyi::sourcecode:0.4.2
-//> using dep com.lihaoyi::upickle:4.0.1
+//> using dep com.lihaoyi::upickle:4.0.2
 //> using test.dep org.scalameta::munit::1.0.2
 // using dep com.typesafe.scala-logging::scala-logging:3.9.5
 
