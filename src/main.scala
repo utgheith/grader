@@ -15,7 +15,7 @@ import ag.rules.{
   given_ReadWriter_SortedMap,
   say
 }
-import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main}
+import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main, Flag}
 
 import scala.collection.SortedMap
 import scala.util.matching.Regex
@@ -379,7 +379,12 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime
+      cutoff: CutoffTime,
+      @arg(
+        name = "anonymize",
+        doc = "If selected, prints only the commits and not the csid or commit message"
+      )
+      anonymize: Flag
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -407,8 +412,12 @@ object Main {
         )
         println(s"Using deadline: ${project_deadline}\n")
 
-        for ((csid, late_commits) <- late_repos) {
-          val target_name = s"${c.course_name}_${pn}_${csid}"
+        for (((csid, late_commits), i) <- late_repos.zipWithIndex) {
+          val target_name = if (anonymize.value) {
+            s"Submission ${i}"
+          } else {
+            s"${c.course_name}_${pn}_${csid}"
+          }
           println(target_name)
           for (commit <- late_commits) {
             val time_str = commit.time
@@ -424,9 +433,10 @@ object Main {
               case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
               case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
 
-            val message = commit.message.length > 64 match
-              case true  => commit.message.take(61) ++ "..."
-              case false => commit.message
+            val message = if (anonymize.value) "" else
+              commit.message.length > 64 match
+                case true  => commit.message.take(61) ++ "..."
+                case false => commit.message
 
             println(
               s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}"
