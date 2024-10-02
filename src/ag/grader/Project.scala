@@ -359,15 +359,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
         // (2) what commit should we use
         val commit_id_file = submission_repo.path / "commit_id"
-        val commit_id = if (os.exists(commit_id_file)) {
-          os.read.lines(commit_id_file).head.trim.nn
-        } else {
-          val cutoff_time = cutoff match
+        val cutoff_time = cutoff match
             case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
             case CutoffTime.Default =>
               Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
             case CutoffTime.None => None
-
+        val commit_id = if (os.exists(commit_id_file)) {
+          os.read.lines(commit_id_file).head.trim.nn
+        } else {
           cutoff_time match
             case Some(cutoff_time) => {
               // Find the last commit in the main branch before the cutoff time.
@@ -445,6 +444,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
         // (7) remove .git
         os.remove.all(dir / ".git")
+
+        // (8) mark if prepared commit is after the specified deadline
+        cutoff_time match
+          case Some(cutoff_time) =>
+            if (zdt.isAfter(cutoff_time)) {
+              os.write(dir / "late", "")
+            }
+          case None => None
 
         Some(
           PrepareInfo(
