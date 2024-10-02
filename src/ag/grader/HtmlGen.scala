@@ -242,8 +242,9 @@ class HtmlGen(p: Project) {
                 result.outcomes.map { case (k, v) => (k.external_name, v) }
 
               val is_mine = anti_aliases.get(alias) match {
-                case Some(csid) => course_staff.contains(csid) || project_staff.contains(csid)
-                case None       => false
+                case Some(csid) =>
+                  course_staff.contains(csid) || project_staff.contains(csid)
+                case None => false
               }
               val is_late = result.prepare_info.commit_time.isAfter(
                 ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())

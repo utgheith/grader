@@ -121,7 +121,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     Gitolite.mirror(project_repo_name)
 
   lazy val staff: Maker[SortedSet[CSID]] =
-    Rule(info, scope) { p => 
+    Rule(info, scope) { p =>
       SortedSet(p.staff*)
     }
 

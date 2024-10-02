@@ -24,6 +24,8 @@ import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
+import ag.rules.SignedPath
+import ag.grader.Outcome
 
 class MyMonitor extends NopStateMonitor {
 
@@ -491,30 +493,40 @@ object Main {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
-    val limit = System.currentTimeMillis() + 5 * 60 * 1000
+    val limit = System.currentTimeMillis() + 2 * 60 * 1000 // 2 hours
 
     @tailrec
-    def loop(c: Int): Unit = if (
-      c <= commonArgs.count && System.currentTimeMillis() < limit
-    ) {
+    def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
+      if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
 
-      val outcomes = for {
-        runs <- commonArgs.runs
-        out <- Maker.sequence {
-          for ((p, csid, test_id) <- runs) yield p.run(csid, cutoff, test_id, c)
-        }
-      } yield out
+        val outcomes = for {
+          runs <- commonArgs.runs
+          out <- Maker.sequence {
+            for ((p, csid, test_id) <- runs)
+              yield p.run(csid, cutoff, test_id, c)
+          }
+        } yield out
 
-      val _ = outcomes.value
+        val out = outcomes.value
 
+        println(
+          s"---------------------------> finished iteration #$c/${commonArgs.count}"
+        )
+        loop(c + 1, out)
+
+      } else {
+        in
+      }
+
+    val outs = loop(1, Seq())
+    for {
+      outcome <- outs.map(_.data)
+      if !outcome.outcome.contains(OutcomeStatus.Pass)
+    } {
       println(
-        s"---------------------------> finished iteration #$c/${commonArgs.count}"
+        s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
       )
-      loop(c + 1)
-
     }
-
-    loop(1)
 
   }
 
