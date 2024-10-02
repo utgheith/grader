@@ -493,7 +493,7 @@ object Main {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
 
-    val limit = System.currentTimeMillis() + 2 * 60 * 1000 // 2 hours
+    val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
 
     @tailrec
     def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
