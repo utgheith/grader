@@ -1,8 +1,9 @@
 /config.json
-/prepared/
-/workspace/
-/std_out_err/
+/prepared
+/workspace
+/std_out_err
 /grader
+/scripts
 .bsp/
 .idea/
 .scala-build/
