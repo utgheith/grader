@@ -230,7 +230,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         can_push_repo
       ) { forked =>
         if (forked) {
-          n.send_repo_created(this, repo_info, csid, can_send_mail)
+          n.send_repo_created(this, repo_info, csid, can_send_mail, dir)
         }
         ()
       }
