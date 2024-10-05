@@ -589,17 +589,18 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       csid: CSID,
       cutoff: CutoffTime,
       test_id: TestId,
-      n: Int
+      n: Int,
+      run_all: Boolean = false
   ): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
       prepare(csid, cutoff) *: cores *: (if (n == 1)
                                            empty_run(csid, cutoff, test_id)
                                          else
-                                           run(csid, cutoff, test_id, n - 1)),
+                                           run(csid, cutoff, test_id, n - 1, run_all)),
       SortedSet(),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
     ) { case (out_path, (prepared, cores, prev)) =>
-      if ((n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))) {
+      if (run_all || (n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))) {
         started_runs.incrementAndGet()
         try {
           if (cores > limit) {
@@ -618,6 +619,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               var run_time: Option[Double] = None
               val (rc, stdout, stderr) =
                 try {
+                  say("Running in " + prepared.path)
                   val _ = os
                     .proc("make", "-k", "clean")
                     .run(cwd = prepared.path, check = false)
@@ -660,7 +662,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                 case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
                 case OutcomeStatus.Unknown => fansi.Color.Red("???")
 
-              say(s"    [${finished_runs.get()}/${started_runs
+              say(s"    [${finished_runs.get() + 1}/${started_runs
                   .get()}] finished [$out] $m in $how_long seconds")
 
               stderr.foreach { stderr =>

@@ -527,7 +527,13 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime
+      cutoff: CutoffTime,
+      @arg(
+        name = "run-all",
+        doc =
+          "If selected, will continue running until n iterations, even after a fail"
+      )
+      run_all: Flag
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -542,7 +548,7 @@ object Main {
           runs <- commonArgs.runs
           out <- Maker.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run(csid, cutoff, test_id, c)
+              yield p.run(csid, cutoff, test_id, c, run_all.value)
           }
         } yield out
 
