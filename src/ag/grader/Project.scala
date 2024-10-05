@@ -360,10 +360,10 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         // (2) what commit should we use
         val commit_id_file = submission_repo.path / "commit_id"
         val cutoff_time = cutoff match
-          case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-          case CutoffTime.Default =>
-            Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
-          case CutoffTime.None => None
+            case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
+            case CutoffTime.Default =>
+              Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
+            case CutoffTime.None => None
         val commit_id = if (os.exists(commit_id_file)) {
           os.read.lines(commit_id_file).head.trim.nn
         } else {

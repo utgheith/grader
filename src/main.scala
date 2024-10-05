@@ -15,14 +15,7 @@ import ag.rules.{
   given_ReadWriter_SortedMap,
   say
 }
-import mainargs.{
-  ParserForClass,
-  ParserForMethods,
-  TokensReader,
-  arg,
-  main,
-  Flag
-}
+import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main, Flag}
 
 import scala.collection.SortedMap
 import scala.util.matching.Regex
@@ -33,7 +26,6 @@ import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
 import ag.rules.SignedPath
 import ag.grader.Outcome
-import oshi.SystemInfo
 
 class MyMonitor extends NopStateMonitor {
 
@@ -193,24 +185,6 @@ object CommonArgs {
 }
 
 object Main {
-  @main
-  def system(): Unit = {
-    val info = SystemInfo()
-    val hw = info.getHardware()
-    val processor = hw.getProcessor()
-
-    println(s"${processor.getPhysicalProcessorCount()} physical processors")
-    println(s"${processor.getLogicalProcessorCount()} logical processors")
-
-    val memory = hw.getMemory()
-    println(s"physical memory ${memory.getTotal()}")
-    println(s"available memory ${memory.getAvailable()}")
-
-    val sensors = hw.getSensors()
-
-    println(s"CPU temperature ${sensors.getCpuTemperature()}")
-  }
-
   @main
   def dropbox(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
@@ -408,8 +382,7 @@ object Main {
       cutoff: CutoffTime,
       @arg(
         name = "anonymize",
-        doc =
-          "If selected, prints only the commits and not the csid or commit message"
+        doc = "If selected, prints only the commits and not the csid or commit message"
       )
       anonymize: Flag
   ): Unit = {
@@ -460,12 +433,10 @@ object Main {
               case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
               case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
 
-            val message =
-              if (anonymize.value) ""
-              else
-                commit.message.length > 64 match
-                  case true  => commit.message.take(61) ++ "..."
-                  case false => commit.message
+            val message = if (anonymize.value) "" else
+              commit.message.length > 64 match
+                case true  => commit.message.take(61) ++ "..."
+                case false => commit.message
 
             println(
               s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}"
