@@ -563,9 +563,23 @@ object Main {
 
         val out = outcomes.value
 
+        for {
+          outcome <- out.map(_.data)
+          if !outcome.outcome.contains(OutcomeStatus.Pass)
+        } {
+          println(
+            fansi.Color.Red(
+              s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
+            )
+          )
+        }
+
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
         )
+        println(s"max memory ${Runtime.getRuntime().maxMemory()}")
+        println(s"free memory ${Runtime.getRuntime().freeMemory()}")
+
         loop(c + 1, out)
 
       } else {

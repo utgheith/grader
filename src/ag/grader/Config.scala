@@ -71,7 +71,7 @@ object Config {
     Rule(config, null)(_.dropbox_path)
   val site_base: Maker[Option[String]] = Rule(config, null)(_.site_base)
   val can_send_mail: Maker[Boolean] =
-    Rule(config, null)(_.can_send_mail.getOrElse(false))
+    Rule(config, null)(_.can_send_mail.getOrElse(false)).peek
   val can_push_repo: Maker[Boolean] =
     Rule(config, null)(_.can_push_repo.getOrElse(false))
 }
