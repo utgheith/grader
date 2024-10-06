@@ -614,9 +614,11 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       run_all: Boolean = false
   ): Maker[SignedPath[Outcome]] = {
 
-    val base_scope =
-      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-    val the_scope = if (run_all) base_scope / "all" else base_scope
+    val rest =
+      os.RelPath(
+        csid.value
+      ) / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+    val the_scope = if (run_all) scope / "_all_" / rest else scope / rest
 
     SignedPath.rule(
       test_info(test_id) *: test_extensions *: prepare(
