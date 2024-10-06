@@ -533,7 +533,12 @@ object Main {
         doc =
           "If selected, will continue running until n iterations, even after a fail"
       )
-      run_all: Flag
+      run_all: Flag,
+      @arg(
+        name = "result-file",
+        doc = "The json file to write the results summary out to"
+      )
+      result_file: Option[String]
   ): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -552,7 +557,7 @@ object Main {
           }
         } yield out
 
-        val out = outcomes.value
+        val out = in ++ outcomes.value
 
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
@@ -572,6 +577,37 @@ object Main {
         s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
       )
     }
+
+    result_file.map(file_name => {
+      val results =
+        outs
+          .groupBy(_.data.csid)
+          .map((csid, signed_paths) => {
+            val outcomes = signed_paths.map(_.data)
+            val test_results = outcomes
+              .groupBy(_.test_id)
+              .map((test_id, runs) => {
+                val passed = runs.count(_.outcome match
+                  case Some(OutcomeStatus.Pass)                         => true
+                  case Some(OutcomeStatus.Fail | OutcomeStatus.Timeout) => false
+                  case None | Some(OutcomeStatus.Unknown) =>
+                    throw new Exception("Unknown outcome status")
+                )
+                val total = runs.size
+                (test_id.external_name, (passed, total))
+              })
+            (csid.toString(), test_results)
+          })
+          .toMap()
+
+      val path =
+        if (file_name.charAt(0) == '/') os.Path(file_name)
+        else os.pwd / os.RelPath(file_name)
+      os.write(
+        path,
+        upickle.default.write(results)
+      )
+    })
 
   }
 
