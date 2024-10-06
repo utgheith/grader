@@ -23,6 +23,9 @@ case class RemoteServer(user: String, host: String, port: Int)
         os.proc(parts*).run(cwd = cwd, check = check)
       }
     }
+
+    def lines(cwd: os.Path, stdin: os.ProcessInput = "") =
+      os.read.lines(run(cwd, true, stdin)._2)
   }
 
   def ssh(parts: os.Shellable*): SshProc = SshProc(

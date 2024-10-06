@@ -2,6 +2,7 @@ import ag.grader.{
   Course,
   CSID,
   CutoffTime,
+  Gitolite,
   HtmlGen,
   OutcomeStatus,
   Project,
@@ -15,7 +16,14 @@ import ag.rules.{
   given_ReadWriter_SortedMap,
   say
 }
-import mainargs.{ParserForClass, ParserForMethods, TokensReader, arg, main, Flag}
+import mainargs.{
+  ParserForClass,
+  ParserForMethods,
+  TokensReader,
+  arg,
+  main,
+  Flag
+}
 
 import scala.collection.SortedMap
 import scala.util.matching.Regex
@@ -235,6 +243,20 @@ object Main {
   }
 
   @main
+  def history(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    Gitolite.history.value.foreach(println)
+  }
+
+  @main
+  def info(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    Gitolite.info.value.foreach(println)
+  }
+
+  @main
   def projects(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -390,7 +412,8 @@ object Main {
       cutoff: CutoffTime,
       @arg(
         name = "anonymize",
-        doc = "If selected, prints only the commits and not the csid or commit message"
+        doc =
+          "If selected, prints only the commits and not the csid or commit message"
       )
       anonymize: Flag
   ): Unit = {
@@ -441,10 +464,12 @@ object Main {
               case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
               case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
 
-            val message = if (anonymize.value) "" else
-              commit.message.length > 64 match
-                case true  => commit.message.take(61) ++ "..."
-                case false => commit.message
+            val message =
+              if (anonymize.value) ""
+              else
+                commit.message.length > 64 match
+                  case true  => commit.message.take(61) ++ "..."
+                  case false => commit.message
 
             println(
               s"| ${time_str} (${duration_str} late); ${commit.hash.take(8)} ${message}"
@@ -495,6 +520,17 @@ object Main {
     for ((p, test_id) <- commonArgs.test_ids.value) {
       println(s"$p $test_id")
     }
+
+  }
+
+  @main
+  def latest(
+      commonArgs: CommonArgs
+  ): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+
+    Gitolite.latest.value.foreach(println)
 
   }
 

@@ -318,7 +318,12 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     initial_report.signature != student_report.signature
   }
 
-  def copy_test(test_info: TestInfo, from: os.Path, to: os.Path, test_extensions: SortedSet[String]): Unit = {
+  def copy_test(
+      test_info: TestInfo,
+      from: os.Path,
+      to: os.Path,
+      test_extensions: SortedSet[String]
+  ): Unit = {
     val name = test_info.id.external_name
     // remove all files that start with this name
     if (os.exists(to)) {
@@ -388,10 +393,10 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         // (2) what commit should we use
         val commit_id_file = submission_repo.path / "commit_id"
         val cutoff_time = cutoff match
-            case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-            case CutoffTime.Default =>
-              Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
-            case CutoffTime.None => None
+          case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
+          case CutoffTime.Default =>
+            Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
+          case CutoffTime.None => None
         val commit_id = if (os.exists(commit_id_file)) {
           os.read.lines(commit_id_file).head.trim.nn
         } else {
@@ -608,10 +613,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       n: Int
   ): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
-      test_info(test_id) *: test_extensions *: prepare(csid, cutoff) *: cores *: (if (n == 1)
-                                           empty_run(csid, cutoff, test_id)
-                                         else
-                                           run(csid, cutoff, test_id, n - 1)),
+      test_info(test_id) *: test_extensions *: prepare(
+        csid,
+        cutoff
+      ) *: cores *: (if (n == 1)
+                       empty_run(csid, cutoff, test_id)
+                     else
+                       run(csid, cutoff, test_id, n - 1)),
       SortedSet(),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
     ) { case (out_path, (test_info, test_extensions, prepared, cores, prev)) =>
@@ -625,7 +633,12 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           // all tests for the same project/csid share the same prepared directory
           Project.run_lock(prepared.path) {
             governor.down(cores) {
-              copy_test(test_info.data, test_info.path, prepared.path, test_extensions)
+              copy_test(
+                test_info.data,
+                test_info.path,
+                prepared.path,
+                test_extensions
+              )
               val tn = test_id.external_name
               val m =
                 s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
@@ -1187,16 +1200,19 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     }
 
   def test_info(test_id: TestId): Maker[SignedPath[TestInfo]] =
-    SignedPath.rule(publish_tests *: test_extensions, SortedSet(), scope / test_id.external_name / test_id.internal_name) {
-      case (dir, (tests, test_extensions)) =>
-        os.remove.all(dir)
-        tests.data.get(test_id) match {
-          case Some(info) =>
-            copy_test(info, tests.path, dir, test_extensions)
-            info
-          case None =>
-            throw Exception(s"no info for $test_id")
-        }
+    SignedPath.rule(
+      publish_tests *: test_extensions,
+      SortedSet(),
+      scope / test_id.external_name / test_id.internal_name
+    ) { case (dir, (tests, test_extensions)) =>
+      os.remove.all(dir)
+      tests.data.get(test_id) match {
+        case Some(info) =>
+          copy_test(info, tests.path, dir, test_extensions)
+          info
+        case None =>
+          throw Exception(s"no info for $test_id")
+      }
     }
 
   def csid_has_test(csid: CSID): Maker[Boolean] =
