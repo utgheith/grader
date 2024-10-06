@@ -622,12 +622,7 @@ object Main {
             val test_results = outcomes
               .groupBy(_.test_id)
               .map((test_id, runs) => {
-                val passed = runs.count(_.outcome match
-                  case Some(OutcomeStatus.Pass)                         => true
-                  case Some(OutcomeStatus.Fail | OutcomeStatus.Timeout) => false
-                  case None | Some(OutcomeStatus.Unknown) =>
-                    throw new Exception("Unknown outcome status")
-                )
+                val passed = runs.count(_.outcome.contains(OutcomeStatus.Pass))
                 val total = runs.size
                 (test_id.external_name, (passed, total))
               })
@@ -640,7 +635,7 @@ object Main {
         else os.pwd / os.RelPath(file_name)
       os.write(
         path,
-        upickle.default.write(results)
+        upickle.default.write(results, indent = 2)
       )
 
       if (!run_all.value) {

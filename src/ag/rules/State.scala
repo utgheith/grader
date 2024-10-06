@@ -213,7 +213,7 @@ class State private (
           else evaluate()
         case Failure(e) =>
           say(s"failed to read from $file, remove and retry", e)
-          val _ = os.remove(file)
+          os.remove.all(file)
           evaluate()
       }
     } else {
