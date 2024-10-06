@@ -318,6 +318,35 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     initial_report.signature != student_report.signature
   }
 
+  def copy_test(test_info: TestInfo, from: os.Path, to: os.Path, test_extensions: SortedSet[String]): Unit = {
+    val name = test_info.id.external_name
+    // remove all files that start with this name
+    if (os.exists(to)) {
+      for {
+        p <- os.list(to)
+        if p.baseName == name
+      } {
+        os.remove.all(p)
+      }
+    }
+
+    // copy the test files
+    for {
+      ext <- test_extensions
+      name_ext = s"$name.$ext"
+      src = from / name_ext
+      if os.exists(src)
+    } {
+      os.copy(
+        from = src,
+        to = to / name_ext,
+        followLinks = false,
+        replaceExisting = true,
+        createFolders = true
+      )
+    }
+  }
+
   def prepare(
       csid: CSID,
       cutoff: CutoffTime
@@ -325,7 +354,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     SignedPath.rule(
       submission(csid) *: has_student_report(
         csid
-      ) *: publish_override_repo *: test_extensions *: publish_tests *: code_cutoff,
+      ) *: publish_override_repo *: test_extensions *: code_cutoff,
       SortedSet(".git"),
       scope / csid.value / cutoff.label
     ) {
@@ -336,7 +365,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               has_student_report,
               override_repo,
               test_extensions,
-              tests,
               code_cutoff
             )
           ) =>
@@ -430,22 +458,10 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           if test_extensions.contains(p.ext)
         } os.remove.all(p)
 
-        // (6) copy tests
-        for ((test_id, test_info) <- tests.data.toSeq) {
-          for (ext <- test_extensions) {
-            os.copy.over(
-              from = test_info.sp.path / s"${test_id.internal_name}.$ext",
-              to = dir / s"${test_id.external_name}.$ext",
-              createFolders = true,
-              followLinks = false
-            )
-          }
-        }
-
-        // (7) remove .git
+        // (6) remove .git
         os.remove.all(dir / ".git")
 
-        // (8) mark if prepared commit is after the specified deadline
+        // (7) mark if prepared commit is after the specified deadline
         cutoff_time match
           case Some(cutoff_time) =>
             if (zdt.isAfter(cutoff_time)) {
@@ -461,7 +477,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           )
         )
 
-      case (_, (None, _, _, _, _, _)) =>
+      case (_, (None, _, _, _, _)) =>
         None
 
     }
@@ -592,13 +608,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       n: Int
   ): Maker[SignedPath[Outcome]] =
     SignedPath.rule(
-      prepare(csid, cutoff) *: cores *: (if (n == 1)
+      test_info(test_id) *: test_extensions *: prepare(csid, cutoff) *: cores *: (if (n == 1)
                                            empty_run(csid, cutoff, test_id)
                                          else
                                            run(csid, cutoff, test_id, n - 1)),
       SortedSet(),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-    ) { case (out_path, (prepared, cores, prev)) =>
+    ) { case (out_path, (test_info, test_extensions, prepared, cores, prev)) =>
       if ((n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))) {
         started_runs.incrementAndGet()
         try {
@@ -609,6 +625,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           // all tests for the same project/csid share the same prepared directory
           Project.run_lock(prepared.path) {
             governor.down(cores) {
+              copy_test(test_info.data, test_info.path, prepared.path, test_extensions)
               val tn = test_id.external_name
               val m =
                 s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
@@ -1169,10 +1186,17 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       tests.data.keySet
     }
 
-  def test_info(test_id: TestId): Maker[TestInfo] =
-    Rule(publish_tests, scope / test_id.external_name / test_id.internal_name) {
-      tests =>
-        tests.data(test_id)
+  def test_info(test_id: TestId): Maker[SignedPath[TestInfo]] =
+    SignedPath.rule(publish_tests *: test_extensions, SortedSet(), scope / test_id.external_name / test_id.internal_name) {
+      case (dir, (tests, test_extensions)) =>
+        os.remove.all(dir)
+        tests.data.get(test_id) match {
+          case Some(info) =>
+            copy_test(info, tests.path, dir, test_extensions)
+            info
+          case None =>
+            throw Exception(s"no info for $test_id")
+        }
     }
 
   def csid_has_test(csid: CSID): Maker[Boolean] =

@@ -340,6 +340,8 @@ object Main {
       } {
 
         val aliases = p.get_aliases.value
+        val tests = p.publish_tests.value
+        val test_extensions = p.test_extensions.value
 
         for {
           (csid, _) <- enrollment
@@ -362,6 +364,12 @@ object Main {
                 replaceExisting = true,
                 createFolders = true
               )
+
+              for {
+                (_, test_info) <- tests.data
+              } {
+                p.copy_test(test_info, tests.path, target_path, test_extensions)
+              }
             case None =>
           }
         }
