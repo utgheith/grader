@@ -619,7 +619,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               var run_time: Option[Double] = None
               val (rc, stdout, stderr) =
                 try {
-                  say("Running in " + prepared.path)
                   val _ = os
                     .proc("make", "-k", "clean")
                     .run(cwd = prepared.path, check = false)
@@ -662,7 +661,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                 case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
                 case OutcomeStatus.Unknown => fansi.Color.Red("???")
 
-              say(s"    [${finished_runs.get() + 1}/${started_runs
+              say(s"    [${finished_runs.get()}/${started_runs
                   .get()}] finished [$out] $m in $how_long seconds")
 
               stderr.foreach { stderr =>
