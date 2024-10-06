@@ -612,16 +612,22 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       test_id: TestId,
       n: Int,
       run_all: Boolean = false
-  ): Maker[SignedPath[Outcome]] =
+  ): Maker[SignedPath[Outcome]] = {
+
+    val base_scope =
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+    val the_scope = if (run_all) base_scope / "all" else base_scope
+
     SignedPath.rule(
-      test_info(test_id) *: test_extensions *: prepare(csid, cutoff) *: cores *: (if (n == 1)
-                                           empty_run(csid, cutoff, test_id)
-                                         else
-                                           run(csid, cutoff, test_id, n - 1, run_all)),
+      test_info(test_id) *: test_extensions *: prepare(
+        csid,
+        cutoff
+      ) *: cores *: (if (n == 1)
+                       empty_run(csid, cutoff, test_id)
+                     else
+                       run(csid, cutoff, test_id, n - 1, run_all)),
       SortedSet(),
-      scope / {
-        if (run_all) "all" else "quick"
-      } / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+      the_scope
     ) { case (out_path, (test_info, test_extensions, prepared, cores, prev)) =>
       if (
         run_all || (n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))
@@ -725,6 +731,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         prev.data
       }
     }
+  }
 
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
