@@ -596,11 +596,21 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       prepare(csid, cutoff) *: cores *: (if (n == 1)
                                            empty_run(csid, cutoff, test_id)
                                          else
-                                           run(csid, cutoff, test_id, n - 1, run_all)),
+                                           run(
+                                             csid,
+                                             cutoff,
+                                             test_id,
+                                             n - 1,
+                                             run_all
+                                           )),
       SortedSet(),
-      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+      scope / {
+        if (run_all) "all" else "quick"
+      } / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
     ) { case (out_path, (prepared, cores, prev)) =>
-      if (run_all || (n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))) {
+      if (
+        run_all || (n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))
+      ) {
         started_runs.incrementAndGet()
         try {
           if (cores > limit) {
