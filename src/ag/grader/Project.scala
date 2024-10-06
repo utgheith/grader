@@ -339,11 +339,11 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     for {
       ext <- test_extensions
       name_ext = s"$name.$ext"
-      src = from / name_ext
-      if os.exists(src)
+      src = os.followLink(from / name_ext)
+      if src.map(p => os.exists(p)).getOrElse(false)
     } {
       os.copy(
-        from = src,
+        from = src.get,
         to = to / name_ext,
         followLinks = false,
         replaceExisting = true,
