@@ -545,6 +545,12 @@ object Main {
 
     val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
 
+    if (result_file.isDefined && !run_all.value) {
+      println(
+        "WARNING: result-file is specified but short circuiting of failures is enabled"
+      )
+    }
+
     @tailrec
     def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
       if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
@@ -607,6 +613,10 @@ object Main {
         path,
         upickle.default.write(results)
       )
+
+      if (!run_all.value) {
+        println("WARNING: Results graded without --run-all")
+      }
     })
 
   }
