@@ -2,6 +2,7 @@ import ag.grader.{
   Course,
   CSID,
   CutoffTime,
+  Gitolite,
   HtmlGen,
   OutcomeStatus,
   Project,
@@ -33,7 +34,6 @@ import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
 import ag.rules.SignedPath
 import ag.grader.Outcome
-import oshi.SystemInfo
 
 class MyMonitor extends NopStateMonitor {
 
@@ -194,24 +194,6 @@ object CommonArgs {
 
 object Main {
   @main
-  def system(): Unit = {
-    val info = SystemInfo()
-    val hw = info.getHardware()
-    val processor = hw.getProcessor()
-
-    println(s"${processor.getPhysicalProcessorCount()} physical processors")
-    println(s"${processor.getLogicalProcessorCount()} logical processors")
-
-    val memory = hw.getMemory()
-    println(s"physical memory ${memory.getTotal()}")
-    println(s"available memory ${memory.getAvailable()}")
-
-    val sensors = hw.getSensors()
-
-    println(s"CPU temperature ${sensors.getCpuTemperature()}")
-  }
-
-  @main
   def dropbox(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
@@ -258,6 +240,20 @@ object Main {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
     println(commonArgs.selected_courses.value)
+  }
+
+  @main
+  def history(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    Gitolite.history.value.foreach(println)
+  }
+
+  @main
+  def info(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    Gitolite.info.value.foreach(println)
   }
 
   @main
@@ -366,6 +362,8 @@ object Main {
       } {
 
         val aliases = p.get_aliases.value
+        val tests = p.publish_tests.value
+        val test_extensions = p.test_extensions.value
 
         for {
           (csid, _) <- enrollment
@@ -388,6 +386,12 @@ object Main {
                 replaceExisting = true,
                 createFolders = true
               )
+
+              for {
+                (_, test_info) <- tests.data
+              } {
+                p.copy_test(test_info, tests.path, target_path, test_extensions)
+              }
             case None =>
           }
         }
@@ -520,6 +524,17 @@ object Main {
   }
 
   @main
+  def latest(
+      commonArgs: CommonArgs
+  ): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+
+    Gitolite.latest.value.foreach(println)
+
+  }
+
+  @main
   def run(
       commonArgs: CommonArgs,
       @arg(
@@ -565,9 +580,23 @@ object Main {
 
         val out = in ++ outcomes.value
 
+        for {
+          outcome <- out.map(_.data)
+          if !outcome.outcome.contains(OutcomeStatus.Pass)
+        } {
+          println(
+            fansi.Color.Red(
+              s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
+            )
+          )
+        }
+
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
         )
+        println(s"max memory ${Runtime.getRuntime().maxMemory()}")
+        println(s"free memory ${Runtime.getRuntime().freeMemory()}")
+
         loop(c + 1, out)
 
       } else {

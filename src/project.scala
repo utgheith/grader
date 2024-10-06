@@ -8,7 +8,6 @@
 //> using dep com.lihaoyi::os-lib:0.10.7
 //> using dep com.lihaoyi::sourcecode:0.4.2
 //> using dep com.lihaoyi::upickle:4.0.2
-//> using dep com.github.oshi:oshi-core:6.6.5
 //> using test.dep org.scalameta::munit::1.0.2
 // using dep com.typesafe.scala-logging::scala-logging:3.9.5
 

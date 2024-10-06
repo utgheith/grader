@@ -1,36 +1,39 @@
 package ag.grader
 
-import ag.rules.{Maker, Periodic, Rule, SignedPath, down, lines, say}
+import ag.rules.{Maker, Periodic, Rule, SignedPath, say}
 import upickle.default.read
 
-import java.util.concurrent.Semaphore
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.control.NonFatal
 
 object Gitolite {
 
-  private val sem = Semaphore(4)
+  // private val sem = Semaphore(4)
 
   val history: Maker[SortedMap[String, String]] =
     Rule(Periodic(ms = 60 * 1000) *: Config.gitolite, null) { (_, g) =>
-      val lines =
-        sem.down {
-          os.proc("ssh", "-p", g.port, s"${g.user}@${g.host}", "history")
-            .lines()
-        }
-      val pairs = for {
-        l <- lines
-        parts = l.split(' ').nn
-        if parts.length == 2
-        Array(name, sha) = parts
-      } yield (name, sha)
-      SortedMap(pairs*)
+      val (rc, stdout, stderr) =
+        g.ssh("history").run(cwd = os.pwd, check = false)
+      if (rc != 0) {
+        say(
+          s"getting history failed, reverting to expensive check [details ${stderr
+              .map(_.relativeTo(os.pwd))}]"
+        )
+        SortedMap()
+      } else {
+        (for {
+          l <- os.read.lines(stdout)
+          parts = l.split(' ').nn
+          if parts.length == 2
+          Array(name, sha) = parts
+        } yield (name, sha)).to(SortedMap)
+      }
     }
 
   val info: Maker[SortedSet[String]] =
     Rule((Periodic(ms = 60 * 1000), Config.gitolite), null) { (_, g) =>
-      val lines = sem.down {
-        os.proc("ssh", "-p", g.port, s"${g.user}@${g.host}", "info").lines()
+      val lines = {
+        g.ssh("info").lines(cwd = os.pwd)
       }
       val repos = for {
         line <- lines
