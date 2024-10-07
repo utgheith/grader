@@ -30,8 +30,7 @@ object OutcomeStatus {
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RedactedOutcome(
-    course_name: String,
-    project_name: String,
+    project: Project,
     test_id: RedactedTestId,
     outcome: Option[OutcomeStatus],
     time: Option[Double],
@@ -40,8 +39,7 @@ case class RedactedOutcome(
 
 @upickle.implicits.allowUnknownKeys(false)
 case class Outcome(
-    course_name: String,
-    project_name: String,
+    project: Project,
     csid: CSID,
     test_id: TestId,
     outcome: Option[OutcomeStatus],
@@ -49,8 +47,7 @@ case class Outcome(
     tries: Int
 ) derives ReadWriter {
   lazy val redacted: RedactedOutcome = RedactedOutcome(
-    course_name = course_name,
-    project_name = project_name,
+    project = project,
     test_id = test_id.redacted,
     outcome = outcome,
     time = time,

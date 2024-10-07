@@ -279,10 +279,10 @@ class HtmlGen(p: Project) {
                     val the_class = List(status_class) ::: chosen_class
                     val ttl = o match {
                       case Some(
-                            RedactedOutcome(_, _, _, _, Some(time), tries)
+                            RedactedOutcome(_, _, _, Some(time), tries)
                           ) =>
                         f"$tries%s tries, last took ${time}%.2fs"
-                      case Some(RedactedOutcome(_, _, _, _, None, tries)) =>
+                      case Some(RedactedOutcome(_, _, _, None, tries)) =>
                         s"$tries tries"
                       case _ =>
                         null

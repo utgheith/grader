@@ -593,8 +593,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / "0"
     ) { case (out_path, _) =>
       Outcome(
-        course.course_name,
-        project_name,
+        this,
         csid,
         test_id,
         None,
@@ -714,8 +713,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               }
               copy_results(prepared.path, out_path, test_id)
               Outcome(
-                project_name,
-                course.course_name,
+                this,
                 csid,
                 test_id,
                 Some(outcome),

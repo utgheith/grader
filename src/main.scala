@@ -578,18 +578,29 @@ object Main {
           }
         } yield out
 
-        val out = in ++ outcomes.value
+        val out = if (run_all.value) in ++ outcomes.value else outcomes.value
 
-        for {
-          outcome <- out.map(_.data)
-          if !outcome.outcome.contains(OutcomeStatus.Pass)
-        } {
-          println(
-            fansi.Color.Red(
-              s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
-            )
-          )
-        }
+        out
+          .map(_.data)
+          .filterNot(_.outcome.contains(OutcomeStatus.Pass))
+          .groupBy(_.csid)
+          .to(SortedMap)
+          .foreach { (csid, s) =>
+            println(csid)
+            s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
+              (c, s) =>
+                println(s"  $c")
+                s.groupBy(_.project.project_name).to(SortedMap).foreach {
+                  (p, s) =>
+                    println(s"    ${c}_$p")
+                    s.sortBy(_.test_id.external_name).foreach { o =>
+                      println(
+                        s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
+                      )
+                    }
+                }
+            }
+          }
 
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
@@ -604,14 +615,6 @@ object Main {
       }
 
     val outs = loop(1, Seq())
-    for {
-      outcome <- outs.map(_.data)
-      if !outcome.outcome.contains(OutcomeStatus.Pass)
-    } {
-      println(
-        s"${outcome.test_id.external_name} ${outcome.outcome} ${outcome.tries}"
-      )
-    }
 
     result_file.map(file_name => {
       val results =
@@ -720,7 +723,16 @@ object Main {
 
       }
     }
+  }
 
+  @main
+  def play(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    val c = Course("cs439c_f24")
+    val p = Project(c, "p5")
+    val t = p.test_ids.value
+    t.foreach(x => println(p.test_info(x).value))
   }
 
   def main(args: Array[String]): Unit = {
