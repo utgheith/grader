@@ -949,7 +949,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         } else {
           false
         }
-        os.write(dir / ".rev", rev)
+        //os.write(dir / ".rev", rev)
         os.remove.all(dir / ".git")
         if (out) Some(rev) else None
       case (dir, (None, _, _)) =>
@@ -1162,7 +1162,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                 external_name = alias.toString,
                 internal_name = csid.toString
               )
-              val test_info = TestInfo(test_id, test_sp)
+              val test_info = TestInfo(test_id, test_sp.copy(data=()))
               info.update(test_id, test_info)
               val src = test_sp.path / s"${csid.value}.$ext"
               val dest = dir / s"${alias}.$ext"
@@ -1184,7 +1184,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                 external_name = test_name,
                 internal_name = test_name
               )
-              val test_info = TestInfo(test_id, test_sp)
+              val test_info = TestInfo(test_id, test_sp.copy(data=()))
               info.update(test_id, test_info)
               os.copy.over(
                 from = test_sp.path / s"$test_name.$ext",
