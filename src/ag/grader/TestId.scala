@@ -2,16 +2,18 @@ package ag.grader
 
 import upickle.default.ReadWriter
 
-case class RedactedTestId(external_name: String, git_sha: String)
+@upickle.implicits.allowUnknownKeys(false)
+case class RedactedTestId(external_name: String)
     derives ReadWriter
 object RedactedTestId {
   given Ordering[RedactedTestId] = Ordering.by(t => t.external_name)
 }
 
-case class TestId(external_name: String, internal_name: String, git_sha: String)
+@upickle.implicits.allowUnknownKeys(false)
+case class TestId(external_name: String, internal_name: String)
     derives ReadWriter {
   lazy val redacted: RedactedTestId =
-    RedactedTestId(external_name = external_name, git_sha = git_sha)
+    RedactedTestId(external_name = external_name)
 }
 
 object TestId {

@@ -1160,8 +1160,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             for (ext <- test_extensions) {
               val test_id = TestId(
                 external_name = alias.toString,
-                internal_name = csid.toString,
-                git_sha = test_sp.data
+                internal_name = csid.toString
               )
               val test_info = TestInfo(test_id, test_sp)
               info.update(test_id, test_info)
@@ -1183,8 +1182,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             for (ext <- test_extensions) {
               val test_id = TestId(
                 external_name = test_name,
-                internal_name = test_name,
-                git_sha = test_sp.data
+                internal_name = test_name
               )
               val test_info = TestInfo(test_id, test_sp)
               info.update(test_id, test_info)
