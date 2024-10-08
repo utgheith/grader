@@ -3,8 +3,7 @@ package ag.grader
 import upickle.default.ReadWriter
 
 @upickle.implicits.allowUnknownKeys(false)
-case class RedactedTestId(external_name: String)
-    derives ReadWriter
+case class RedactedTestId(external_name: String) derives ReadWriter
 object RedactedTestId {
   given Ordering[RedactedTestId] = Ordering.by(t => t.external_name)
 }

@@ -3,5 +3,7 @@
 ```
 make test # run unit tests
 make compile # compile
-make build # build native image
+make native # build native image
+./run --help # run with JRE
+./grader --help # run native image
 ```
