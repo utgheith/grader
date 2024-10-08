@@ -185,7 +185,6 @@ case class CommonArgs(
     if students.matches(csid.value)
     test_id <- the_test_ids
   } yield (p, csid, test_id)
-
 }
 
 object CommonArgs {
@@ -200,6 +199,27 @@ object Main {
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
       println(upickle.default.write(c.dropbox.value, indent = 2))
+    }
+  }
+
+  @main
+  def bad_tests(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    val r = (for {
+      p <- commonArgs.selected_projects.value.toSeq
+      s <- p.course.enrollment.value.keySet.toSeq
+      if commonArgs.students.matches(s.value)
+      r <- p.get_student_results(s).value.toSeq
+      (test, outcome) <- r.outcomes.toSeq
+    } yield (p, s, test, outcome)).groupMapReduce {
+      case (p, s, test, outcome) => (p, test)
+    } { case (p, s, test, outcome) =>
+      !outcome.outcome.contains(OutcomeStatus.Pass)
+    }(_ && _)
+
+    r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
+      println(s"${p.course.course_name}_${p.project_name}:${t.external_name}")
     }
   }
 
