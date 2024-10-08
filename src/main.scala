@@ -236,6 +236,16 @@ object Main {
   }
 
   @main
+  def create_grades_repos(commonArgs: CommonArgs): Unit = {
+    val m = MyMonitor()
+    given State = State.of(commonArgs.workspace, m)
+    for (c <- commonArgs.selected_courses.value) {
+      println(s"Creating ${c.course_name}__grades")
+      val _ = c.create_grades_repo.value
+    }
+  }
+
+  @main
   def courses(commonArgs: CommonArgs): Unit = {
     val m = MyMonitor()
     given State = State.of(commonArgs.workspace, m)
