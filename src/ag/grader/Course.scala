@@ -166,6 +166,37 @@ case class Course(course_name: String) derives ReadWriter {
       }
     }
 
+  lazy val grades_repo_name = s"${course_name}__grades"
+
+  lazy val create_grades_repo: Maker[SignedPath[Unit]] =
+    SignedPath.rule(
+      Gitolite.repo_info(grades_repo_name) *: Config.can_push_repo,
+      SortedSet(".git"),
+      scope
+    ) { case (dir, (g, can_push_repo)) =>
+      g.update(
+        path = dir,
+        fork_from = Some("empty"),
+        msg = "creating grades repo",
+        readers = Seq(staff_group_name),
+        writers = Seq(staff_group_name),
+        can_push_repo
+      ) { newly_created =>
+        if newly_created then {
+          os.write(
+            dir / "README.md",
+            f"""
+            |# Grading data for `${course_name}`
+            |
+            |This is a per-course workspace for synchronizing grading data
+            |used by the grading scripts between TAs. The grader itself
+            |automatically creates this repo, but does not otherwise use
+            |it; that may change in the future.
+            |""".stripMargin
+          )
+        }
+      }
+    }
 }
 
 object Course {
