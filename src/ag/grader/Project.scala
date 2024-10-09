@@ -1206,6 +1206,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       tests.data.keySet
     }
 
+  lazy val chosen_test_ids: Maker[SortedSet[TestId]] =
+    Rule(test_ids *: chosen, scope) { case (tests, chosen) =>
+      for {
+        test <- tests
+        if chosen.contains(test.external_name) || chosen.contains(test.internal_name)
+      } yield test
+    }
+
   def test_info(test_id: TestId): Maker[SignedPath[TestInfo]] =
     SignedPath.rule(
       publish_tests *: test_extensions,

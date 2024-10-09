@@ -35,13 +35,15 @@ import scala.annotation.tailrec
 import ag.rules.SignedPath
 import ag.grader.Outcome
 
-class MyMonitor extends NopStateMonitor {
+class MyMonitor(commonArgs: CommonArgs) extends NopStateMonitor {
 
   override def onStart(s: State, rule: RuleBase): Unit = {
     // println(s"********** [${Thread.currentThread().nn.getName}] ${rule.path}")
   }
   override def onCompute(s: State, rule: RuleBase, in: Any): Unit = {
-    say(rule.path)
+    if (commonArgs.verbose.value) {
+      say(rule.path)
+    }
   }
 }
 
@@ -105,16 +107,20 @@ given TokensReader.Simple[AliasSortMode] with {
 
 //@main
 case class CommonArgs(
-    @arg(short = 'c')
+    @arg(short = 'c', doc="courses to consider (regex)")
     courses: Regex = """.*""".r,
-    @arg(short = 'p')
+    @arg(short = 'p', doc="projects to consider (regex)")
     projects: Regex = """.*""".r,
-    @arg(short = 's')
+    @arg(short = 's', doc="students to consider (regex)")
     students: Regex = """.*""".r,
-    @arg(short = 't')
+    @arg(short = 't', doc="tests to consider (regex)")
     tests: Regex = """.*""".r,
-    @arg(short = 'n')
+    @arg(short = 'n', doc="how many iterations?")
     count: Int = 1,
+    @arg(short = 'o', doc = "restrict to chosen tests")
+    only_chosen: Flag = Flag(false),
+    @arg(short = 'v', doc = "verbose output")
+    verbose: Flag = Flag(false),
     workspace: os.Path = os.pwd / "workspace"
 ) {
 
@@ -156,7 +162,7 @@ case class CommonArgs(
     projects: Seq[Project] <- selected_projects
     per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
       p <- projects
-    } yield p.test_ids)
+    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
   } yield for {
     (p, test_ids) <- projects.zip(per_project_test_ids)
     test_id <- test_ids
@@ -172,7 +178,7 @@ case class CommonArgs(
     } yield project.students_with_submission)
     per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
       p <- projects
-    } yield p.test_ids)
+    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
   } yield for {
     ((p, csids), test_ids) <- projects
       .zip(per_project_csids)
@@ -194,7 +200,7 @@ object CommonArgs {
 object Main {
   @main
   def dropbox(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
@@ -204,7 +210,7 @@ object Main {
 
   @main
   def bad_tests(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     val r = (for {
       p <- commonArgs.selected_projects.value.toSeq
@@ -225,7 +231,7 @@ object Main {
 
   @main
   def publish_keys(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
@@ -235,7 +241,7 @@ object Main {
 
   @main
   def publish_enrollment(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
@@ -246,7 +252,7 @@ object Main {
 
   @main
   def enrollment(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"\n------ ${c.course_name} -------")
@@ -257,7 +263,7 @@ object Main {
 
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(s"Creating ${c.course_name}__grades")
@@ -267,35 +273,35 @@ object Main {
 
   @main
   def courses(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     println(commonArgs.selected_courses.value)
   }
 
   @main
   def history(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     Gitolite.history.value.foreach(println)
   }
 
   @main
   def info(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     Gitolite.info.value.foreach(println)
   }
 
   @main
   def projects(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     println(commonArgs.selected_projects.value)
   }
 
   @main
   def overrides(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (p <- commonArgs.selected_projects.value) {
       println(p.publish_override_repo.value)
@@ -304,7 +310,7 @@ object Main {
 
   @main
   def work_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       for {
@@ -330,7 +336,7 @@ object Main {
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
   ): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     val sort = sortMode match
@@ -377,7 +383,7 @@ object Main {
       )
       cutoff: CutoffTime
   ): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     val base = os.pwd / "prepared"
@@ -450,7 +456,7 @@ object Main {
       )
       sort: Flag
   ): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
@@ -533,7 +539,7 @@ object Main {
 
   @main
   def publish_work_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(c.course_name)
@@ -557,7 +563,7 @@ object Main {
 
   @main
   def submissions(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for ((p, csid) <- commonArgs.submissions.value) {
       println(s"$p $csid")
@@ -566,7 +572,7 @@ object Main {
 
   @main
   def test_ids(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for ((p, test_id) <- commonArgs.test_ids.value) {
       println(s"$p $test_id")
@@ -578,7 +584,7 @@ object Main {
   def latest(
       commonArgs: CommonArgs
   ): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     Gitolite.latest.value.foreach(println)
@@ -606,7 +612,7 @@ object Main {
       )
       result_file: Option[String]
   ): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
@@ -701,7 +707,7 @@ object Main {
 
   @main
   def publish_results(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     for (p <- commonArgs.selected_projects.value) {
@@ -712,7 +718,7 @@ object Main {
 
   @main
   def get_results(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       println(c.course_name)
@@ -742,7 +748,7 @@ object Main {
 
   @main
   def notify_results(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       for {
@@ -762,7 +768,7 @@ object Main {
 
   @main
   def gen_html(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     for (c <- commonArgs.selected_courses.value) {
       for {
@@ -778,7 +784,7 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor()
+    val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     val c = Course("cs439c_f24")
     val p = Project(c, "p5")
