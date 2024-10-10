@@ -466,13 +466,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         // (6) remove .git
         os.remove.all(dir / ".git")
 
-        // (7) mark if prepared commit is after the specified deadline
-        cutoff_time match
-          case Some(cutoff_time) =>
-            if (zdt.isAfter(cutoff_time)) {
-              os.write(dir / "late", "")
-            }
-          case None => None
+        // (7) write commit info to file
+        val late_message = cutoff_time match
+          case Some(cutoff_time) if zdt.isAfter(cutoff_time) => "late"
+          case _                                             => "onTime"
+        os.write.over(
+          dir / "prepared_commit",
+          s"$git_sha\n$zdt\n$late_message\n"
+        )
 
         Some(
           PrepareInfo(
