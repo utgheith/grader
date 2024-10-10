@@ -599,45 +599,26 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime,
-      @arg(
-        name = "run-all",
-        doc =
-          "If selected, will continue running until n iterations, even after a fail"
-      )
-      run_all: Flag,
-      @arg(
-        name = "result-file",
-        doc = "The json file to write the results summary out to"
-      )
-      result_file: Option[String]
+      cutoff: CutoffTime
   ): Unit = {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
     val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
 
-    if (result_file.isDefined && !run_all.value) {
-      println(
-        "WARNING: result-file is specified but short circuiting of failures is enabled"
-      )
-    }
-
     @tailrec
-    def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
+    def loop(c: Int): Unit =
       if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
 
         val outcomes = for {
           runs <- commonArgs.runs
           out <- Maker.sequence {
             for ((p, csid, test_id) <- runs)
-              yield
-                if (run_all.value) p.run_all(csid, cutoff, test_id, c)
-                else p.run(csid, cutoff, test_id, c).map(x => Seq(x))
+              yield p.run(csid, cutoff, test_id, c)
           }
         } yield out
 
-        val out = outcomes.value.last
+        val out = outcomes.value
 
         out
           .map(_.data)
@@ -667,7 +648,75 @@ object Main {
         println(s"max memory ${Runtime.getRuntime().maxMemory()}")
         println(s"free memory ${Runtime.getRuntime().freeMemory()}")
 
-        loop(c + 1, out)
+        loop(c + 1)
+      }
+
+    loop(1)
+  }
+
+  @main
+  def run_all(
+      commonArgs: CommonArgs,
+      @arg(
+        name = "code-cutoff",
+        doc =
+          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      )
+      cutoff: CutoffTime,
+      @arg(
+        name = "result-file",
+        doc = "The json file to write the results summary out to"
+      )
+      result_file: Option[String]
+  ): Unit = {
+    val m = MyMonitor(commonArgs)
+    given State = State.of(commonArgs.workspace, m)
+
+    val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
+
+    @tailrec
+    def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
+      if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
+
+        val outcomes = for {
+          runs <- commonArgs.runs
+          out <- Maker.sequence {
+            for ((p, csid, test_id) <- runs)
+              yield p.run_one(csid, cutoff, test_id, c)
+          }
+        } yield out
+
+        val out = outcomes.value
+
+        out
+          .map(_.data)
+          .filterNot(_.outcome.contains(OutcomeStatus.Pass))
+          .groupBy(_.csid)
+          .to(SortedMap)
+          .foreach { (csid, s) =>
+            println(csid)
+            s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
+              (c, s) =>
+                println(s"  $c")
+                s.groupBy(_.project.project_name).to(SortedMap).foreach {
+                  (p, s) =>
+                    println(s"    ${c}_$p")
+                    s.sortBy(_.test_id.external_name).foreach { o =>
+                      println(
+                        s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
+                      )
+                    }
+                }
+            }
+          }
+
+        println(
+          s"---------------------------> finished iteration #$c/${commonArgs.count}"
+        )
+        println(s"max memory ${Runtime.getRuntime().maxMemory()}")
+        println(s"free memory ${Runtime.getRuntime().freeMemory()}")
+
+        loop(c + 1, in ++ out)
 
       } else {
         in
@@ -675,7 +724,7 @@ object Main {
 
     val outs = loop(1, Seq())
 
-    result_file.map(file_name => {
+    result_file.foreach(file_name => {
       val results =
         outs
           .groupBy(_.data.csid)
@@ -699,10 +748,6 @@ object Main {
         path,
         upickle.default.write(results, indent = 2)
       )
-
-      if (!run_all.value) {
-        println("WARNING: Results graded without --run-all")
-      }
     })
 
   }
