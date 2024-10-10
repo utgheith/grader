@@ -605,34 +605,32 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   // The output of time's %E format, output by the Makefile build system for test runtimes
   private val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
 
-  def run(
+  // Run a submission/test combination once and report the outcome
+  def run_one(
       csid: CSID,
       cutoff: CutoffTime,
       test_id: TestId,
-      n: Int,
-      run_all: Boolean = false
+      n: Int
   ): Maker[SignedPath[Outcome]] = {
 
-    val rest =
-      os.RelPath(
-        csid.value
-      ) / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-    val the_scope = if (run_all) scope / "_all_" / rest else scope / rest
+    if (n <= 0) {
+      empty_run(csid, cutoff, test_id)
+    } else {
 
-    SignedPath.rule(
-      test_info(test_id) *: test_extensions *: prepare(
-        csid,
-        cutoff
-      ) *: cores *: (if (n == 1)
-                       empty_run(csid, cutoff, test_id)
-                     else
-                       run(csid, cutoff, test_id, n - 1, run_all)),
-      SortedSet(),
-      the_scope
-    ) { case (out_path, (test_info, test_extensions, prepared, cores, prev)) =>
-      if (
-        run_all || (n == 1) || (prev.data.outcome == Some(OutcomeStatus.Pass))
-      ) {
+      val rest =
+        os.RelPath(
+          csid.value
+        ) / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+      val the_scope = scope / rest
+
+      SignedPath.rule(
+        test_info(test_id) *: test_extensions *: prepare(
+          csid,
+          cutoff
+        ) *: cores,
+        SortedSet(),
+        the_scope
+      ) { case (out_path, (test_info, test_extensions, prepared, cores)) =>
         started_runs.incrementAndGet()
         try {
           if (cores > limit) {
@@ -726,11 +724,54 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         } finally {
           finished_runs.incrementAndGet()
         }
-      } else {
-        copy_results(prev.path, out_path, test_id)
-        prev.data
+
       }
     }
+  }
+
+  // Run a submission/test combinations "n" times and report the outcomes
+  def run_all(
+      csid: CSID,
+      cutoff: CutoffTime,
+      test_id: TestId,
+      n: Int
+  ): Maker[Seq[SignedPath[Outcome]]] = {
+    Rule(
+      Maker.sequence {
+        for {
+          i <- 1 to n.max(0)
+        } yield run_one(csid, cutoff, test_id, i)
+      },
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
+    ) { s => s }
+  }
+
+  // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
+  def run(
+      csid: CSID,
+      cutoff: CutoffTime,
+      test_id: TestId,
+      n: Int
+  ): Maker[SignedPath[Outcome]] = {
+
+    val m = n.max(0)
+
+    Rule(
+      if (m == 0) {
+        empty_run(csid, cutoff, test_id)
+      } else {
+        val prev_maker = run(csid, cutoff, test_id, n - 1)
+        for {
+          prev <- prev_maker
+          it <-
+            if ((m == 1) || (prev.data.outcome.contains(OutcomeStatus.Pass)))
+              run_one(csid, cutoff, test_id, n)
+            else prev_maker
+        } yield it
+      },
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / m.toString
+    )(x => x)
+
   }
 
   def student_results_repo_name(csid: CSID): String =
@@ -1210,7 +1251,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     Rule(test_ids *: chosen, scope) { case (tests, chosen) =>
       for {
         test <- tests
-        if chosen.contains(test.external_name) || chosen.contains(test.internal_name)
+        if chosen.contains(test.external_name) || chosen.contains(
+          test.internal_name
+        )
       } yield test
     }
 
