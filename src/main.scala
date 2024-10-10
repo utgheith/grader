@@ -107,15 +107,15 @@ given TokensReader.Simple[AliasSortMode] with {
 
 //@main
 case class CommonArgs(
-    @arg(short = 'c', doc="courses to consider (regex)")
+    @arg(short = 'c', doc = "courses to consider (regex)")
     courses: Regex = """.*""".r,
-    @arg(short = 'p', doc="projects to consider (regex)")
+    @arg(short = 'p', doc = "projects to consider (regex)")
     projects: Regex = """.*""".r,
-    @arg(short = 's', doc="students to consider (regex)")
+    @arg(short = 's', doc = "students to consider (regex)")
     students: Regex = """.*""".r,
-    @arg(short = 't', doc="tests to consider (regex)")
+    @arg(short = 't', doc = "tests to consider (regex)")
     tests: Regex = """.*""".r,
-    @arg(short = 'n', doc="how many iterations?")
+    @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
     @arg(short = 'o', doc = "restrict to chosen tests")
     only_chosen: Flag = Flag(false),
@@ -631,11 +631,13 @@ object Main {
           runs <- commonArgs.runs
           out <- Maker.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run(csid, cutoff, test_id, c, run_all.value)
+              yield
+                if (run_all.value) p.run_all(csid, cutoff, test_id, c)
+                else p.run(csid, cutoff, test_id, c).map(x => Seq(x))
           }
         } yield out
 
-        val out = if (run_all.value) in ++ outcomes.value else outcomes.value
+        val out = outcomes.value.last
 
         out
           .map(_.data)
