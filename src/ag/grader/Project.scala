@@ -721,23 +721,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     }
   }
 
-  // Run a submission/test combinations "n" times and report the outcomes
-  def run_all(
-      csid: CSID,
-      cutoff: CutoffTime,
-      test_id: TestId,
-      n: Int
-  ): Maker[SignedPath[Outcome]] = {
-    Rule(
-      Maker.sequence {
-        for {
-          i <- 1 to n.max(0)
-        } yield run_one(csid, cutoff, test_id, i)
-      },
-      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-    ) { s => s.last }
-  }
-
   // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
   def run(
       csid: CSID,
