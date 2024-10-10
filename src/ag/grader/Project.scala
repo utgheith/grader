@@ -616,20 +616,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     if (n <= 0) {
       empty_run(csid, cutoff, test_id)
     } else {
-
-      val rest =
-        os.RelPath(
-          csid.value
-        ) / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-      val the_scope = scope / rest
-
       SignedPath.rule(
         test_info(test_id) *: test_extensions *: prepare(
           csid,
           cutoff
         ) *: cores,
         SortedSet(),
-        the_scope
+        scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
       ) { case (out_path, (test_info, test_extensions, prepared, cores)) =>
         started_runs.incrementAndGet()
         try {
@@ -724,7 +717,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         } finally {
           finished_runs.incrementAndGet()
         }
-
       }
     }
   }
@@ -735,7 +727,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       cutoff: CutoffTime,
       test_id: TestId,
       n: Int
-  ): Maker[Seq[SignedPath[Outcome]]] = {
+  ): Maker[SignedPath[Outcome]] = {
     Rule(
       Maker.sequence {
         for {
@@ -743,7 +735,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         } yield run_one(csid, cutoff, test_id, i)
       },
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-    ) { s => s }
+    ) { s => s.last }
   }
 
   // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
