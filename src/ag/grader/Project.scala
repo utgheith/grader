@@ -582,26 +582,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("time")
   }
 
-  def empty_run(
-      csid: CSID,
-      cutoff: CutoffTime,
-      test_id: TestId
-  ): Maker[SignedPath[Outcome]] =
-    SignedPath.rule(
-      prepare(csid, cutoff),
-      SortedSet(),
-      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / "0"
-    ) { case (out_path, _) =>
-      Outcome(
-        this,
-        csid,
-        test_id,
-        None,
-        None,
-        tries = 0
-      )
-    }
-
   // The output of time's %E format, output by the Makefile build system for test runtimes
   private val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
 
@@ -611,115 +591,111 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       cutoff: CutoffTime,
       test_id: TestId,
       n: Int
-  ): Maker[SignedPath[Outcome]] = {
+  ): Maker[SignedPath[Outcome]] =
+    SignedPath.rule(
+      test_info(test_id) *: test_extensions *: prepare(
+        csid,
+        cutoff
+      ) *: cores,
+      SortedSet(),
+      scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n
+        .max(1)
+        .toString
+    ) { case (out_path, (test_info, test_extensions, prepared, cores)) =>
+      started_runs.incrementAndGet()
+      try {
+        if (cores > limit) {
+          throw new Exception(s"need $cores cores, limit is $limit")
+        }
 
-    if (n <= 0) {
-      empty_run(csid, cutoff, test_id)
-    } else {
-      SignedPath.rule(
-        test_info(test_id) *: test_extensions *: prepare(
-          csid,
-          cutoff
-        ) *: cores,
-        SortedSet(),
-        scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n.toString
-      ) { case (out_path, (test_info, test_extensions, prepared, cores)) =>
-        started_runs.incrementAndGet()
-        try {
-          if (cores > limit) {
-            throw new Exception(s"need $cores cores, limit is $limit")
-          }
+        // all tests for the same project/csid share the same prepared directory
+        Project.run_lock(prepared.path) {
+          governor.down(cores) {
+            copy_test(
+              test_info.data,
+              test_info.path,
+              prepared.path,
+              test_extensions
+            )
+            val tn = test_id.external_name
+            val m =
+              s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
+            say(f"running#$n $m on $cores cores")
 
-          // all tests for the same project/csid share the same prepared directory
-          Project.run_lock(prepared.path) {
-            governor.down(cores) {
-              copy_test(
-                test_info.data,
-                test_info.path,
-                prepared.path,
-                test_extensions
-              )
-              val tn = test_id.external_name
-              val m =
-                s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
-              say(f"running#$n $m on $cores cores")
-
-              val start = System.currentTimeMillis()
-              var run_time: Option[Double] = None
-              val (rc, stdout, stderr) =
-                try {
-                  val _ = os
-                    .proc("make", "-k", "clean")
-                    .run(cwd = prepared.path, check = false)
-                  os.proc("make", "-k", s"$tn.test")
-                    .run(cwd = prepared.path, check = false)
-                } finally {
-                  val end = System.currentTimeMillis()
-                  run_time = Some((end - start).toDouble / 1000)
-                }
-
-              val result_path = prepared.path / s"$tn.result"
-              val outcome_str =
-                if (os.isFile(result_path))
-                  os.read.lines(result_path).headOption
-                else None
-
-              val time_path = prepared.path / s"$tn.time"
-              val qemu_runtime_str =
-                if (os.isFile(time_path)) os.read.lines(time_path).headOption
-                else None
-
-              val qemu_runtime = qemu_runtime_str match
-                case Some(TimeFormat(Optional(None), min, sec)) =>
-                  Some(min.toDouble * 60 + sec.toDouble)
-                case Some(TimeFormat(Optional(Some(hours)), min, sec)) =>
-                  Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
-                case Some("timeout") => None
-                case _               => None
-
-              val outcome = (outcome_str, qemu_runtime_str) match
-                case (_, Some("timeout")) => OutcomeStatus.Timeout
-                case (Some("pass"), _)    => OutcomeStatus.Pass
-                case (Some("fail"), _)    => OutcomeStatus.Fail
-                case (_, _)               => OutcomeStatus.Unknown
-
-              val how_long = run_time.map(t => f"$t%.2f")
-              val out = outcome match
-                case OutcomeStatus.Pass    => fansi.Color.Green("pass")
-                case OutcomeStatus.Fail    => fansi.Color.Red("fail")
-                case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
-                case OutcomeStatus.Unknown => fansi.Color.Red("???")
-
-              say(s"    [${finished_runs.get()}/${started_runs
-                  .get()}] finished [$out] $m in $how_long seconds")
-
-              stderr.foreach { stderr =>
-                os.copy(
-                  from = stderr,
-                  to = out_path / s"$tn.err",
-                  createFolders = true,
-                  replaceExisting = true,
-                  followLinks = false
-                )
+            val start = System.currentTimeMillis()
+            var run_time: Option[Double] = None
+            val (rc, stdout, stderr) =
+              try {
+                val _ = os
+                  .proc("make", "-k", "clean")
+                  .run(cwd = prepared.path, check = false)
+                os.proc("make", "-k", s"$tn.test")
+                  .run(cwd = prepared.path, check = false)
+              } finally {
+                val end = System.currentTimeMillis()
+                run_time = Some((end - start).toDouble / 1000)
               }
-              copy_results(prepared.path, out_path, test_id)
-              Outcome(
-                this,
-                csid,
-                test_id,
-                Some(outcome),
-                // In the case of a timeout, show the outer runtime
-                time = qemu_runtime.orElse(run_time),
-                tries = n
+
+            val result_path = prepared.path / s"$tn.result"
+            val outcome_str =
+              if (os.isFile(result_path))
+                os.read.lines(result_path).headOption
+              else None
+
+            val time_path = prepared.path / s"$tn.time"
+            val qemu_runtime_str =
+              if (os.isFile(time_path)) os.read.lines(time_path).headOption
+              else None
+
+            val qemu_runtime = qemu_runtime_str match
+              case Some(TimeFormat(Optional(None), min, sec)) =>
+                Some(min.toDouble * 60 + sec.toDouble)
+              case Some(TimeFormat(Optional(Some(hours)), min, sec)) =>
+                Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
+              case Some("timeout") => None
+              case _               => None
+
+            val outcome = (outcome_str, qemu_runtime_str) match
+              case (_, Some("timeout")) => OutcomeStatus.Timeout
+              case (Some("pass"), _)    => OutcomeStatus.Pass
+              case (Some("fail"), _)    => OutcomeStatus.Fail
+              case (_, _)               => OutcomeStatus.Unknown
+
+            val how_long = run_time.map(t => f"$t%.2f")
+            val out = outcome match
+              case OutcomeStatus.Pass    => fansi.Color.Green("pass")
+              case OutcomeStatus.Fail    => fansi.Color.Red("fail")
+              case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
+              case OutcomeStatus.Unknown => fansi.Color.Red("???")
+
+            say(s"    [${finished_runs.get()}/${started_runs
+                .get()}] finished [$out] $m in $how_long seconds")
+
+            stderr.foreach { stderr =>
+              os.copy(
+                from = stderr,
+                to = out_path / s"$tn.err",
+                createFolders = true,
+                replaceExisting = true,
+                followLinks = false
               )
             }
+            copy_results(prepared.path, out_path, test_id)
+            Outcome(
+              this,
+              csid,
+              test_id,
+              Some(outcome),
+              // In the case of a timeout, show the outer runtime
+              time = qemu_runtime.orElse(run_time),
+              tries = n
+            )
           }
-        } finally {
-          finished_runs.incrementAndGet()
         }
+      } finally {
+        finished_runs.incrementAndGet()
       }
     }
-  }
 
   // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
   def run(
@@ -729,11 +705,11 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       n: Int
   ): Maker[SignedPath[Outcome]] = {
 
-    val m = n.max(0)
+    val m = n.max(1)
 
     Rule(
-      if (m == 0) {
-        empty_run(csid, cutoff, test_id)
+      if (m == 1) {
+        run_one(csid, cutoff, test_id, 1)
       } else {
         val prev_maker = run(csid, cutoff, test_id, n - 1)
         for {
