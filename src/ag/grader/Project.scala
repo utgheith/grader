@@ -810,17 +810,32 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         }
     }
 
+  def get_student_failures(csid: CSID): Maker[Option[StudentFailures]] =
+    Rule(
+      get_student_results(csid),
+      scope / csid.value
+    ) {
+      _.map { rdr =>
+        StudentFailures(rdr)
+      }
+    }
+
+  def has_spamon(csid: CSID): Maker[Boolean] = Rule(
+    work_repo(csid),
+    scope / csid.value
+  ) { work_repo => os.exists(work_repo.path / "spamon") }
+
   def notify_student_results(csid: CSID) =
     Rule(
-      get_student_results(
+      get_student_failures(
         csid
-      ) *: course.notifications *: Config.gitolite *: work_repo(
+      ) *: course.notifications *: Config.gitolite *: has_spamon(
         csid
       ) *: Config.can_send_mail,
       scope / csid.value
     ) {
-      case (Some(sr), n, g, work_repo, can_send_mail) =>
-        if (os.exists(work_repo.path / "spamon")) {
+      case (Some(sr), n, g, has_spamon, can_send_mail) =>
+        if (has_spamon) {
           n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
           say(s"no spamon for ${course.course_name}:${project_name}:$csid")

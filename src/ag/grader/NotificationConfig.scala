@@ -108,29 +108,26 @@ case class NotificationConfig(
       project: Project,
       csid: CSID,
       server: RemoteServer,
-      student_results: RedactedStudentResults,
+      student_failures: StudentFailures,
       can_send: Boolean
   ): Unit = if (result_update) {
     val course_name = project.course.course_name
     val project_name = project.project_name
-    val alias = student_results.alias
+    val alias = student_failures.alias
 
-    val n_tests = student_results.outcomes.size
-    val n_pass = student_results.outcomes.values
-      .filter(_.outcome == Some(OutcomeStatus.Pass))
-      .size
+    val n_tests = student_failures.total_tests
+    val n_pass = n_tests - student_failures.failed_tests.size
 
-    val short_sha = student_results.prepare_info.sha.substring(6).nn
-    val has_report = if (student_results.prepare_info.has_report) "+" else "-"
-    val has_test = if (student_results.has_test) "+" else "-"
+    val short_sha = student_failures.prepare_info.sha.substring(6).nn
+    val has_report = if (student_failures.prepare_info.has_report) "+" else "-"
+    val has_test = if (student_failures.has_test) "+" else "-"
 
     val subject =
       s"[$n_pass/$n_tests:${has_test}T:${has_report}R] ${course_name}_${project_name}_${csid} [$short_sha]"
 
     val not_passing = (for {
-      (_, outcome) <- student_results.outcomes
-      if outcome.outcome != Some(OutcomeStatus.Pass)
-    } yield s"${outcome.test_id.external_name} ... ${outcome.outcome.map(_.label).getOrElse("?")}")
+      (test, outcome) <- student_failures.failed_tests
+    } yield s"${test.external_name} ... ${outcome.map(_.label).getOrElse("?")}")
       .mkString("\n")
 
     val web_page = site_base match {
