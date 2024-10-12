@@ -631,10 +631,10 @@ object Main {
       acc = f(c, acc)
 
       println(
-        s"---------------------------> finished iteration #$c"
+        s"---------------------------> finished iteration #$c, free memory ${Runtime
+            .getRuntime()
+            .freeMemory()}/${Runtime.getRuntime().maxMemory()}"
       )
-      println(s"max memory ${Runtime.getRuntime().maxMemory()}")
-      println(s"free memory ${Runtime.getRuntime().freeMemory()}")
       c = c + r.step
     }
 
@@ -646,8 +646,13 @@ object Main {
   // Stop early if total time exceeds "minutes"
   // Stop running a specific submission/test combination once it fails
   // Returns: number of iterations
-  private def do_run(commonArgs: CommonArgs, cutoff: CutoffTime, minutes: Int)(
-      using State
+  private def do_run(
+      commonArgs: CommonArgs,
+      cutoff: CutoffTime,
+      minutes: Int,
+      loud: Boolean
+  )(using
+      State
   ): Int = {
     loop(1 to commonArgs.count, minutes, 1) { (c, _) =>
       val outcomes = for {
@@ -658,7 +663,7 @@ object Main {
         }
       } yield out
       val out = outcomes.value
-      show_failures(out)
+      if (loud) show_failures(out)
       c
     }._1
   }
@@ -678,7 +683,7 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    do_run(commonArgs, cutoff, minutes)
+    do_run(commonArgs, cutoff, minutes, false)
   }
 
   @main
@@ -768,7 +773,7 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val c = do_run(commonArgs, cutoff, minutes)
+    val c = do_run(commonArgs, cutoff, minutes, false)
 
     for (p <- commonArgs.selected_projects.value) {
       val _ = p.publish_results(c).value
