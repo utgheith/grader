@@ -174,7 +174,7 @@ class State private (
 
     val file = targets_dir / r.path
 
-    def evaluate(): Result[Out] = {
+    def evaluate(old: Option[Out]): Result[Out] = {
       trace(s"evaluating ${r.path}")
       trace("depends_on")
       new_dependencies.zip(new_signatures).foreach { case (d, s) =>
@@ -184,7 +184,7 @@ class State private (
       val in = r.needs.make(using this).block
 
       monitor.onCompute(this, r, in)
-      val out = r.compute(Context(this, r), in)
+      val out = r.compute(Context(this, r, old), in)
       val out_str = write(out, indent = 1)
       val sha = MessageDigest.getInstance("sha1").nn
       val sig = Signature(sha.digest(out_str.getBytes("utf-8")).nn)
@@ -210,14 +210,14 @@ class State private (
             case (d, sig) => saved.dependsOn.get(d.path).contains(sig)
           }
           if (use_old_result) Result(saved.value, saved.signature)
-          else evaluate()
+          else evaluate(Some(saved.value))
         case Failure(e) =>
           say(s"failed to read from $file, remove and retry", e)
           os.remove.all(file)
-          evaluate()
+          evaluate(None)
       }
     } else {
-      evaluate()
+      evaluate(None)
     }
   }
 }

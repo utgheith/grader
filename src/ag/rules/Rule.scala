@@ -8,7 +8,7 @@ import scala.collection.SortedSet
 //    - a name (path) so it can be cached across runs
 //    - an input Maker so we can track its dependnecies
 //
-trait Rule[In, +Out: ReadWriter] extends Maker[Out] { self =>
+trait Rule[In, Out: ReadWriter] extends Maker[Out] { self =>
 
   // What are my named parts
   override def parts(using State): Task[SortedSet[RuleBase]] =
@@ -21,7 +21,7 @@ trait Rule[In, +Out: ReadWriter] extends Maker[Out] { self =>
   // called if any of the following holds:
   //   - we don't a cached value
   //   - we have a cached value put our dependency changed
-  def compute(context: Context, in: In): Out
+  def compute(context: Context[Out], in: In): Out
 
   // what is my path
   def path: os.RelPath
@@ -54,7 +54,7 @@ object Rule {
 
     override def needs: Maker[Unit] = Maker.unit(())
 
-    override def compute(context: Context, in: Unit): Out = f
+    override def compute(context: Context[Out], in: Unit): Out = f
   }
 
   // Rule(ma) { a => ... }
@@ -68,12 +68,12 @@ object Rule {
 
     override def needs: Maker[In] = r1
 
-    override def compute(context: Context, in: In): Out = f(in)
+    override def compute(context: Context[Out], in: In): Out = f(in)
   }
 
   // Rule((ma, mb, ...), ...) { (a,b, ...) => ... }
   def apply[Out: ReadWriter, T <: Tuple](tu: T, rest: os.RelPath | Null)(
-      f: Maker.StripMaker[T] => Out
+      f: Maker.StripMaker[T] => (Context[Out] ?=> Out)
   )(using fn: sourcecode.FullName): Rule[Maker.StripMaker[T], Out] =
     new Rule[Maker.StripMaker[T], Out] {
       override val path: os.RelPath = {
@@ -83,9 +83,11 @@ object Rule {
 
       override def needs: Maker[Maker.StripMaker[T]] = Maker.sequence(tu)
 
-      override def compute(context: Context, in: Maker.StripMaker[T]): Out = f(
-        in
-      )
-
+      override def compute(
+          context: Context[Out],
+          in: Maker.StripMaker[T]
+      ): Out = {
+        f(in)(using context)
+      }
     }
 }

@@ -28,7 +28,10 @@ object SignedPath {
 
     override def needs: Maker[In] = in
 
-    override def compute(context: Context, in: In): SignedPath[D] = {
+    override def compute(
+        context: Context[SignedPath[D]],
+        in: In
+    ): SignedPath[D] = {
       val base_dir = context.state.signed_path_dir / context.rule.path
       val dirty_file = base_dir / os.up / s"__${base_dir.last}__is__dirty"
 

@@ -591,6 +591,78 @@ object Main {
 
   }
 
+  private def show_failures(out: Seq[SignedPath[Outcome]]): Unit = {
+    out
+      .map(_.data)
+      .filterNot(_.outcome.contains(OutcomeStatus.Pass))
+      .groupBy(_.csid)
+      .to(SortedMap)
+      .foreach { (csid, s) =>
+        println(csid)
+        s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
+          (c, s) =>
+            println(s"  $c")
+            s.groupBy(_.project.project_name).to(SortedMap).foreach { (p, s) =>
+              println(s"    ${c}_$p")
+              s.sortBy(_.test_id.external_name).foreach { o =>
+                println(
+                  s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
+                )
+              }
+            }
+        }
+      }
+  }
+
+  // Call "f" the number of times implied by "range"
+  // Stop early if total time exceeds "minutes"
+  // Returns: (last index value, last returned value from "f")
+  private def loop[Acc](range: Range, minutes: Int, init: Acc)(
+      f: (Int, Acc) => Acc
+  ): (Int, Acc) = {
+    val limit = System.currentTimeMillis() + minutes * 60 * 1000
+
+    val r = range.inclusive
+
+    var c: Int = r.start
+    var acc: Acc = init
+
+    while (c <= r.end && System.currentTimeMillis() < limit) {
+      acc = f(c, acc)
+
+      println(
+        s"---------------------------> finished iteration #$c"
+      )
+      println(s"max memory ${Runtime.getRuntime().maxMemory()}")
+      println(s"free memory ${Runtime.getRuntime().freeMemory()}")
+      c = c + r.step
+    }
+
+    if (c > r.end) c = c - r.step
+    (c, acc)
+  }
+
+  // Run up to "commonArgs.count" iterations.
+  // Stop early if total time exceeds "minutes"
+  // Stop running a specific submission/test combination once it fails
+  // Returns: number of iterations
+  private def do_run(commonArgs: CommonArgs, cutoff: CutoffTime, minutes: Int)(
+      using State
+  ): Int = {
+    loop(1 to commonArgs.count, minutes, 1) { (c, _) =>
+      val outcomes = for {
+        runs <- commonArgs.runs
+        out <- Maker.sequence {
+          for ((p, csid, test_id) <- runs)
+            yield p.run(csid, cutoff, test_id, c)
+        }
+      } yield out
+      val out = outcomes.value
+      show_failures(out)
+      c
+    }._1
+  }
+
   @main
   def run(
       commonArgs: CommonArgs,
@@ -599,59 +671,14 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime
+      cutoff: CutoffTime,
+      @arg(doc = "maximum number of minutes per iteratoion")
+      minutes: Int = 10
   ): Unit = {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
-
-    @tailrec
-    def loop(c: Int): Unit =
-      if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
-
-        val outcomes = for {
-          runs <- commonArgs.runs
-          out <- Maker.sequence {
-            for ((p, csid, test_id) <- runs)
-              yield p.run(csid, cutoff, test_id, c)
-          }
-        } yield out
-
-        val out = outcomes.value
-
-        out
-          .map(_.data)
-          .filterNot(_.outcome.contains(OutcomeStatus.Pass))
-          .groupBy(_.csid)
-          .to(SortedMap)
-          .foreach { (csid, s) =>
-            println(csid)
-            s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
-              (c, s) =>
-                println(s"  $c")
-                s.groupBy(_.project.project_name).to(SortedMap).foreach {
-                  (p, s) =>
-                    println(s"    ${c}_$p")
-                    s.sortBy(_.test_id.external_name).foreach { o =>
-                      println(
-                        s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
-                      )
-                    }
-                }
-            }
-          }
-
-        println(
-          s"---------------------------> finished iteration #$c/${commonArgs.count}"
-        )
-        println(s"max memory ${Runtime.getRuntime().maxMemory()}")
-        println(s"free memory ${Runtime.getRuntime().freeMemory()}")
-
-        loop(c + 1)
-      }
-
-    loop(1)
+    do_run(commonArgs, cutoff, minutes)
   }
 
   @main
@@ -688,27 +715,7 @@ object Main {
 
         val out = outcomes.value
 
-        out
-          .map(_.data)
-          .filterNot(_.outcome.contains(OutcomeStatus.Pass))
-          .groupBy(_.csid)
-          .to(SortedMap)
-          .foreach { (csid, s) =>
-            println(csid)
-            s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
-              (c, s) =>
-                println(s"  $c")
-                s.groupBy(_.project.project_name).to(SortedMap).foreach {
-                  (p, s) =>
-                    println(s"    ${c}_$p")
-                    s.sortBy(_.test_id.external_name).foreach { o =>
-                      println(
-                        s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
-                      )
-                    }
-                }
-            }
-          }
+        show_failures(out)
 
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
@@ -753,12 +760,18 @@ object Main {
   }
 
   @main
-  def publish_results(commonArgs: CommonArgs): Unit = {
+  def publish_results(
+      commonArgs: CommonArgs,
+      cutoff: CutoffTime,
+      minutes: Int = 10
+  ): Unit = {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
+    val c = do_run(commonArgs, cutoff, minutes)
+
     for (p <- commonArgs.selected_projects.value) {
-      val _ = p.publish_results(commonArgs.count).value
+      val _ = p.publish_results(c).value
       // println(upickle.default.write(results, indent=2))
     }
   }

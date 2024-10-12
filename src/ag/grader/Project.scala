@@ -705,9 +705,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       test_id: TestId,
       n: Int
   ): Maker[SignedPath[Outcome]] = {
-
     val m = n.max(1)
-
     Rule(
       if (m == 1) {
         run_one(csid, cutoff, test_id, 1)
@@ -716,14 +714,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         for {
           prev <- prev_maker
           it <-
-            if ((m == 1) || (prev.data.outcome.contains(OutcomeStatus.Pass)))
-              run_one(csid, cutoff, test_id, n)
+            if (prev.data.outcome.contains(OutcomeStatus.Pass))
+              run_one(csid, cutoff, test_id, m)
             else prev_maker
         } yield it
       },
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / m.toString
     )(x => x)
-
   }
 
   def student_results_repo_name(csid: CSID): String =
