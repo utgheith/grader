@@ -37,6 +37,7 @@ case class Weight(
 case class RawProject(
     active: Boolean,
     cores: Int = 4,
+    score_iterations: Int = 100,
     code_cutoff: LocalDateTime,
     test_cutoff: LocalDateTime,
     ignore_tests: Boolean,
@@ -114,6 +115,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     Rule(info, scope) { p =>
       SortedSet(p.test_extensions*)
     }
+  lazy val score_iterations: Maker[Int] = Rule(info, scope) { p =>
+    p.score_iterations
+  }
 
   lazy val project_repo_name: String = s"${course.course_name}_${project_name}"
 
@@ -126,7 +130,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     }
 
   ///////////////////
-  /* Override Repo */
+  // Override Repo //
   ///////////////////
 
   lazy val override_repo_name = s"${project_repo_name}__override"
@@ -897,11 +901,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       }
     }
 
-  /** **************
-    */
-  /* student tests */
-  /** **************
-    */
+  ///////////////////
+  // student tests //
+  ///////////////////
 
   def student_test(csid: CSID): Maker[SignedPath[Option[String]]] =
     SignedPath.rule(
@@ -1060,11 +1062,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       aliases.data.find(_._2 == alias).map(_._1)
     }
 
-  /** ******
-    */
-  /* Tests */
-  /** ******
-    */
+  ///////////
+  // Tests //
+  ///////////
 
   lazy val override_test_names: Maker[SortedSet[String]] =
     Rule(
@@ -1242,6 +1242,46 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   val tests_repo_name = s"${course.course_name}_${project_name}__tests"
 
+  ////////////
+  // Scores //
+  ////////////
+
+  def compute_scores(
+      csid: CSID,
+      cutoff_time: CutoffTime,
+      n: Int
+  ): Maker[SortedSet[TestId]] = Rule(
+    for {
+      ids <- chosen_test_ids
+      outs <- Maker.sequence(
+        ids.toSeq.map(id => run_one(csid, cutoff_time, id, n))
+      )
+    } yield outs,
+    scope / csid.value / cutoff_time.label / n.toString
+  ) { outs =>
+    (for {
+      sp <- outs
+      d = sp.data
+      if d.outcome.contains(OutcomeStatus.Pass)
+    } yield d.test_id).to(SortedSet)
+  }
+
+  def compute_scores(
+      cutoff_time: CutoffTime,
+      n: Int
+  ): Maker[SortedMap[CSID, SortedSet[TestId]]] = Rule(
+    for {
+      csids <- students_with_submission
+      pairs <- Maker.sequence(
+        csids.toSeq.map(csid =>
+          compute_scores(csid, cutoff_time, n).map(g => (csid, g))
+        )
+      )
+    } yield pairs,
+    scope / cutoff_time.label / n.toString
+  ) { pairs =>
+    pairs.to(SortedMap)
+  }
 }
 
 object Project {
