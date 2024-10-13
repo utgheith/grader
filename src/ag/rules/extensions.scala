@@ -224,6 +224,22 @@ extension [A](fa: Function0[A]) {
   }
 }
 
+def timed[A](f: => A): (Long, A) = {
+  val start = System.currentTimeMillis()
+  val out = f
+  (System.currentTimeMillis() - start, out)
+}
+
+def human(ms: Long): String = {
+  if (ms < 1000) {
+    s"${ms}ms"
+  } else if (ms < 60 * 1000) {
+    f"${ms / 1000.0}%.03fs"
+  } else {
+    f"${ms / (1000.0 * 60.0)}%.03fm"
+  }
+}
+
 // Extractor to convert nullable regex matches to Scala Options
 // Originally sourced from https://stackoverflow.com/a/1843127
 object Optional {

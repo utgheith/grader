@@ -9,12 +9,14 @@ import ag.grader.{
   TestId
 }
 import ag.rules.{
+  human,
   Maker,
   NopStateMonitor,
   RuleBase,
   State,
   given_ReadWriter_SortedMap,
-  say
+  say,
+  timed
 }
 import mainargs.{
   Flag,
@@ -628,10 +630,13 @@ object Main {
     var acc: Acc = init
 
     while (c <= r.end && System.currentTimeMillis() < limit) {
-      acc = f(c, acc)
+      val (t, v) = timed {
+        f(c, acc)
+      }
+      acc = v
 
       println(
-        s"---------------------------> finished iteration #$c, free memory ${Runtime
+        s"---------------------------> finished iteration #$c in ${human(t)}, free memory ${Runtime
             .getRuntime()
             .freeMemory()}/${Runtime.getRuntime().maxMemory()}"
       )
