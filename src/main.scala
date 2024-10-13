@@ -862,12 +862,8 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
 
     for (p <- commonArgs.selected_projects.value) {
-      println(s"${p.course.course_name}_${p.project_name}")
       val chosen = p.chosen_test_ids.value
-      println(s" chosen: $chosen")
       val weights = p.weights.value
-      println(s" weights: $weights")
-
       val test_weights = (for {
         c <- chosen
         external_name = c.external_name
@@ -875,7 +871,6 @@ object Main {
         p = Regex(w.pattern)
         if p.matches(c.external_name)
       } yield (c, w.weight)).to(SortedMap)
-      println(s"  $test_weights")
 
       val max_weight = test_weights.values.sum
 
@@ -890,6 +885,9 @@ object Main {
       println(
         s"${p.course.course_name}_${p.project_name} after $n runs, total $total:"
       )
+      pprint.pprintln(chosen)
+      pprint.pprintln(test_weights)
+      pprint.pprintln(weights)
       val totals = ((for {
         out <- outs
         (csid, score) <- out.toSeq
