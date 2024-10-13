@@ -643,7 +643,7 @@ object Main {
       c = c + r.step
     }
 
-    if (c > r.end) c = c - r.step
+    c = c - r.step
     (c, acc)
   }
 
@@ -848,6 +848,58 @@ object Main {
 
         HtmlGen(p).gen_html.value
 
+      }
+    }
+  }
+
+  @main
+  def compute_scores(
+      commonArgs: CommonArgs,
+      cutoff_time: CutoffTime,
+      minutes: Int = 1
+  ): Unit = {
+    val m = MyMonitor(commonArgs)
+    given State = State.of(commonArgs.workspace, m)
+
+    for (p <- commonArgs.selected_projects.value) {
+      println(s"${p.course.course_name}_${p.project_name}")
+      val chosen = p.chosen_test_ids.value
+      println(s" chosen: $chosen")
+      val weights = p.weights.value
+      println(s" weights: $weights")
+
+      val test_weights = (for {
+        c <- chosen
+        external_name = c.external_name
+        w <- weights
+        p = Regex(w.pattern)
+        if p.matches(c.external_name)
+      } yield (c, w.weight)).to(SortedMap)
+      println(s"  $test_weights")
+
+      val max_weight = test_weights.values.sum
+
+      val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
+        val scores = (for {
+          (csid, passing) <- p.compute_scores(cutoff_time, c).value.toSeq
+          score = passing.toSeq.map(t => test_weights(t)).sum
+        } yield (csid, score)).to(SortedMap)
+        acc :+ scores
+      }
+      val total = n * max_weight
+      println(
+        s"${p.course.course_name}_${p.project_name} after $n runs, total $total:"
+      )
+      val totals = ((for {
+        out <- outs
+        (csid, score) <- out.toSeq
+      } yield (csid, score)).groupMapReduce(_._1)(_._2)(_ + _)).to(SortedMap)
+      for {
+        (csid, score) <- totals
+      } {
+        println(
+          f"    $csid $score ${100.0 * (score.toDouble / total.toDouble)}%.02f"
+        )
       }
     }
   }
