@@ -206,11 +206,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         }
     }
 
-  /** *********************
-    */
-  /* Work repo (per csid) */
-  /** *********************
-    */
+  //////////////////////////
+  // Work repo (per csid) //
+  //////////////////////////
 
   def work_repo_name(csid: CSID): String = s"${project_repo_name}_${csid.value}"
 
@@ -491,6 +489,19 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         None
 
     }
+
+  def is_late(csid: CSID, cutoff_time: CutoffTime) = Rule(
+    prepare(csid, cutoff_time) *: code_cutoff,
+    scope / csid.value / cutoff_time.label
+  ) { case (prepare, code_cutoff) =>
+    prepare.data
+      .map { info =>
+        info.commit_time.isAfter(
+          ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+        )
+      }
+      .getOrElse(true)
+  }
 
   def late_commits(
       csid: CSID,

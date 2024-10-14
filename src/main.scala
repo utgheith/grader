@@ -893,10 +893,15 @@ object Main {
         (csid, score) <- out.toSeq
       } yield (csid, score)).groupMapReduce(_._1)(_._2)(_ + _)).to(SortedMap)
       for {
-        (csid, score) <- totals
+        (csid, raw_score) <- totals
       } {
+        val is_late = p.is_late(csid, cutoff_time).value
+        val score =
+          if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(
-          f"    $csid $score ${100.0 * (score.toDouble / total.toDouble)}%.02f"
+          f"    $csid $score ${100.0 * (score / total.toDouble)}%.02f ${
+              if (is_late) "late" else "ontime"
+            }"
         )
       }
     }
