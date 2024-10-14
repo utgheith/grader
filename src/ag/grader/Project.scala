@@ -702,6 +702,27 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       }
     }
 
+  private def cached_run_dep(
+      csid: CSID,
+      cutoff: CutoffTime,
+      test_id: TestId,
+      m: Int
+  ) = Rule(
+    if (m == 1) {
+      run_one(csid, cutoff, test_id, 1)
+    } else {
+      val prev_maker = run(csid, cutoff, test_id, m - 1)
+      for {
+        prev <- prev_maker
+        it <-
+          if (prev.data.outcome.contains(OutcomeStatus.Pass))
+            run_one(csid, cutoff, test_id, m)
+          else prev_maker
+      } yield it
+    },
+    scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / m.toString
+  ) { it => it }
+
   // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
   def run(
       csid: CSID,
@@ -711,18 +732,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   ): Maker[SignedPath[Outcome]] = {
     val m = n.max(1)
     Rule(
-      if (m == 1) {
-        run_one(csid, cutoff, test_id, 1)
-      } else {
-        val prev_maker = run(csid, cutoff, test_id, n - 1)
-        for {
-          prev <- prev_maker
-          it <-
-            if (prev.data.outcome.contains(OutcomeStatus.Pass))
-              run_one(csid, cutoff, test_id, m)
-            else prev_maker
-        } yield it
-      },
+      cached_run_dep(csid, cutoff, test_id, m),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / m.toString
     )(x => x)
   }
