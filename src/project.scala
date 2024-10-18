@@ -1,4 +1,4 @@
-//> using scala 3.5.1
+//> using scala 3.5.2
 //> using options -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
 //> using jvm 21
 
