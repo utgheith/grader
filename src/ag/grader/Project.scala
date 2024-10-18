@@ -399,38 +399,41 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           case CutoffTime.Default =>
             Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
           case CutoffTime.None => None
-        val commit_id = if (os.exists(commit_id_file) && (os.stat(commit_id_file).size != 0)) {
-          os.read.lines(commit_id_file).head.trim.nn
-        } else {
-          cutoff_time match
-            case Some(cutoff_time) => {
-              // Find the last commit in the main branch before the cutoff time.
-              // Example: git log master --first-parent --before="2024-09-12 16:00" --pretty=format:"%H %cI %f"
+        val commit_id =
+          if (
+            os.exists(commit_id_file) && (os.stat(commit_id_file).size != 0)
+          ) {
+            os.read.lines(commit_id_file).head.trim.nn
+          } else {
+            cutoff_time match
+              case Some(cutoff_time) => {
+                // Find the last commit in the main branch before the cutoff time.
+                // Example: git log master --first-parent --before="2024-09-12 16:00" --pretty=format:"%H %cI %f"
 
-              // Note that git log shows author time by default, not commit time; this can
-              // lead to cases where it looks like this fails to select a commit before the
-              // date. Add --pretty=fuller to make git log show both times.
+                // Note that git log shows author time by default, not commit time; this can
+                // lead to cases where it looks like this fails to select a commit before the
+                // date. Add --pretty=fuller to make git log show both times.
 
-              // --first-parent is used to prevent this from using commits from other branches
-              // that were merged into master after the cutoff point.
+                // --first-parent is used to prevent this from using commits from other branches
+                // that were merged into master after the cutoff point.
 
-              val cutoff_string =
-                cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-              os.proc(
-                "git",
-                "log",
-                default_branch,
-                "--before",
-                cutoff_string,
-                "--first-parent",
-                "--pretty=format:%H"
-              ).lines(cwd = dir)
-                .head
-                .trim
-                .nn
-            }
-            case None => default_branch
-        }
+                val cutoff_string =
+                  cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                os.proc(
+                  "git",
+                  "log",
+                  default_branch,
+                  "--before",
+                  cutoff_string,
+                  "--first-parent",
+                  "--pretty=format:%H"
+                ).lines(cwd = dir)
+                  .head
+                  .trim
+                  .nn
+              }
+              case None => default_branch
+          }
 
         // (3) checkout the correct commit_id
         val _ = os.proc("git", "checkout", commit_id).run(cwd = dir)

@@ -1,6 +1,6 @@
 //> using scala 3.5.2
 //> using options -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
-//> using jvm 21
+//> using jvm graalvm-java23:23
 
 //> using dep com.lihaoyi::fansi:0.5.0
 //> using dep com.lihaoyi::mainargs:0.7.6
