@@ -399,7 +399,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           case CutoffTime.Default =>
             Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
           case CutoffTime.None => None
-        val commit_id = if (os.exists(commit_id_file)) {
+        val commit_id = if (os.exists(commit_id_file) && (os.stat(commit_id_file).size != 0)) {
           os.read.lines(commit_id_file).head.trim.nn
         } else {
           cutoff_time match
