@@ -4,7 +4,7 @@
 
 //> using dep com.lihaoyi::fansi:0.5.0
 //> using dep com.lihaoyi::mainargs:0.7.6
-//> using dep com.lihaoyi::os-lib:0.11.1
+//> using dep com.lihaoyi::os-lib:0.11.2
 //> using dep com.lihaoyi::pprint:0.9.0
 //> using dep com.lihaoyi::sourcecode:0.4.2
 //> using dep com.lihaoyi::upickle:4.0.2
