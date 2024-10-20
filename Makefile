@@ -1,4 +1,4 @@
-JVM=graalvm-java23:23
+JVM=graalvm-java21:21
 
 all : compile
 
