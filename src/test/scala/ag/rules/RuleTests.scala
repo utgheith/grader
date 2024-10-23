@@ -119,7 +119,7 @@ class RuleTests extends munit.FunSuite {
           super.onStart(s, rule)
           val tn = Thread.currentThread().nn.getName.nn
           thread_names.synchronized {
-            thread_names.add(tn)
+            val _ = thread_names.add(tn)
           }
         }
       }

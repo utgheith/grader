@@ -3,7 +3,7 @@ package ag.grader
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
-import ag.rules.{run, say}
+import ag.rules.{check, run, say}
 
 case class RepoInfo(
     server: RemoteServer,
@@ -23,9 +23,9 @@ case class RepoInfo(
 
     try {
       /* The most common path: the repo exists and we have a local checkout, just pull the latest */
-      os.proc("git", "reset", "--hard").run(cwd = path)
-      os.proc("git", "clean", "-fdx").run(cwd = path)
-      os.proc("git", "checkout", "master").run(cwd = path)
+      os.proc("git", "reset", "--hard").check(cwd = path)
+      os.proc("git", "clean", "-fdx").check(cwd = path)
+      os.proc("git", "checkout", "master").check(cwd = path)
       server.SshProc("git", "pull").run(cwd = path)
     } catch {
       case NonFatal(_) =>
@@ -53,7 +53,7 @@ case class RepoInfo(
                 say(s"forking ${repo_name}")
                 server
                   .SshProc("ssh", server.ssh_uri, "fork", fork_from, repo_name)
-                  .run(cwd = os.pwd)
+                  .check(cwd = os.pwd)
                 forked = true
               case None =>
                 throw Exception(s"don't know how to create $repo_name")

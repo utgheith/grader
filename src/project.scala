@@ -1,5 +1,5 @@
 //> using scala 3.6.1
-//> using options -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
+//> using options -Wall -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
 //> using jvm graalvm-java21:21
 
 //> using dep com.lihaoyi::fansi:0.5.0

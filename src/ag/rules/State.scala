@@ -72,24 +72,30 @@ class CountingStateMonitor extends StateMonitor {
   val successes: AtomicLong = AtomicLong(0)
   val failures: AtomicLong = AtomicLong(0)
 
-  override def onLookup(s: State, rule: RuleBase): Unit =
-    lookups.incrementAndGet()
+  override def onLookup(s: State, rule: RuleBase): Unit = {
+    val _ = lookups.incrementAndGet()
+  }
 
-  override def onStart(s: State, rule: RuleBase): Unit =
-    starts.incrementAndGet()
+  override def onStart(s: State, rule: RuleBase): Unit = {
+    val _ = starts.incrementAndGet()
+  }
 
-  override def onMiss(s: State, rule: RuleBase): Unit =
-    misses.incrementAndGet()
+  override def onMiss(s: State, rule: RuleBase): Unit = {
+    val _ = misses.incrementAndGet()
+  }
 
-  override def onCompute(s: State, Rule: RuleBase, in: Any): Unit =
-    computes.incrementAndGet()
+  override def onCompute(s: State, Rule: RuleBase, in: Any): Unit = {
+    val _ = computes.incrementAndGet()
+  }
 
   override def onSave(
       s: State,
       Rule: RuleBase,
       in: Any,
       saved: Saved[Any]
-  ): Unit = saves.incrementAndGet()
+  ): Unit = {
+    val _ = saves.incrementAndGet()
+  }
 
   override def onSuccess[A](
       s: State,
@@ -100,7 +106,7 @@ class CountingStateMonitor extends StateMonitor {
     result
 
   override def onFailure(s: State, rule: RuleBase, e: RuleException): Unit =
-    failures.incrementAndGet()
+    val _ = failures.incrementAndGet()
 }
 
 class State private (

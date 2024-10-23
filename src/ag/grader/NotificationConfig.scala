@@ -1,7 +1,7 @@
 package ag.grader
 
 import upickle.default.{ReadWriter}
-import ag.rules.{run, say}
+import ag.rules.{check, say}
 
 @upickle.implicits.allowUnknownKeys(false)
 case class NotificationConfig(
@@ -31,7 +31,7 @@ case class NotificationConfig(
         "-s",
         subject,
         to.value
-      ).run(check = true, stdin = contents)
+      ).check(stdin = contents)
     } else {
       println(s"----- not sending $send_to_student $to $cc $subject")
     }

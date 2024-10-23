@@ -24,6 +24,13 @@ case class RemoteServer(user: String, host: String, port: Int)
       }
     }
 
+    def check(
+        cwd: os.Path,
+        stdin: os.ProcessInput = ""
+    ): Unit = {
+      val _ = run(cwd, true, stdin)
+    }
+
     def lines(cwd: os.Path, stdin: os.ProcessInput = "") =
       os.read.lines(run(cwd, true, stdin)._2)
   }

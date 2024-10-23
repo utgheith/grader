@@ -170,9 +170,10 @@ extension (p: os.proc) {
 
   def check(
       cwd: os.Path = default_cwd,
-      timeout: Int = default_timeout
+      timeout: Int = default_timeout,
+      stdin: os.ProcessInput = default_stdin
   ): Unit = {
-    val _ = run(cwd, check = true, timeout = timeout)
+    val _ = run(cwd, check = true, timeout = timeout, stdin = stdin)
   }
 
   def lines(cwd: os.Path = os.pwd): Seq[String] = {

@@ -365,7 +365,7 @@ class HtmlGen(p: Project) {
         os.write.over(f, "")
         os.perms.set(f, perms)
 
-        scala.util.Using(FileContext(f)) { file =>
+        val _ = scala.util.Using(FileContext(f)) { file =>
           html(file) {
             head {
               meta.attr("charset", "utf8") {}

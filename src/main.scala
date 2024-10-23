@@ -688,7 +688,7 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    do_run(commonArgs, cutoff, minutes, false)
+    val _ = do_run(commonArgs, cutoff, minutes, false)
   }
 
   @main
@@ -918,6 +918,6 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    ParserForMethods(this).runOrExit(args.toIndexedSeq)
+    val _ = ParserForMethods(this).runOrExit(args.toIndexedSeq)
   }
 }

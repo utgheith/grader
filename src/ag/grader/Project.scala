@@ -712,7 +712,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           }
         }
       } finally {
-        finished_runs.incrementAndGet()
+        val _ = finished_runs.incrementAndGet()
       }
     }
 
