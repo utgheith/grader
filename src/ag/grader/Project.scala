@@ -436,7 +436,17 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           }
 
         // (3) checkout the correct commit_id
-        val _ = os.proc("git", "checkout", commit_id).run(cwd = dir)
+        val _ =
+          try {
+            os.proc("git", "checkout", commit_id).run(cwd = dir)
+          } catch {
+            case ex: Throwable =>
+              ex.printStackTrace();
+              say(
+                s"??????????????? checking out '$commit_id' failed, trying 'master'"
+              )
+              os.proc("git", "checkout", "master").run(cwd = dir)
+          }
 
         val git_sha =
           os.proc("git", "rev-parse", "HEAD").lines(cwd = dir).head.trim.nn
