@@ -611,8 +611,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("time")
   }
 
-  // The output of time's %E format, output by the Makefile build system for test runtimes
-  private val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
 
   // Run a submission/test combination once and report the outcome
   def run_one(
@@ -677,9 +675,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               else None
 
             val qemu_runtime = qemu_runtime_str match
-              case Some(TimeFormat(Optional(None), min, sec)) =>
+              case Some(Project.TimeFormat(Optional(None), min, sec)) =>
                 Some(min.toDouble * 60 + sec.toDouble)
-              case Some(TimeFormat(Optional(Some(hours)), min, sec)) =>
+              case Some(Project.TimeFormat(Optional(Some(hours)), min, sec)) =>
                 Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
               case Some("timeout") => None
               case _               => None
@@ -1310,6 +1308,9 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
 object Project {
   given Ordering[Project] = Ordering.by(p => (p.course, p.project_name))
+
+  // The output of time's %E format, output by the Makefile build system for test runtimes
+  val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
 
   private val run_locks = TrieMap[os.Path, ReentrantLock]()
 

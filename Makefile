@@ -6,15 +6,15 @@ native:
 	./scala-cli.sh --power package --jvm ${JVM} src -o grader -f --native-image --graalvm-jvm-id ${JVM}
 
 compile:
-	./scala-cli.sh compile --jvm ${JVM} src
+	./scala-cli.sh --power compile --jvm ${JVM} src
 
 test:
-	./scala-cli.sh test --jvm ${JVM} src
+	./scala-cli.sh --power test --jvm ${JVM} src
 
 format:
-	./scala-cli.sh format src
+	./scala-cli.sh --power format src
 
 clean:
-	./scala-cli.sh clean src
+	./scala-cli.sh --power clean src
 	rm -rf grader
 
