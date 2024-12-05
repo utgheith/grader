@@ -2,6 +2,10 @@
 //> using options -Wall -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
 //> using jvm graalvm-java21:21
 
+//> using publish.organization com.gheith
+//> using publish.name grader
+//> using publish.version 0.1.0-SNAPSHOT
+
 //> using dep com.lihaoyi::fansi:0.5.0
 //> using dep com.lihaoyi::mainargs:0.7.6
 //> using dep com.lihaoyi::os-lib:0.11.3
