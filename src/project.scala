@@ -1,4 +1,4 @@
-//> using scala 3.6.1
+//> using scala 3.6.2
 //> using options -Wall -Wconf:any:e -Wunused:all -feature -deprecation -unchecked -Yexplicit-nulls
 //> using jvm graalvm-java21:21
 
