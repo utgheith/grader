@@ -59,6 +59,7 @@ enum CutoffTime:
       time
         .withZoneSameInstant(ZoneId.systemDefault)
         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        .replace(":", "_")
     case Default => "deadline"
     case None    => "latest"
 
