@@ -15,4 +15,4 @@ jobs:
         jvm: 23
         apps: sbt
     - name: Build and Test
-      run: sbt -v +stage
+      run: cs launch --jvm 23 sbt -- test

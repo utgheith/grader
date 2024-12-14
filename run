@@ -1,1 +1,6 @@
-target/universal/stage/bin/grader
+#!/bin/bash
+
+eval "$(cs java --jvm 23 --env)"
+
+exec ./target/universal/stage/bin/grader "$@"
+
