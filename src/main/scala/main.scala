@@ -52,6 +52,8 @@ class MyMonitor(commonArgs: CommonArgs) extends NopStateMonitor {
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
 
+  /** read
+   */
   override def read(strs: Seq[String]): Either[String, os.Path] = if (
     strs.isEmpty
   ) {
@@ -72,6 +74,8 @@ given TokensReader.Simple[Regex] with {
 
   override def alwaysRepeatable: Boolean = true
 
+  /** read
+   */
   override def read(strs: Seq[String]): Either[String, Regex] = if (
     strs.isEmpty
   ) {
@@ -86,6 +90,8 @@ given TokensReader.Simple[CutoffTime] with {
   override def allowEmpty: Boolean = true
   override def alwaysRepeatable: Boolean = false
 
+  /** read
+   */
   override def read(strs: Seq[String]): Either[String, CutoffTime] =
     Right(CutoffTime.fromString(strs.headOption))
 }
@@ -99,6 +105,8 @@ given TokensReader.Simple[AliasSortMode] with {
   override def allowEmpty: Boolean = false
   override def alwaysRepeatable: Boolean = false
 
+  /** read
+   */
   override def read(strs: Seq[String]): Either[String, AliasSortMode] =
     strs.head match
       case "alias" => Right(AliasSortMode.Alias)

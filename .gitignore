@@ -6,6 +6,6 @@
 /scripts
 .bsp/
 .idea/
-.scala-build/
 .metals/
 .vscode/
+target/

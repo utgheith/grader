@@ -1,20 +1,10 @@
-JVM=graalvm-java21:21
 
-all : compile
+all : stage;
 
-native:
-	./scala-cli.sh --power package --jvm ${JVM} src -o grader -f --native-image --graalvm-jvm-id ${JVM}
+% : sbt_%;
 
-compile:
-	./scala-cli.sh --power compile --jvm ${JVM} src
+sbt_%:
+	cs launch --jvm 23 sbt -- $*
 
-test:
-	./scala-cli.sh --power test --jvm ${JVM} src
 
-format:
-	./scala-cli.sh --power format src
-
-clean:
-	./scala-cli.sh --power clean src
-	rm -rf grader
 
