@@ -1,6 +1,11 @@
 #!/bin/bash
 
-eval "$(cs java --jvm 23 --env)"
+D=$(dirname $0)
+echo "D=$D"
 
-exec ./target/universal/stage/bin/grader "$@"
+(cd $D && make stage)
+
+eval "$($D/cs java --jvm 23 --env)"
+
+exec $D/target/universal/stage/bin/grader "$@"
 
