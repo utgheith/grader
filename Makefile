@@ -1,8 +1,8 @@
 
 
 arm64_Darwin=aarch64-apple-darwin
+x86_64_Linux=x86_64-pc-linux
 CS_URL="https://github.com/coursier/launchers/raw/master/cs-${${shell arch}_${shell uname}}.gz"
-SELECTOR=${$(shell arch)_$(shell uname)}
 
 all : stage;
 
