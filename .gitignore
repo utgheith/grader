@@ -1,3 +1,4 @@
+.bloop/
 /config.json
 /prepared
 /workspace
@@ -10,3 +11,4 @@
 .vscode/
 target/
 /cs
+metals.sbt

@@ -1,27 +1,28 @@
 package ag.grader
 
 import ag.rules.{
-  down,
   Maker,
+  Optional,
   Rule,
   SignedPath,
+  down,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedSet,
   lines,
   run,
-  say,
-  Optional
+  say
 }
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
-import scala.collection.{mutable, SortedMap, SortedSet}
+import scala.collection.{SortedMap, SortedSet, mutable}
 import java.util.concurrent.Semaphore
 import java.util.concurrent.locks.ReentrantLock
 import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
-import java.time.{Duration, Instant, ZonedDateTime, ZoneId, ZoneOffset}
+import java.time.{Duration, Instant, ZoneId, ZoneOffset, ZonedDateTime}
 import java.time.format.DateTimeFormatter
+import scala.util.matching.Regex
 
 // TODO: introduce a better abstraction
 val limit = Runtime.getRuntime.nn.availableProcessors() - 1
@@ -101,7 +102,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   lazy val bad_tests: Maker[SortedSet[String]] =
     Rule(info, scope)(p => SortedSet(p.bad_tests*))
 
-  lazy val cores: Maker[Int] =
+  private lazy val cores: Maker[Int] =
     Rule(info, scope)(p => p.cores)
 
   lazy val test_cutoff: Maker[LocalDateTime] =
@@ -116,13 +117,11 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     Rule(info, scope) { p =>
       SortedSet(p.test_extensions*)
     }
-  lazy val score_iterations: Maker[Int] = Rule(info, scope) { p =>
-    p.score_iterations
-  }
 
-  lazy val project_repo_name: String = s"${course.course_name}_${project_name}"
+  private lazy val project_repo_name: String =
+    s"${course.course_name}_$project_name"
 
-  lazy val project_repo: Maker[SignedPath[Boolean]] =
+  private lazy val project_repo: Maker[SignedPath[Boolean]] =
     Gitolite.mirror(project_repo_name)
 
   lazy val staff: Maker[SortedSet[CSID]] =
@@ -134,7 +133,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   // Override Repo //
   ///////////////////
 
-  lazy val override_repo_name = s"${project_repo_name}__override"
+  private lazy val override_repo_name = s"${project_repo_name}__override"
 
   lazy val publish_override_repo: Maker[SignedPath[Unit]] =
     SignedPath.rule(
@@ -239,7 +238,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       }
     }
 
-  def submission(csid: CSID): Maker[Option[SignedPath[Unit]]] =
+  private def submission(csid: CSID): Maker[Option[SignedPath[Unit]]] =
     Rule(work_repo(csid) *: project_repo, scope / csid.value) {
       case (work_repo, project_repo) =>
         if (
@@ -268,16 +267,13 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   lazy val students_with_submission: Maker[SortedSet[CSID]] =
     Rule(submissions, scope)(_.keySet)
 
-  def has_submission(csid: CSID): Maker[Boolean] =
-    Rule(students_with_submission, scope / csid.value)(_.contains(csid))
+  private val report_name: String = "REPORT.txt"
 
-  val report_name = "REPORT.txt"
-
-  val initial_report = SignedPath.rule(
+  private val initial_report: Maker[SignedPath[Unit]] = SignedPath.rule(
     project_repo,
     SortedSet(".git"),
     scope
-  ) { case (dir, (project_repo)) =>
+  ) { case (dir, project_repo) =>
     val src = project_repo.path / report_name
     val dest = dir / report_name
     if (project_repo.data && os.isFile(src)) {
@@ -293,28 +289,29 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     }
   }
 
-  def student_report(csid: CSID) = SignedPath.rule(
-    submission(csid),
-    SortedSet(".git"),
-    scope / csid.value
-  ) { case (dir, (submission)) =>
-    val dest = dir / report_name
-    os.remove.all(dest)
-    submission.foreach { submission =>
-      val src = submission.path / report_name
-      if (os.isFile(src)) {
-        os.copy(
-          from = src,
-          to = dest,
-          followLinks = false,
-          replaceExisting = true,
-          createFolders = true
-        )
+  private def student_report(csid: CSID): Maker[SignedPath[Unit]] =
+    SignedPath.rule(
+      submission(csid),
+      SortedSet(".git"),
+      scope / csid.value
+    ) { case (dir, submission) =>
+      val dest = dir / report_name
+      os.remove.all(dest)
+      submission.foreach { submission =>
+        val src = submission.path / report_name
+        if (os.isFile(src)) {
+          os.copy(
+            from = src,
+            to = dest,
+            followLinks = false,
+            replaceExisting = true,
+            createFolders = true
+          )
+        }
       }
     }
-  }
 
-  def has_student_report(csid: CSID) = Rule(
+  private def has_student_report(csid: CSID): Maker[Boolean] = Rule(
     initial_report *: student_report(csid),
     scope / csid.value
   ) { case (initial_report, student_report) =>
@@ -343,7 +340,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       ext <- test_extensions
       name_ext = s"$name.$ext"
       src = os.followLink(from / name_ext)
-      if src.map(p => os.exists(p)).getOrElse(false)
+      if src.exists(p => os.exists(p))
     } {
       os.copy(
         from = src.get,
@@ -407,7 +404,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             os.read.lines(commit_id_file).head.trim.nn
           } else {
             cutoff_time match
-              case Some(cutoff_time) => {
+              case Some(cutoff_time) =>
                 // Find the last commit in the main branch before the cutoff time.
                 // Example: git log master --first-parent --before="2024-09-12 16:00" --pretty=format:"%H %cI %f"
 
@@ -432,7 +429,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
                   .head
                   .trim
                   .nn
-              }
               case None => default_branch
           }
 
@@ -442,7 +438,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             os.proc("git", "checkout", commit_id).run(cwd = dir)
           } catch {
             case ex: Throwable =>
-              ex.printStackTrace();
+              ex.printStackTrace()
               say(
                 s"??????????????? checking out '$commit_id' failed, trying 'master'"
               )
@@ -504,7 +500,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
     }
 
-  def is_late(csid: CSID, cutoff_time: CutoffTime) = Rule(
+  def is_late(csid: CSID, cutoff_time: CutoffTime): Maker[Boolean] = Rule(
     prepare(csid, cutoff_time) *: code_cutoff,
     scope / csid.value / cutoff_time.label
   ) { case (prepare, code_cutoff) =>
@@ -550,7 +546,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           case CutoffTime.None => None
 
         cutoff_time match
-          case Some(cutoff_time) => {
+          case Some(cutoff_time) =>
             val cutoff_string =
               cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             val lines = os
@@ -579,7 +575,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               val delay = Duration.between(cutoff_time, commit_time)
               LateCommit(hash, commit_time, delay, message)
             })
-          }
+
           case None => Seq()
 
       case (_, (None, _)) =>
@@ -611,7 +607,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("result")
     one("time")
   }
-
 
   // Run a submission/test combination once and report the outcome
   def run_one(
@@ -647,12 +642,12 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
             )
             val tn = test_id.external_name
             val m =
-              s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_${csid}"
+              s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_$csid"
             say(f"running#$n $m on $cores cores")
 
             val start = System.currentTimeMillis()
             var run_time: Option[Double] = None
-            val (rc, stdout, stderr) =
+            val (_, _, stderr) =
               try {
                 val _ = os
                   .proc("make", "-k", "clean")
@@ -753,7 +748,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
-  def publish_student_results(
+  private def publish_student_results(
       csid: CSID,
       n: Int
   ): Maker[SignedPath[StudentResults]] =
@@ -765,7 +760,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         ) *:
         csid_to_alias(csid) *:
         csid_has_test(csid) *:
-        course.notifications.peek *: Config.can_push_repo,
+        Config.can_push_repo,
       SortedSet(".git"),
       scope / csid.value / n.toString
     ) {
@@ -777,7 +772,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               outcomes,
               alias,
               has_test,
-              notifications,
               can_push_repo
             )
           ) =>
@@ -837,7 +831,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         }
     }
 
-  def get_student_failures(csid: CSID): Maker[Option[StudentFailures]] =
+  private def get_student_failures(csid: CSID): Maker[Option[StudentFailures]] =
     Rule(
       get_student_results(csid),
       scope / csid.value
@@ -847,12 +841,12 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       }
     }
 
-  def has_spamon(csid: CSID): Maker[Boolean] = Rule(
+  private def has_spamon(csid: CSID): Maker[Boolean] = Rule(
     work_repo(csid),
     scope / csid.value
   ) { work_repo => os.exists(work_repo.path / "spamon") }
 
-  def notify_student_results(csid: CSID) =
+  def notify_student_results(csid: CSID): Maker[Unit] =
     Rule(
       get_student_failures(
         csid
@@ -865,12 +859,12 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         if (has_spamon) {
           n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
-          say(s"no spamon for ${course.course_name}:${project_name}:$csid")
+          say(s"no spamon for ${course.course_name}:$project_name:$csid")
         }
       case (None, _, _, _, _) =>
     }
 
-  lazy val project_results_repo_name =
+  lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"
 
   def publish_results(
@@ -928,7 +922,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   // student tests //
   ///////////////////
 
-  def student_test(csid: CSID): Maker[SignedPath[Option[String]]] =
+  private def student_test(csid: CSID): Maker[SignedPath[Option[String]]] =
     SignedPath.rule(
       submission(csid) *: test_extensions *: test_cutoff,
       SortedSet(".git"),
@@ -988,7 +982,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         None
     }
 
-  lazy val student_tests_by_csid: Maker[SortedMap[CSID, SignedPath[String]]] =
+  private lazy val student_tests_by_csid
+      : Maker[SortedMap[CSID, SignedPath[String]]] =
     Rule(
       for {
         csids <- students_with_submission
@@ -1003,7 +998,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       } yield (csid, test.copy(data = git_sha))).to(SortedMap)
     }
 
-  lazy val csids_with_tests: Maker[SortedSet[CSID]] =
+  private lazy val csids_with_tests: Maker[SortedSet[CSID]] =
     Rule(student_tests_by_csid, scope) { student_tests =>
       student_tests.keySet
     }
@@ -1012,10 +1007,10 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   // Aliases repo //
   //////////////////
 
-  lazy val aliases_repo_name: String =
+  private lazy val aliases_repo_name: String =
     s"${course.course_name}_${project_name}__aliases"
 
-  lazy val publish_aliases: Maker[SignedPath[SortedMap[CSID, Alias]]] =
+  private lazy val publish_aliases: Maker[SignedPath[SortedMap[CSID, Alias]]] =
     SignedPath.rule(
       Gitolite.repo_info(
         aliases_repo_name
@@ -1075,21 +1070,16 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       pairs.to(SortedMap)
     }
 
-  def csid_to_alias(csid: CSID): Maker[Option[Alias]] =
+  private def csid_to_alias(csid: CSID): Maker[Option[Alias]] =
     Rule(publish_aliases, scope / csid.value) { aliases =>
       aliases.data.get(csid)
-    }
-
-  def alias_to_csid(alias: Alias): Maker[Option[CSID]] =
-    Rule(publish_aliases, scope / alias.toString) { aliases =>
-      aliases.data.find(_._2 == alias).map(_._1)
     }
 
   ///////////
   // Tests //
   ///////////
 
-  lazy val override_test_names: Maker[SortedSet[String]] =
+  private lazy val override_test_names: Maker[SortedSet[String]] =
     Rule(
       publish_override_repo *: test_extensions,
       scope
@@ -1106,7 +1096,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       complete_tests.keySet.to(SortedSet)
     }
 
-  def override_test(test_name: String): Maker[SignedPath[String]] =
+  private def override_test(test_name: String): Maker[SignedPath[String]] =
     SignedPath.rule(
       publish_override_repo *: test_extensions,
       SortedSet(),
@@ -1126,7 +1116,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       ""
     }
 
-  lazy val override_tests: Maker[SortedMap[String, SignedPath[String]]] =
+  private lazy val override_tests
+      : Maker[SortedMap[String, SignedPath[String]]] =
     Rule(
       for {
         test_names <- override_test_names.map(_.toSeq)
@@ -1193,7 +1184,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               val test_info = TestInfo(test_id, test_sp.copy(data = ()))
               info.update(test_id, test_info)
               val src = test_sp.path / s"${csid.value}.$ext"
-              val dest = dir / s"${alias}.$ext"
+              val dest = dir / s"$alias.$ext"
               os.copy(
                 from = src,
                 to = dest,
@@ -1260,7 +1251,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       }
     }
 
-  def csid_has_test(csid: CSID): Maker[Boolean] =
+  private def csid_has_test(csid: CSID): Maker[Boolean] =
     Rule(csids_with_tests, scope / csid.value)(_.contains(csid))
 
   val tests_repo_name = s"${course.course_name}_${project_name}__tests"
@@ -1311,11 +1302,11 @@ object Project {
   given Ordering[Project] = Ordering.by(p => (p.course, p.project_name))
 
   // The output of time's %E format, output by the Makefile build system for test runtimes
-  val TimeFormat = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
+  val TimeFormat: Regex = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
 
   private val run_locks = TrieMap[os.Path, ReentrantLock]()
 
-  def run_lock[A](path: os.Path)(f: => A): A = {
+  private def run_lock[A](path: os.Path)(f: => A): A = {
     val lock = run_locks.getOrElseUpdate(path, new ReentrantLock())
     try {
       lock.lock()
@@ -1325,7 +1316,7 @@ object Project {
     }
   }
 
-  lazy val all_projects: Maker[Seq[Project]] = Rule(
+  private lazy val all_projects: Maker[Seq[Project]] = Rule(
     for {
       cs: Seq[Course] <- Course.all
       pms: Seq[SortedMap[String, Project]] <- Maker.sequence(cs.map(_.projects))
@@ -1339,5 +1330,6 @@ object Project {
   lazy val active_projects: Maker[Seq[Project]] =
     Maker.select(all_projects)(_.active)
 
-  val automatic_override_names = Set("Makefile", "makefile")
+  private val automatic_override_names: Set[String] =
+    Set("Makefile", "makefile")
 }

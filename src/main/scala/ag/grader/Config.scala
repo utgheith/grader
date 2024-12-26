@@ -31,18 +31,18 @@ case class RemoteServer(user: String, host: String, port: Int)
       val _ = run(cwd, true, stdin)
     }
 
-    def lines(cwd: os.Path, stdin: os.ProcessInput = "") =
+    def lines(cwd: os.Path, stdin: os.ProcessInput = ""): Seq[String] =
       os.read.lines(run(cwd, true, stdin)._2)
   }
 
   def ssh(parts: os.Shellable*): SshProc = SshProc(
-    (os.Shellable(Seq("ssh", ssh_uri)) +: parts)*
+    os.Shellable(Seq("ssh", ssh_uri)) +: parts*
   )
 
-  def git_clone(repo: String, dir: os.Path): SshProc =
-    SshProc("git", "clone", git_uri(repo), dir)
+  // def git_clone(repo: String, dir: os.Path): SshProc =
+  //  SshProc("git", "clone", git_uri(repo), dir)
 
-  def git_fork(src: String, dest: String): SshProc = SshProc("fork", src, dest)
+  // def git_fork(src: String, dest: String): SshProc = SshProc("fork", src, dest)
 
 }
 

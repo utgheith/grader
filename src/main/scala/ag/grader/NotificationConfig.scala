@@ -1,6 +1,6 @@
 package ag.grader
 
-import upickle.default.{ReadWriter}
+import upickle.default.ReadWriter
 import ag.rules.{check, say}
 
 @upickle.implicits.allowUnknownKeys(false)
@@ -123,7 +123,7 @@ case class NotificationConfig(
     val has_test = if (student_failures.has_test) "+" else "-"
 
     val subject =
-      s"[$n_pass/$n_tests:${has_test}T:${has_report}R] ${course_name}_${project_name}_${csid} [$short_sha]"
+      s"[$n_pass/$n_tests:${has_test}T:${has_report}R] ${course_name}_${project_name}_$csid [$short_sha]"
 
     val not_passing = (for {
       (test, outcome) <- student_failures.failed_tests
@@ -132,7 +132,7 @@ case class NotificationConfig(
 
     val web_page = site_base match {
       case Some(site_base) =>
-        s"$site_base/${course_name}_${project_name}.html"
+        s"$site_base/${course_name}_$project_name.html"
       case None =>
         ""
     }
@@ -160,7 +160,7 @@ case class NotificationConfig(
 
   } else {
     say(
-      s"    result update notification is disabled for ${project.course.course_name}::${project.project_name}::${csid}"
+      s"    result update notification is disabled for ${project.course.course_name}::${project.project_name}::$csid"
     )
   }
 }

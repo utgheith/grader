@@ -1,8 +1,8 @@
 package ag.grader
 
 import scala.collection.{SortedMap, SortedSet}
-import upickle.default.{ReadWriter}
-import ag.rules.{given_ReadWriter_SortedMap}
+import upickle.default.ReadWriter
+import ag.rules.given_ReadWriter_SortedMap
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RawCourseNotSorted(

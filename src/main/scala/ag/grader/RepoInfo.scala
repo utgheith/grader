@@ -22,18 +22,18 @@ case class RepoInfo(
     var forked: Boolean = false
 
     try {
-      /* The most common path: the repo exists and we have a local checkout, just pull the latest */
+      /* The most common path: the repo exists, and we have a local checkout, just pull the latest */
       os.proc("git", "reset", "--hard").check(cwd = path)
       os.proc("git", "clean", "-fdx").check(cwd = path)
       os.proc("git", "checkout", "master").check(cwd = path)
       server.SshProc("git", "pull").run(cwd = path)
     } catch {
       case NonFatal(_) =>
-        /* Second common path: the repo exists but we don't have a local checkout, clone it */
+        /* Second common path: the repo exists, but we don't have a local checkout, clone it */
         os.remove.all(path)
         os.makeDir.all(path)
         try {
-          say(s"cloning ${repo_name}")
+          say(s"cloning $repo_name")
           server
             .SshProc(
               "git",
@@ -45,12 +45,12 @@ case class RepoInfo(
             .run(cwd = path)
         } catch {
           case NonFatal(_) =>
-            /* Least common path: the repo doesn't exists, fork it then clone it */
+            /* Least common path: the repo doesn't exist, fork it then clone it */
             fork_from match {
               case Some(fork_from) =>
                 if (!can_push_repo)
                   throw Exception(s"not allowed to fork $repo_name")
-                say(s"forking ${repo_name}")
+                say(s"forking $repo_name")
                 server
                   .SshProc("ssh", server.ssh_uri, "fork", fork_from, repo_name)
                   .check(cwd = os.pwd)

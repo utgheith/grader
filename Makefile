@@ -1,8 +1,13 @@
 
+
+arm64_Darwin=aarch64-apple-darwin
+CS_URL="https://github.com/coursier/launchers/raw/master/cs-${${shell arch}_${shell uname}}.gz"
+SELECTOR=${$(shell arch)_$(shell uname)}
+
 all : stage;
 
 cs:
-	curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
+	curl -fL "${CS_URL}" | gzip -d > cs
 	chmod +x cs
 
 Makefile:;

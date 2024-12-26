@@ -1,10 +1,12 @@
 package ag.grader
 
 import java.io.FileWriter
-import ag.rules.{Maker, say, Rule}
+import ag.rules.{Maker, Rule, say}
+
 import scala.collection.SortedMap
-import java.time.{LocalDateTime, ZonedDateTime, ZoneId}
+import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
 import java.time.format.DateTimeFormatter
+import scala.annotation.unused
 import scala.collection.SortedSet
 
 trait HtmlContext {
@@ -17,7 +19,7 @@ trait HtmlContext {
 
 class FileContext(path: os.Path) extends HtmlContext with AutoCloseable {
 
-  val w = new FileWriter(path.toIO).nn
+  private val w = new FileWriter(path.toIO).nn
 
   def doctype(): Unit = {
     w.write("<!DOCTYPE html>")
@@ -50,7 +52,7 @@ class FileContext(path: os.Path) extends HtmlContext with AutoCloseable {
     w.write(s"</$tag>")
   }
 
-  def close() = {
+  def close(): Unit = {
     w.close()
   }
 }
@@ -62,6 +64,7 @@ case class Element(tag: String, attributes: Seq[(String, String)]) {
     case s: String => this.copy(attributes = attributes :+ (name, s))
     case null      => this
   }
+  @unused
   def bgcolor(c: String | Null): Element =
     attr("bgcolor", c)
   def colspan(c: String | Null): Element =
@@ -128,7 +131,7 @@ def text(s: String)(using c: HtmlContext): Unit = {
 
 class HtmlGen(p: Project) {
 
-  val displayFormat: DateTimeFormatter =
+  private val displayFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
   val gen_html: Maker[Unit] =
@@ -188,7 +191,7 @@ class HtmlGen(p: Project) {
           sha = s.prepare_info.sha
         } yield (a, sha)).to(List).sortBy(_._1)
 
-        def testTitle(t: String, rowNum: Int)(using HtmlContext) = {
+        def testTitle(t: String, rowNum: Int)(using HtmlContext): Unit = {
           val ch = if (rowNum >= t.length) "." else t(rowNum)
           val ext =
             if (rowNum >= test_extensions.size) test_extensions.last
@@ -203,7 +206,7 @@ class HtmlGen(p: Project) {
         }
 
         // Display the different time stamps
-        def times(using HtmlContext) = table {
+        def times(using HtmlContext): Unit = table {
           tr {
             td { text("generated") }
             td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
@@ -219,7 +222,7 @@ class HtmlGen(p: Project) {
         }
 
         // Display the results table
-        def tbl(using HtmlContext) = table.css_class("results") {
+        def tbl(using HtmlContext): Unit = table.css_class("results") {
           thead {
             /* 3 headers */
             for (i <- 0 to 2) {
@@ -236,7 +239,7 @@ class HtmlGen(p: Project) {
           tbody {
             /* the actual results, one row per submission */
             submissions.foreach { case (alias, sha) =>
-              val short_name = s"${alias.toString}_$sha".toString.take(8)
+              val short_name = s"${alias.toString}_$sha".take(8)
               val result = results(alias)
               val outcome: SortedMap[String, RedactedOutcome] =
                 result.outcomes.map { case (k, v) => (k.external_name, v) }
@@ -281,7 +284,7 @@ class HtmlGen(p: Project) {
                       case Some(
                             RedactedOutcome(_, _, _, Some(time), tries)
                           ) =>
-                        f"$tries%s tries, last took ${time}%.2fs"
+                        f"$tries%s tries, last took $time%.2fs"
                       case Some(RedactedOutcome(_, _, _, None, tries)) =>
                         s"$tries tries"
                       case _ =>
@@ -296,7 +299,7 @@ class HtmlGen(p: Project) {
           }
         }
 
-        def ignored(using HtmlContext) = table {
+        def ignored(using HtmlContext): Unit = table {
           tr { td { h3 { pre { text("Ignored tests") } } } }
           tr {
             td {
@@ -315,7 +318,7 @@ class HtmlGen(p: Project) {
           }
         }
 
-        def weights_table(using HtmlContext) = table {
+        def weights_table(using HtmlContext): Unit = table {
           tr { td { h3 { pre { text("Selected test weights") } } } }
           tr {
             td {

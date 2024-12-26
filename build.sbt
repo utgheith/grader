@@ -1,8 +1,16 @@
 scalaVersion := "3.6.2"
 
-scalacOptions ++= Seq("-Wall", "-Wconf:any:e", "-Wunused:all", "-feature", "-deprecation", "-unchecked", "-Yexplicit-nulls")
+scalacOptions ++= Seq(
+  "-Wall",
+  "-Wconf:any:e",
+  //"-Wunused:all",
+  "-feature",
+  "-deprecation",
+  "-unchecked",
+  "-Yexplicit-nulls"
+)
 
-testFrameworks += new TestFramework("munit.Framework")
+testFrameworks += TestFramework("munit.Framework")
 
 libraryDependencies ++= Seq(
   "com.lihaoyi" %% "fansi" % "0.5.0" ,

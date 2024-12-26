@@ -18,13 +18,13 @@ object OutcomeStatus {
   implicit val rw: ReadWriter[OutcomeStatus] =
     readwriter[String].bimap[OutcomeStatus](
       status => status.label,
-      str =>
-        str match
-          case "pass"    => Pass
-          case "fail"    => Fail
-          case "timeout" => Timeout
-          case "unknown" => Unknown
-          case _         => Unknown
+      {
+        case "pass"    => Pass
+        case "fail"    => Fail
+        case "timeout" => Timeout
+        case "unknown" => Unknown
+        case _         => Unknown
+      }
     )
 }
 

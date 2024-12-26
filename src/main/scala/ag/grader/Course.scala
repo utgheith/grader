@@ -1,7 +1,7 @@
 package ag.grader
 
 import scala.collection.{mutable, SortedMap, SortedSet}
-import upickle.default.{ReadWriter}
+import upickle.default.ReadWriter
 import ag.rules.{
   Maker,
   Periodic,
@@ -17,7 +17,7 @@ case class Course(course_name: String) derives ReadWriter {
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
-  lazy val raw: Maker[RawCourse] = Gitolite.raw_course(course_name)
+  private lazy val raw: Maker[RawCourse] = Gitolite.raw_course(course_name)
 
   lazy val notifications: Maker[NotificationConfig] =
     Rule(raw, scope)(_.notifications)
@@ -71,7 +71,7 @@ case class Course(course_name: String) derives ReadWriter {
   /*
    * Update keys in gitolite-admin
    *
-   * Key updates are automatic (when a students drops a new key in the dropbox)
+   * Key updates are automatic (when a student drops a new key in the dropbox)
    * Key deletion is manual and need to be done in both places
    */
 
@@ -119,8 +119,8 @@ case class Course(course_name: String) derives ReadWriter {
 
     }
 
-  lazy val enrollment_repo_name = s"${course_name}__enrollment"
-  def enrollment_file(dir: os.Path): os.Path = dir / "enrollment.json"
+  private lazy val enrollment_repo_name = s"${course_name}__enrollment"
+  private def enrollment_file(dir: os.Path): os.Path = dir / "enrollment.json"
 
   // read the enrollment repo
 
@@ -166,7 +166,7 @@ case class Course(course_name: String) derives ReadWriter {
       }
     }
 
-  lazy val grades_repo_name = s"${course_name}__grades"
+  private lazy val grades_repo_name = s"${course_name}__grades"
 
   lazy val create_grades_repo: Maker[SignedPath[Unit]] =
     SignedPath.rule(
@@ -186,7 +186,7 @@ case class Course(course_name: String) derives ReadWriter {
           os.write(
             dir / "README.md",
             f"""
-            |# Grading data for `${course_name}`
+            |# Grading data for `$course_name`
             |
             |This is a per-course workspace for synchronizing grading data
             |used by the grading scripts between TAs. The grader itself

@@ -76,10 +76,9 @@ object Gitolite {
         true
       case (_, _) =>
         false
-      // throw Exception(s"repo $repo does not exist")
     }
 
-  val raw_courses: Maker[SortedMap[String, RawCourse]] =
+  private val raw_courses: Maker[SortedMap[String, RawCourse]] =
     Rule(mirror("courses_config"), null) { path =>
       if (path.data) {
         val file = path.path / "courses.json"

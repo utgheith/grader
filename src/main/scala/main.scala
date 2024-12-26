@@ -53,7 +53,7 @@ given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
 
   /** read
-   */
+    */
   override def read(strs: Seq[String]): Either[String, os.Path] = if (
     strs.isEmpty
   ) {
@@ -75,7 +75,7 @@ given TokensReader.Simple[Regex] with {
   override def alwaysRepeatable: Boolean = true
 
   /** read
-   */
+    */
   override def read(strs: Seq[String]): Either[String, Regex] = if (
     strs.isEmpty
   ) {
@@ -91,7 +91,7 @@ given TokensReader.Simple[CutoffTime] with {
   override def alwaysRepeatable: Boolean = false
 
   /** read
-   */
+    */
   override def read(strs: Seq[String]): Either[String, CutoffTime] =
     Right(CutoffTime.fromString(strs.headOption))
 }
@@ -106,13 +106,13 @@ given TokensReader.Simple[AliasSortMode] with {
   override def alwaysRepeatable: Boolean = false
 
   /** read
-   */
+    */
   override def read(strs: Seq[String]): Either[String, AliasSortMode] =
     strs.head match
       case "alias" => Right(AliasSortMode.Alias)
       case "csid"  => Right(AliasSortMode.CSID)
       case s =>
-        Left(s"Invalid sort mode '${s}'; possible modes are 'alias' or 'csid'")
+        Left(s"Invalid sort mode '$s'; possible modes are 'alias' or 'csid'")
 }
 
 //@main
@@ -223,7 +223,7 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
     val r = (for {
-      p <- commonArgs.selected_projects.value.toSeq
+      p <- commonArgs.selected_projects.value
       s <- p.course.enrollment.value.keySet.toSeq
       if commonArgs.students.matches(s.value)
       r <- p.get_student_results(s).value.toSeq
@@ -361,23 +361,22 @@ object Main {
         if commonArgs.projects.matches(pn)
       } {
         val aliases = p.get_aliases.value
-        val csids = enrollment
-          .map(_._1)
+        val csids = enrollment.keys
           .filter((id: CSID) => commonArgs.students.matches(id.value))
           .toIndexedSeq
         val sorted =
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
 
-        val base_name = s"${c.course_name}_${pn}"
+        val base_name = s"${c.course_name}_$pn"
         val longest_csid = sorted.maxBy(_.value.length)
         val max_width = longest_csid.value.length + base_name.length + 1
 
-        println(s"\n${base_name}:")
+        println(s"\n$base_name:")
 
         for (csid <- sorted) {
-          val target_name = s"${base_name}_${csid}"
+          val target_name = s"${base_name}_$csid"
           val padded_name = String.format(s"%-${max_width}s", target_name)
-          println(s"${padded_name}  ${aliases.getOrElse(csid, "?")}")
+          println(s"$padded_name  ${aliases.getOrElse(csid, "?")}")
         }
       }
     }
@@ -416,7 +415,7 @@ object Main {
           if commonArgs.students.matches(csid.value)
         } {
           val prep = p.prepare(csid, cutoff).value
-          val target_name = s"${c.course_name}_${pn}_${csid}"
+          val target_name = s"${c.course_name}_${pn}_$csid"
           val target_path = base / target_name
 
           prep.data match {
@@ -483,38 +482,38 @@ object Main {
 
         val late_repos = enrollment
           .map((csid, _) => csid)
-          .filter((csid) => commonArgs.students.matches(csid.value))
-          .map((csid) => (csid, p.late_commits(csid, cutoff).value.data))
-          .filter((_, late_commits) => !late_commits.isEmpty)
+          .filter(csid => commonArgs.students.matches(csid.value))
+          .map(csid => (csid, p.late_commits(csid, cutoff).value.data))
+          .filter((_, late_commits) => late_commits.nonEmpty)
           .toSeq
 
         println(
-          s"\nFound ${late_repos.length} repositories with late commits for ${c.course_name}_${pn}"
+          s"\nFound ${late_repos.length} repositories with late commits for ${c.course_name}_$pn"
         )
-        println(s"Using deadline: ${project_deadline}\n")
+        println(s"Using deadline: $project_deadline\n")
 
         val print_commit = (commit: ag.grader.LateCommit) => {
           val time = commit.time
             .withZoneSameInstant(ZoneId.systemDefault)
             .format(datetime_format)
 
-          val days = commit.delay.toDays()
-          val hours = commit.delay.toHours() % 24
-          val minutes = commit.delay.toMinutes() % 60
-          val seconds = commit.delay.getSeconds() % 60
+          val days = commit.delay.toDays
+          val hours = commit.delay.toHours % 24
+          val minutes = commit.delay.toMinutes % 60
+          val seconds = commit.delay.getSeconds % 60
           val duration = days match
             case 0 => f"$hours%02d:$minutes%02d:$seconds%02d"
             case 1 => f"$days%d day, $hours%02d:$minutes%02d:$seconds%02d"
             case _ => f"$days%d days, $hours%02d:$minutes%02d:$seconds%02d"
 
-          val msg = commit.message.length > 64 match
-            case true  => commit.message.take(61) ++ "..."
-            case false => commit.message
+          val msg =
+            if commit.message.length > 64 then commit.message.take(61) ++ "..."
+            else commit.message
 
           val commit_hash = commit.hash.take(8)
-          val line = show_details match
-            case true  => s"| ${time} (${duration} late); ${commit_hash} ${msg}"
-            case false => s"| ${time} (${duration} late)"
+          val line =
+            if show_details then s"| $time ($duration late); $commit_hash $msg"
+            else s"| $time ($duration late)"
 
           println(line)
         }
@@ -528,14 +527,14 @@ object Main {
             print_commit(commit)
           }
         } else {
-          val repos = show_details match
-            case true  => late_repos
-            case false => scala.util.Random.shuffle(late_repos)
+          val repos =
+            if show_details then late_repos
+            else scala.util.Random.shuffle(late_repos)
 
           for (((csid, late_commits), i) <- repos.zipWithIndex) {
-            val target_name = show_details match
-              case true  => s"${c.course_name}_${pn}_${csid}"
-              case false => s"Submission ${i}"
+            val target_name =
+              if show_details then s"${c.course_name}_${pn}_$csid"
+              else s"Submission $i"
 
             println(target_name)
             for (commit <- late_commits) {
@@ -644,9 +643,8 @@ object Main {
       acc = v
 
       println(
-        s"---------------------------> finished iteration #$c in ${human(t)}, free memory ${Runtime
-            .getRuntime()
-            .freeMemory()}/${Runtime.getRuntime().maxMemory()}"
+        s"---------------------------> finished iteration #$c in ${human(t)}, free memory ${Runtime.getRuntime
+            .freeMemory()}/${Runtime.getRuntime.maxMemory()}"
       )
       c = c + r.step
     }
@@ -690,7 +688,7 @@ object Main {
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
       cutoff: CutoffTime,
-      @arg(doc = "maximum number of minutes per iteratoion")
+      @arg(doc = "maximum number of minutes per iteration")
       minutes: Int = 10
   ): Unit = {
     val m = MyMonitor(commonArgs)
@@ -738,8 +736,8 @@ object Main {
         println(
           s"---------------------------> finished iteration #$c/${commonArgs.count}"
         )
-        println(s"max memory ${Runtime.getRuntime().maxMemory()}")
-        println(s"free memory ${Runtime.getRuntime().freeMemory()}")
+        println(s"max memory ${Runtime.getRuntime.maxMemory()}")
+        println(s"free memory ${Runtime.getRuntime.freeMemory()}")
 
         loop(c + 1, in ++ out)
 
@@ -812,9 +810,8 @@ object Main {
           val res = p.get_student_results(csid).value
           res.foreach { res =>
             val count = res.outcomes.size
-            val pass = res.outcomes.values
-              .filter(_.outcome == Some(OutcomeStatus.Pass))
-              .size
+            val pass =
+              res.outcomes.values.count(_.outcome.contains(OutcomeStatus.Pass))
             println(
               s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
             )
@@ -896,10 +893,10 @@ object Main {
       pprint.pprintln(chosen)
       pprint.pprintln(test_weights)
       pprint.pprintln(weights)
-      val totals = ((for {
+      val totals = (for {
         out <- outs
         (csid, score) <- out.toSeq
-      } yield (csid, score)).groupMapReduce(_._1)(_._2)(_ + _)).to(SortedMap)
+      } yield (csid, score)).groupMapReduce(_._1)(_._2)(_ + _).to(SortedMap)
       for {
         (csid, raw_score) <- totals
       } {
