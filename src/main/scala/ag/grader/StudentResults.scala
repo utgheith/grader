@@ -17,7 +17,7 @@ object StudentFailures {
     has_test = rsr.has_test,
     failed_tests = (for {
       (test, outcome) <- rsr.outcomes
-      if !outcome.outcome.contains(OutcomeStatus.Pass)
+      if !outcome.outcome.contains(OutcomeStatus.pass)
     } yield (test, outcome.outcome)).to(SortedMap),
     total_tests = rsr.outcomes.size,
     prepare_info = rsr.prepare_info

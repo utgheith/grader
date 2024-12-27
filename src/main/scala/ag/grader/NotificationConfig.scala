@@ -127,7 +127,7 @@ case class NotificationConfig(
 
     val not_passing = (for {
       (test, outcome) <- student_failures.failed_tests
-    } yield s"${test.external_name} ... ${outcome.map(_.label).getOrElse("?")}")
+    } yield s"${test.external_name} ... ${outcome.map(_.toString).getOrElse("?")}")
       .mkString("\n")
 
     val web_page = site_base match {

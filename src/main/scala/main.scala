@@ -231,7 +231,7 @@ object Main {
     } yield (p, s, test, outcome)).groupMapReduce {
       case (p, s, test, outcome) => (p, test)
     } { case (p, s, test, outcome) =>
-      !outcome.outcome.contains(OutcomeStatus.Pass)
+      !outcome.outcome.contains(OutcomeStatus.pass)
     }(_ && _)
 
     r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
@@ -603,7 +603,7 @@ object Main {
   private def show_failures(out: Seq[SignedPath[Outcome]]): Unit = {
     out
       .map(_.data)
-      .filterNot(_.outcome.contains(OutcomeStatus.Pass))
+      .filterNot(_.outcome.contains(OutcomeStatus.pass))
       .groupBy(_.csid)
       .to(SortedMap)
       .foreach { (csid, s) =>
@@ -756,7 +756,7 @@ object Main {
             val test_results = outcomes
               .groupBy(_.test_id)
               .map((test_id, runs) => {
-                val passed = runs.count(_.outcome.contains(OutcomeStatus.Pass))
+                val passed = runs.count(_.outcome.contains(OutcomeStatus.pass))
                 val total = runs.size
                 (test_id.external_name, (passed, total))
               })
@@ -811,7 +811,7 @@ object Main {
           res.foreach { res =>
             val count = res.outcomes.size
             val pass =
-              res.outcomes.values.count(_.outcome.contains(OutcomeStatus.Pass))
+              res.outcomes.values.count(_.outcome.contains(OutcomeStatus.pass))
             println(
               s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
             )

@@ -1,32 +1,14 @@
 package ag.grader
 
-import upickle.default.{readwriter, ReadWriter}
+import upickle.default.ReadWriter
 
-enum OutcomeStatus:
-  case Pass
-  case Fail
-  case Timeout
-  case Unknown
+enum OutcomeStatus derives ReadWriter:
+  case pass
+  case fail
+  case timeout
+  case unknown
 
-  def label: String = this match
-    case Pass    => "pass"
-    case Fail    => "fail"
-    case Timeout => "timeout"
-    case Unknown => "unknown"
-
-object OutcomeStatus {
-  implicit val rw: ReadWriter[OutcomeStatus] =
-    readwriter[String].bimap[OutcomeStatus](
-      status => status.label,
-      {
-        case "pass"    => Pass
-        case "fail"    => Fail
-        case "timeout" => Timeout
-        case "unknown" => Unknown
-        case _         => Unknown
-      }
-    )
-}
+  def isHappy: Boolean = this == pass
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RedactedOutcome(

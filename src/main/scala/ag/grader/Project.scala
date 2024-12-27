@@ -678,18 +678,18 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               case Some("timeout") => None
               case _               => None
 
-            val outcome = (outcome_str, qemu_runtime_str) match
-              case (_, Some("timeout")) => OutcomeStatus.Timeout
-              case (Some("pass"), _)    => OutcomeStatus.Pass
-              case (Some("fail"), _)    => OutcomeStatus.Fail
-              case (_, _)               => OutcomeStatus.Unknown
+            val outcome = (
+              outcome_str.map(_.toLowerCase.nn),
+              qemu_runtime_str.map(_.toLowerCase.nn)
+            ) match
+              case (_, Some("timeout")) => OutcomeStatus.timeout
+              case (Some("pass"), _)    => OutcomeStatus.pass
+              case (Some("fail"), _)    => OutcomeStatus.fail
+              case (_, _)               => OutcomeStatus.unknown
 
             val how_long = run_time.map(t => f"$t%.2f")
-            val out = outcome match
-              case OutcomeStatus.Pass    => fansi.Color.Green("pass")
-              case OutcomeStatus.Fail    => fansi.Color.Red("fail")
-              case OutcomeStatus.Timeout => fansi.Color.Red("timeout")
-              case OutcomeStatus.Unknown => fansi.Color.Red("???")
+            val out = (if (outcome.isHappy) fansi.Color.Green
+                       else fansi.Color.Red) (outcome.toString)
 
             say(s"    [${finished_runs.get()}/${started_runs
                 .get()}] finished [$out] $m in $how_long seconds")
@@ -736,7 +736,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         for {
           prev <- prev_maker
           it <-
-            if (prev.data.outcome.contains(OutcomeStatus.Pass))
+            if (prev.data.outcome.contains(OutcomeStatus.pass))
               run_one(csid, cutoff, test_id, m)
             else prev_maker
         } yield it
@@ -1276,7 +1276,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     (for {
       sp <- outs
       d = sp.data
-      if d.outcome.contains(OutcomeStatus.Pass)
+      if d.outcome.contains(OutcomeStatus.pass)
     } yield d.test_id).to(SortedSet)
   }
 

@@ -267,13 +267,13 @@ class HtmlGen(p: Project) {
                       outcome.get(t.external_name)
                     val (status_class, the_text) =
                       o.flatMap(_.outcome) match {
-                        case Some(OutcomeStatus.Pass) =>
+                        case Some(OutcomeStatus.pass) =>
                           ("pass", ".")
-                        case Some(OutcomeStatus.Fail) =>
+                        case Some(OutcomeStatus.fail) =>
                           ("fail", "X")
-                        case Some(OutcomeStatus.Timeout) =>
+                        case Some(OutcomeStatus.timeout) =>
                           ("fail", "T")
-                        case None | Some(OutcomeStatus.Unknown) =>
+                        case None | Some(OutcomeStatus.unknown) =>
                           ("compilefail", "?")
                       }
                     val chosen_class =
