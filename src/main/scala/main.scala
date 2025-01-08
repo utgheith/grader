@@ -758,9 +758,17 @@ object Main {
               .map((test_id, runs) => {
                 val passed = runs.count(_.outcome.contains(OutcomeStatus.pass))
                 val total = runs.size
-                (test_id.external_name, (passed, total))
+                (test_id.external_name, ujson.Arr(passed, total))
               })
-            (csid.toString(), test_results)
+              .toMap()
+            val commit_id = outcomes(0).commit_id.getOrElse("")
+            (
+              csid.toString(),
+              Map(
+                "commit_id" -> ujson.Str(commit_id),
+                "results" -> ujson.Obj.from(test_results)
+              )
+            )
           })
           .toMap()
 
