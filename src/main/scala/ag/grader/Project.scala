@@ -1254,6 +1254,77 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
   val tests_repo_name = s"${course.course_name}_${project_name}__tests"
 
+  ///////////////////////////
+  // Test Case Submissions //
+  //////////////////////////
+
+  lazy val publish_submitted_tests: Maker[SignedPath[SortedMap[TestId, TestInfo]]] =
+    SignedPath.rule(
+      Gitolite.repo_info(
+        submitted_tests_repo_name
+      ) *: student_tests_by_csid *: publish_aliases *: test_extensions *: Config.can_push_repo,
+      SortedSet(".git"),
+      scope
+    ) {
+      case (
+            dir,
+            (
+              submitted_tests_repo_info,
+              student_tests_by_csid,
+              aliases,
+              test_extensions,
+              can_push_repo
+            )
+          ) =>
+        submitted_tests_repo_info.update(
+          path = dir,
+          fork_from = Some("empty"),
+          msg = "tests",
+          readers = Seq(course.staff_group_name),
+          writers = Seq(),
+          can_push_repo
+        ) { _ =>
+          // delete all tests
+          for {
+            f <- os.list(dir)
+            if !f.last.startsWith(".")
+          } {
+            os.remove.all(f)
+          }
+
+          val info = mutable.Map[TestId, TestInfo]()
+
+          // copy student tests
+          for {
+            (csid, test_sp) <- student_tests_by_csid.toSeq
+            alias <- aliases.data.get(csid).toSeq
+          } {
+            for (ext <- test_extensions) {
+              val test_id = TestId(
+                external_name = alias.toString,
+                internal_name = csid.toString
+              )
+              val test_info = TestInfo(test_id, test_sp.copy(data = ()))
+              info.update(test_id, test_info)
+              val src = test_sp.path / s"${csid.value}.$ext"
+              val dest = dir / s"$alias.$ext"
+              os.copy(
+                from = src,
+                to = dest,
+                createFolders = true,
+                followLinks = false
+              )
+            }
+          }
+
+          info.to(SortedMap)
+
+        }
+
+    }
+
+  val submitted_tests_repo_name = s"${course.course_name}_${project_name}__submitted_tests"
+
   ////////////
   // Scores //
   ////////////
