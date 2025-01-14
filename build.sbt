@@ -22,7 +22,7 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalameta" %% "munit" % "1.0.3" % Test,
+  "org.scalameta" %% "munit" % "1.0.4" % Test,
 )
 
 dependsOn(RootProject(uri("https://github.com/utgheith/rules.git")))
