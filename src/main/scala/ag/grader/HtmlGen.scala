@@ -59,6 +59,7 @@ class FileContext(path: os.Path) extends HtmlContext with AutoCloseable {
 
 val self_closing_tags = Set("meta")
 
+@unused
 case class Element(tag: String, attributes: Seq[(String, String)]) {
   def attr(name: String, value: String | Null): Element = value match {
     case s: String => this.copy(attributes = attributes :+ (name, s))
@@ -77,6 +78,7 @@ case class Element(tag: String, attributes: Seq[(String, String)]) {
     attr("class", c)
   def css_class(c: List[String]): Element =
     attr("class", c.mkString(" "))
+  @unused
   def textAlign(c: String | Null): Element =
     attr("textAlign", c)
   def title(c: String | Null): Element =
@@ -93,6 +95,7 @@ case class Element(tag: String, attributes: Seq[(String, String)]) {
   }
 }
 
+@unused
 object Element {
   def apply(t: String): Element = Element(t, Seq())
   def apply()(using name: sourcecode.Name): Element = {
