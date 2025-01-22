@@ -1,11 +1,13 @@
 #!/bin/bash
 
 D=$(dirname $0)
-echo "D=$D"
 
-(cd $D && make stage)
+echo "building ..."
+(cd $D && make stage) > /dev/null
 
+echo "setting up for java 23 ..."
 eval "$($D/cs java --jvm 23 --env)"
 
+echo "running ..."
 exec $D/target/universal/stage/bin/grader "$@"
 
