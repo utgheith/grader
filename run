@@ -3,7 +3,7 @@
 D=$(dirname $0)
 
 echo "building ..."
-(cd $D && make stage) > /dev/null
+(cd $D && make) > /dev/null
 
 echo "setting up for java 23 ..."
 eval "$($D/cs java --jvm 23 --env)"

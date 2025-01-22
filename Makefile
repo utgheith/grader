@@ -1,6 +1,10 @@
 
+TARGET=target/universal/stage/bin/grader 
 
-all : stage;
+ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt
+
+${TARGET} : ${ALL_FILES}
+	./sbt stage
 
 % : sbt_%;
 
