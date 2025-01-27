@@ -9,5 +9,5 @@ final case class PrepareInfo(
     commit_time: ZonedDateTime,
     sha: String,
     has_report: Boolean,
-    push_time: Option[Instant]
+    push_time: Option[Instant] = None
 ) derives ReadWriter
