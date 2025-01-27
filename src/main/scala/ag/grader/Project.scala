@@ -1,6 +1,7 @@
 package ag.grader
 
 import ag.rules.{
+  check,
   Maker,
   Optional,
   Rule,
@@ -22,6 +23,7 @@ import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
 import java.time.{Duration, Instant, ZoneId, ZoneOffset, ZonedDateTime}
 import java.time.format.DateTimeFormatter
+import scala.util.Try
 import scala.util.matching.Regex
 
 // TODO: introduce a better abstraction
@@ -366,6 +368,10 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           )
           .run()
 
+        // fetch notes (e.g. PushTime)
+        os.proc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+          .check(cwd = dir)
+
         val default_branch = "master"
 
         // (2) what commit should we use
@@ -425,6 +431,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
         val git_sha =
           os.proc("git", "rev-parse", "HEAD").lines(cwd = dir).head.trim.nn
+
+        // commit time
         val commit_time = os
           .proc("git", "show", "-s", "--format=%ct")
           .lines(cwd = dir)
@@ -436,6 +444,16 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           Instant.ofEpochSecond(commit_time),
           ZoneOffset.UTC
         )
+
+        // push time
+
+        val push_time = (for {
+          line <- os.proc("git", "show", "-s", "--format=%N").lines(cwd = dir)
+          parts = line.split(' ')
+          if parts.length >= 2
+          if parts(0) == "PushTime:"
+          v <- Try(parts(1).toLong).toOption
+        } yield v).maxOption.map(s => Instant.ofEpochSecond(s, 0))
 
         // (4) override
         os.copy(
@@ -469,7 +487,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           PrepareInfo(
             commit_time = zdt,
             sha = git_sha,
-            has_report = has_student_report
+            has_report = has_student_report,
+            push_time = push_time
           )
         )
 

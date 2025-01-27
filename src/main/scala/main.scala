@@ -422,7 +422,8 @@ object Main {
             case Some(data) =>
               println(
                 s"${aliases.getOrElse(csid, "?")} $target_name ${data.commit_time
-                    .withZoneSameInstant(ZoneId.systemDefault)} ${data.sha}"
+                    .withZoneSameInstant(ZoneId.systemDefault)} ${data.sha} ${data.push_time
+                    .map(ins => ins.atZone(ZoneId.systemDefault()))}"
               )
               os.copy.over(
                 from = prep.path,

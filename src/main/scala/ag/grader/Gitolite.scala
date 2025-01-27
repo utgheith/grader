@@ -64,14 +64,20 @@ object Gitolite {
     SignedPath.rule(repo_info(repo), SortedSet(".git"), os.RelPath(repo)) {
       case (dir, RepoInfo(server, _, Some(_))) =>
         try {
-          server.SshProc("git", "pull").run(cwd = dir)
+          server.SshProc("git", "pull").check(cwd = dir)
+          server
+            .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+            .check(cwd = dir)
         } catch {
           case NonFatal(_) =>
             os.remove.all(dir)
             os.makeDir.all(dir)
             server
               .SshProc("git", "clone", "--template=", server.git_uri(repo), ".")
-              .run(cwd = dir)
+              .check(cwd = dir)
+            server
+              .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+              .check(cwd = dir)
         }
         true
       case (_, _) =>

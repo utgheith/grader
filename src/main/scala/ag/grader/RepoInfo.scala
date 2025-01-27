@@ -21,28 +21,38 @@ case class RepoInfo(
   )(f: Boolean => A): A = {
     var forked: Boolean = false
 
+    def clone_it(): Unit = {
+      say(s"cloning $repo_name")
+      server
+        .SshProc(
+          "git",
+          "clone",
+          "--template=",
+          server.git_uri(repo_name),
+          "."
+        )
+        .check(cwd = path)
+      server
+        .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+        .check(cwd = path)
+    }
+
     try {
       /* The most common path: the repo exists, and we have a local checkout, just pull the latest */
       os.proc("git", "reset", "--hard").check(cwd = path)
       os.proc("git", "clean", "-fdx").check(cwd = path)
       os.proc("git", "checkout", "master").check(cwd = path)
-      server.SshProc("git", "pull").run(cwd = path)
+      server.SshProc("git", "pull").check(cwd = path)
+      server
+        .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+        .check(cwd = path)
     } catch {
       case NonFatal(_) =>
         /* Second common path: the repo exists, but we don't have a local checkout, clone it */
         os.remove.all(path)
         os.makeDir.all(path)
         try {
-          say(s"cloning $repo_name")
-          server
-            .SshProc(
-              "git",
-              "clone",
-              "--template=",
-              server.git_uri(repo_name),
-              "."
-            )
-            .run(cwd = path)
+          clone_it()
         } catch {
           case NonFatal(_) =>
             /* Least common path: the repo doesn't exist, fork it then clone it */
@@ -85,16 +95,7 @@ case class RepoInfo(
                 )
                 .run(os.pwd)
             }
-            say(s"cloning $repo_name")
-            server
-              .SshProc(
-                "git",
-                "clone",
-                "--template=",
-                server.git_uri(repo_name),
-                "."
-              )
-              .run(cwd = path)
+            clone_it()
         }
     }
 
