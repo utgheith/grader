@@ -25,7 +25,7 @@ libraryDependencies ++= Seq(
   "org.scalameta" %% "munit" % "1.0.4" % Test,
 )
 
-dependsOn(RootProject(uri("https://github.com/utgheith/rules.git#e4f1ec414ef661a6f3f2a065eb1a973b9b97b6db")))
+//dependsOn(RootProject(uri("https://github.com/utgheith/rules.git#e4f1ec414ef661a6f3f2a065eb1a973b9b97b6db")))
 
 enablePlugins(JavaAppPackaging)
 

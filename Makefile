@@ -1,13 +1,17 @@
 
-TARGET=target/universal/stage/bin/grader 
 
 ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt
 
-${TARGET} : ${ALL_FILES}
+stage : ${ALL_FILES}
+	rm -f stage
 	./sbt stage
+	touch stage
 
 % : sbt_%;
 
 sbt_%:
 	./sbt $*
+
+clean:
+	rm -rf stage target
 
