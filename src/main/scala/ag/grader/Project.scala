@@ -689,7 +689,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               Some(outcome),
               // In the case of a timeout, show the outer runtime
               time = qemu_runtime.orElse(run_time),
-              tries = n
+              tries = n,
+              prepared.data.map(_.sha)
             )
           }
         }

@@ -1,4 +1,4 @@
-scalaVersion := "3.6.2"
+scalaVersion := "3.6.3"
 
 scalacOptions ++= Seq(
   "-Wall",
@@ -22,10 +22,10 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalameta" %% "munit" % "1.0.3" % Test,
+  "org.scalameta" %% "munit" % "1.0.4" % Test,
 )
 
-dependsOn(RootProject(uri("https://github.com/utgheith/rules.git")))
+dependsOn(RootProject(uri("https://github.com/utgheith/rules.git#d95dadf1e7b7cae22c4661cb58626cafb8114dbc")))
 
 enablePlugins(JavaAppPackaging)
 

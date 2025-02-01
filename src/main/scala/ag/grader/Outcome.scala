@@ -26,7 +26,8 @@ case class Outcome(
     test_id: TestId,
     outcome: Option[OutcomeStatus],
     time: Option[Double],
-    tries: Int
+    tries: Int,
+    commit_id: Option[String]
 ) derives ReadWriter {
   lazy val redacted: RedactedOutcome = RedactedOutcome(
     project = project,

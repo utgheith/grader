@@ -20,7 +20,7 @@ case class RemoteServer(user: String, host: String, port: Int)
         stdin: os.ProcessInput = ""
     ): (Int, os.Path, Option[os.Path]) = {
       RemoteServer.ssh_locks.getOrElseUpdate(host, Semaphore(4)).down(1) {
-        os.proc(parts*).run(cwd = cwd, check = check)
+        os.proc(parts*).run(cwd = cwd, check = check, stdin = stdin)
       }
     }
 

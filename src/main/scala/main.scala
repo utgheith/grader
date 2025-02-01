@@ -54,12 +54,12 @@ given TokensReader.Simple[os.Path] with {
 
   /** read
     */
-  override def read(strs: Seq[String]): Either[String, os.Path] = if (
-    strs.isEmpty
+  override def read(strings: Seq[String]): Either[String, os.Path] = if (
+    strings.isEmpty
   ) {
     Right(os.pwd / "workspace")
   } else {
-    val one = strs.mkString("/")
+    val one = strings.mkString("/")
     val p = if (one.startsWith("/")) {
       os.Path(one)
     } else {
@@ -76,12 +76,12 @@ given TokensReader.Simple[Regex] with {
 
   /** read
     */
-  override def read(strs: Seq[String]): Either[String, Regex] = if (
-    strs.isEmpty
+  override def read(strings: Seq[String]): Either[String, Regex] = if (
+    strings.isEmpty
   ) {
     Right(""".*""".r)
   } else {
-    Right(Regex(strs.mkString("|")))
+    Right(Regex(strings.mkString("|")))
   }
 }
 
@@ -92,8 +92,8 @@ given TokensReader.Simple[CutoffTime] with {
 
   /** read
     */
-  override def read(strs: Seq[String]): Either[String, CutoffTime] =
-    Right(CutoffTime.fromString(strs.headOption))
+  override def read(strings: Seq[String]): Either[String, CutoffTime] =
+    Right(CutoffTime.fromString(strings.headOption))
 }
 
 enum AliasSortMode:
@@ -107,8 +107,8 @@ given TokensReader.Simple[AliasSortMode] with {
 
   /** read
     */
-  override def read(strs: Seq[String]): Either[String, AliasSortMode] =
-    strs.head match
+  override def read(strings: Seq[String]): Either[String, AliasSortMode] =
+    strings.head match
       case "alias" => Right(AliasSortMode.Alias)
       case "csid"  => Right(AliasSortMode.CSID)
       case s =>
@@ -758,9 +758,17 @@ object Main {
               .map((test_id, runs) => {
                 val passed = runs.count(_.outcome.contains(OutcomeStatus.pass))
                 val total = runs.size
-                (test_id.external_name, (passed, total))
+                (test_id.external_name, ujson.Arr(passed, total))
               })
-            (csid.toString(), test_results)
+              .toMap()
+            val commit_id = outcomes.head.commit_id.getOrElse("")
+            (
+              csid.toString(),
+              Map(
+                "commit_id" -> ujson.Str(commit_id),
+                "results" -> ujson.Obj.from(test_results)
+              )
+            )
           })
           .toMap()
 

@@ -1,19 +1,13 @@
 
+TARGET=target/universal/stage/bin/grader 
 
-arm64_Darwin=aarch64-apple-darwin
-x86_64_Linux=x86_64-pc-linux
-CS_URL="https://github.com/coursier/launchers/raw/master/cs-${${shell arch}_${shell uname}}.gz"
+ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt
 
-all : stage;
-
-cs:
-	curl -fL "${CS_URL}" | gzip -d > cs
-	chmod +x cs
-
-Makefile:;
+${TARGET} : ${ALL_FILES}
+	./sbt stage
 
 % : sbt_%;
 
-sbt_%: cs
-	./cs launch --jvm 23 sbt -- $*
+sbt_%:
+	./sbt $*
 

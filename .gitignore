@@ -10,5 +10,5 @@
 .metals/
 .vscode/
 target/
-/cs
+/cs_*
 metals.sbt
