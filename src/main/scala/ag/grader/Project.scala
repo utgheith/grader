@@ -1113,7 +1113,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     SignedPath.rule(
       Gitolite.repo_info(
         tests_repo_name
-      ) *: student_tests_by_csid *: publish_aliases *: override_tests *: test_extensions *: bad_tests *: Config.can_push_repo,
+      ) *: student_tests_by_csid *: publish_aliases *: publish_submitted_tests *: override_tests *: test_extensions *: bad_tests *: Config.can_push_repo,
       SortedSet(".git"),
       scope
     ) {
@@ -1123,6 +1123,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
               tests_repo_info,
               student_tests_by_csid,
               aliases,
+              submitted_tests,
               override_tests,
               test_extensions,
               bad_tests,
