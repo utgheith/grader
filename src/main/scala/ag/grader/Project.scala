@@ -73,11 +73,20 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         false
     }
 
-  lazy val chosen: Maker[SortedSet[String]] =
-    Rule(info, scope)(p => p.chosen.to(SortedSet))
+  lazy val phase1_tests: Maker[SortedSet[String]] =
+    Rule(info, scope)(p => p.phase1_tests.to(SortedSet))
 
-  lazy val weights: Maker[Seq[Weight]] =
-    Rule(info, scope)(p => p.weights)
+  lazy val phase1_weight: Maker[Int] =
+    Rule(info, scope)(p => p.phase1_weight)
+
+  lazy val phase2_tests: Maker[SortedSet[String]] =
+    Rule(info, scope)(p => p.phase2_tests.to(SortedSet))
+
+  lazy val phase2_weight: Maker[Int] =
+    Rule(info, scope)(p => p.phase2_weight)
+
+  lazy val test_weights: Maker[Seq[Weight]] =
+    Rule(info, scope)(p => p.test_weights)
 
   lazy val bad_tests: Maker[SortedSet[String]] =
     Rule(info, scope)(p => SortedSet(p.bad_tests*))
@@ -1235,8 +1244,18 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       tests.data.keySet
     }
 
-  lazy val chosen_test_ids: Maker[SortedSet[TestId]] =
-    Rule(test_ids *: chosen, scope) { case (tests, chosen) =>
+  lazy val phase1_test_ids: Maker[SortedSet[TestId]] =
+    Rule(test_ids *: phase1_tests, scope) { case (tests, chosen) =>
+      for {
+        test <- tests
+        if chosen.contains(test.external_name) || chosen.contains(
+          test.internal_name
+        )
+      } yield test
+    }
+
+  lazy val phase2_test_ids: Maker[SortedSet[TestId]] =
+    Rule(test_ids *: phase2_tests, scope) { case (tests, chosen) =>
       for {
         test <- tests
         if chosen.contains(test.external_name) || chosen.contains(
@@ -1347,10 +1366,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
       csid: CSID,
       cutoff_time: CutoffTime,
       n: Int,
-      commit_id_file: String
+      commit_id_file: String,
+      phase: Int
   ): Maker[SortedSet[TestId]] = Rule(
     for {
-      ids <- chosen_test_ids
+      ids <-
+        (if (phase == 1) phase1_test_ids
+         else if (phase == 2) phase2_test_ids
+         else test_ids)
       outs <- Maker.sequence(
         ids.toSeq.map(id => run_one(csid, cutoff_time, id, n, commit_id_file))
       )
@@ -1367,13 +1390,14 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   def compute_scores(
       cutoff_time: CutoffTime,
       n: Int,
-      commit_id_file: String
+      commit_id_file: String,
+      phase: Int
   ): Maker[SortedMap[CSID, SortedSet[TestId]]] = Rule(
     for {
       csids <- students_with_submission
       pairs <- Maker.sequence(
         csids.toSeq.map(csid =>
-          compute_scores(csid, cutoff_time, n, commit_id_file).map(g =>
+          compute_scores(csid, cutoff_time, n, commit_id_file, phase).map(g =>
             (csid, g)
           )
         )

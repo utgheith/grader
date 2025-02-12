@@ -127,8 +127,8 @@ case class CommonArgs(
     tests: Regex = """.*""".r,
     @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
-    @arg(short = 'o', doc = "restrict to chosen tests")
-    only_chosen: Flag = Flag(false),
+    @arg(short = 'o', doc = "restrict to chosen tests for a given phase")
+    chosen_phase: Int = 0,
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     @arg(doc =
@@ -174,9 +174,14 @@ case class CommonArgs(
 
   lazy val test_ids: Maker[Seq[(Project, TestId)]] = for {
     projects: Seq[Project] <- selected_projects
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
+    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(
+      for {
+        p <- projects
+      } yield
+        if (chosen_phase == 1) p.phase1_test_ids
+        else if (chosen_phase == 2) p.phase2_test_ids
+        else p.test_ids
+    )
   } yield for {
     (p, test_ids) <- projects.zip(per_project_test_ids)
     test_id <- test_ids
@@ -190,9 +195,14 @@ case class CommonArgs(
     per_project_csids <- Maker.sequence(for {
       project: Project <- projects
     } yield project.students_with_submission)
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
+    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(
+      for {
+        p <- projects
+      } yield
+        if (chosen_phase == 1) p.phase1_test_ids
+        else if (chosen_phase == 2) p.phase2_test_ids
+        else p.test_ids
+    )
   } yield for {
     ((p, csids), test_ids) <- projects
       .zip(per_project_csids)
@@ -889,8 +899,10 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
 
     for (p <- commonArgs.selected_projects.value) {
-      val chosen = p.chosen_test_ids.value
-      val weights = p.weights.value
+      val chosen = for {
+        test <- commonArgs.test_ids.value if test(0) == p
+      } yield (test(1))
+      val weights = p.test_weights.value
       val test_weights = (for {
         c <- chosen
         external_name = c.external_name
@@ -904,7 +916,12 @@ object Main {
       val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
           (csid, passing) <- p
-            .compute_scores(cutoff_time, c, commonArgs.commit_id_file)
+            .compute_scores(
+              cutoff_time,
+              c,
+              commonArgs.commit_id_file,
+              commonArgs.chosen_phase
+            )
             .value
             .toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum

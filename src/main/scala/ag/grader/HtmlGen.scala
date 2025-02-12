@@ -141,8 +141,11 @@ class HtmlGen(p: Project) {
     Rule(
       p.results *:
         Config.site_base *:
-        p.chosen *:
-        p.weights *:
+        p.phase1_tests *:
+        p.phase1_weight *:
+        p.phase2_tests *:
+        p.phase2_weight *:
+        p.test_weights *:
         p.bad_tests *:
         p.test_extensions *:
         p.test_cutoff *:
@@ -156,7 +159,10 @@ class HtmlGen(p: Project) {
       case (
             Some(results),
             Some(site_base),
-            chosen,
+            phase1_tests,
+            phase1_weight,
+            phase2_tests,
+            phase2_weight,
             weights,
             bad_tests,
             test_extensions_,
@@ -183,7 +189,7 @@ class HtmlGen(p: Project) {
           .map { case (len, names) => (len, names.sorted) }
           .sortBy(_._1)
           .flatMap(_._2)
-          .partition(test => chosen.contains(test.external_name))
+          .partition(test => phase2_tests.contains(test.external_name))
 
         // All the test name properly ordered
         val testNames: Seq[RedactedTestId] = chosenTestNames ++ otherTestNames
@@ -280,7 +286,7 @@ class HtmlGen(p: Project) {
                           ("compilefail", "?")
                       }
                     val chosen_class =
-                      if (chosen.contains(t.external_name)) List("chosen")
+                      if (phase2_tests.contains(t.external_name)) List("chosen")
                       else List.empty
                     val the_class = List(status_class) ::: chosen_class
                     val ttl = o match {
@@ -333,7 +339,7 @@ class HtmlGen(p: Project) {
                 var total_weight = 0
 
                 // Match the sorting of test cases elsewhere (t0-4 before user test cases)
-                val sorted = chosen.toList.sortBy(c => (c.length, c))
+                val sorted = phase2_tests.toList.sortBy(c => (c.length, c))
                 sorted.foreach { c =>
                   val weight = weights.find { w =>
                     scala.util.matching.Regex(w.pattern).matches(c)

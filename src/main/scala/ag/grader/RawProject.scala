@@ -12,10 +12,13 @@ case class RawProject(
     code_cutoff: LocalDateTime,
     test_cutoff: LocalDateTime,
     ignore_tests: Boolean,
-    chosen: Seq[String],
+    phase1_tests: Seq[String],
+    phase1_weight: Int,
+    phase2_tests: Seq[String],
+    phase2_weight: Int,
+    test_weights: Seq[Weight],
     bad_tests: Seq[String],
     docker_file: Option[String],
     test_extensions: Seq[String],
-    weights: Seq[Weight],
     staff: Seq[CSID]
 ) derives ReadWriter
