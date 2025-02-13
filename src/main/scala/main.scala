@@ -127,10 +127,14 @@ case class CommonArgs(
     tests: Regex = """.*""".r,
     @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
-    @arg(short = 'o', doc = "restrict to chosen tests")
-    only_chosen: Flag = Flag(false),
+    @arg(short = 'o', doc = "restrict to chosen tests for a given phase")
+    chosen_phase: Int = 0,
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
+    @arg(doc =
+      "File name in submissions to determine which commit to use. Defaults to 'commit_id'"
+    )
+    commit_id_file: String = "commit_id",
     workspace: os.Path = os.pwd / "workspace"
 ) {
 
@@ -170,9 +174,14 @@ case class CommonArgs(
 
   lazy val test_ids: Maker[Seq[(Project, TestId)]] = for {
     projects: Seq[Project] <- selected_projects
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
+    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(
+      for {
+        p <- projects
+      } yield
+        if (chosen_phase == 1) p.phase1_test_ids
+        else if (chosen_phase == 2) p.phase2_test_ids
+        else p.test_ids
+    )
   } yield for {
     (p, test_ids) <- projects.zip(per_project_test_ids)
     test_id <- test_ids
@@ -186,9 +195,14 @@ case class CommonArgs(
     per_project_csids <- Maker.sequence(for {
       project: Project <- projects
     } yield project.students_with_submission)
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
+    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(
+      for {
+        p <- projects
+      } yield
+        if (chosen_phase == 1) p.phase1_test_ids
+        else if (chosen_phase == 2) p.phase2_test_ids
+        else p.test_ids
+    )
   } yield for {
     ((p, csids), test_ids) <- projects
       .zip(per_project_csids)
@@ -414,7 +428,7 @@ object Main {
           (csid, _) <- enrollment
           if commonArgs.students.matches(csid.value)
         } {
-          val prep = p.prepare(csid, cutoff).value
+          val prep = p.prepare(csid, cutoff, commonArgs.commit_id_file).value
           val target_name = s"${c.course_name}_${pn}_$csid"
           val target_path = base / target_name
 
@@ -662,7 +676,8 @@ object Main {
       commonArgs: CommonArgs,
       cutoff: CutoffTime,
       minutes: Int,
-      loud: Boolean
+      loud: Boolean,
+      commit_id_file: String
   )(using
       State
   ): Int = {
@@ -671,7 +686,7 @@ object Main {
         runs <- commonArgs.runs
         out <- Maker.sequence {
           for ((p, csid, test_id) <- runs)
-            yield p.run(csid, cutoff, test_id, c)
+            yield p.run(csid, cutoff, test_id, c, commit_id_file)
         }
       } yield out
       val out = outcomes.value
@@ -695,7 +710,8 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val _ = do_run(commonArgs, cutoff, minutes, false)
+    val _ =
+      do_run(commonArgs, cutoff, minutes, false, commonArgs.commit_id_file)
   }
 
   @main
@@ -726,7 +742,13 @@ object Main {
           runs <- commonArgs.runs
           out <- Maker.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run_one(csid, cutoff, test_id, c)
+              yield p.run_one(
+                csid,
+                cutoff,
+                test_id,
+                c,
+                commonArgs.commit_id_file
+              )
           }
         } yield out
 
@@ -793,10 +815,11 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val c = do_run(commonArgs, cutoff, minutes, false)
+    val c =
+      do_run(commonArgs, cutoff, minutes, false, commonArgs.commit_id_file)
 
     for (p <- commonArgs.selected_projects.value) {
-      val _ = p.publish_results(c).value
+      val _ = p.publish_results(c, commonArgs.commit_id_file).value
       // println(upickle.default.write(results, indent=2))
     }
   }
@@ -876,8 +899,10 @@ object Main {
     given State = State.of(commonArgs.workspace, m)
 
     for (p <- commonArgs.selected_projects.value) {
-      val chosen = p.chosen_test_ids.value
-      val weights = p.weights.value
+      val chosen = for {
+        test <- commonArgs.test_ids.value if test(0) == p
+      } yield (test(1))
+      val weights = p.test_weights.value
       val test_weights = (for {
         c <- chosen
         external_name = c.external_name
@@ -890,7 +915,15 @@ object Main {
 
       val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
-          (csid, passing) <- p.compute_scores(cutoff_time, c).value.toSeq
+          (csid, passing) <- p
+            .compute_scores(
+              cutoff_time,
+              c,
+              commonArgs.commit_id_file,
+              commonArgs.chosen_phase
+            )
+            .value
+            .toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum
         } yield (csid, score)).to(SortedMap)
         acc :+ scores
@@ -909,7 +942,8 @@ object Main {
       for {
         (csid, raw_score) <- totals
       } {
-        val is_late = p.is_late(csid, cutoff_time).value
+        val is_late =
+          p.is_late(csid, cutoff_time, commonArgs.commit_id_file).value
         val score =
           if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(
