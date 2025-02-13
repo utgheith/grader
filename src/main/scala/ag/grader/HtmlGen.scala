@@ -356,12 +356,14 @@ class HtmlGen(p: Project) {
                     }
 
                     phase1_total_weight += (weight match {
-                      case Some(w) if phase1_tests.contains(c) => w.weight
-                      case _                                   => 0
+                      case Some(w) if phase1_tests.contains(c) =>
+                        w.weight * phase1_weight
+                      case _ => 0
                     })
                     phase2_total_weight += (weight match {
-                      case Some(w) if phase2_tests.contains(c) => w.weight
-                      case _                                   => 0
+                      case Some(w) if phase2_tests.contains(c) =>
+                        w.weight * phase2_weight
+                      case _ => 0
                     })
 
                     val weight_str = weight match {
@@ -390,18 +392,16 @@ class HtmlGen(p: Project) {
                   tr {
                     td { text("total") }
                     td {}
-                    td { text((phase1_total_weight * phase1_weight).toString) }
-                    td { text((phase2_total_weight * phase2_weight).toString) }
+                    td { text(phase1_total_weight.toString) }
+                    td { text(phase2_total_weight.toString) }
                   }
                 }
               }
             }
           }
 
-          val phase1_total_weight = phase1_total_weight * phase1_weight
-          val phase2_total_weight = phase2_total_weight * phase2_weight
           val total_weight = phase1_total_weight + phase2_total_weight
-          tr {
+          tr.style("font-weight: bold;") {
             td {
               pre {
                 text(
