@@ -1259,7 +1259,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   // Test Case Submissions //
   //////////////////////////
 
-  lazy val publish_submitted_tests: Maker[SignedPath[SortedMap[TestId, TestInfo]]] =
+  lazy val publish_submitted_tests
+      : Maker[SignedPath[SortedMap[TestId, TestInfo]]] =
     SignedPath.rule(
       Gitolite.repo_info(
         submitted_tests_repo_name
@@ -1324,7 +1325,8 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
 
     }
 
-  val submitted_tests_repo_name = s"${course.course_name}_${project_name}__submitted_tests"
+  val submitted_tests_repo_name =
+    s"${course.course_name}_${project_name}__submitted_tests"
 
   ////////////
   // Scores //

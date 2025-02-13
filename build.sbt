@@ -7,7 +7,8 @@ scalacOptions ++= Seq(
   "-feature",
   "-deprecation",
   "-unchecked",
-  "-Yexplicit-nulls"
+  "-Yexplicit-nulls",
+  "-experimental"
 )
 
 testFrameworks += TestFramework("munit.Framework")
