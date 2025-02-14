@@ -1,6 +1,7 @@
 package ag.grader
 
-import ag.rules.{Maker, Rule, down, run, given_ReadWriter_RelPath}
+import ag.common.given_ReadWriter_RelPath
+import ag.rules.{Maker, Rule, down, run}
 import upickle.default.{ReadWriter, read}
 
 import java.util.concurrent.Semaphore

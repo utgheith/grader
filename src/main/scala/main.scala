@@ -1,6 +1,8 @@
+import ag.common.given_ReadWriter_SortedMap
+import ag.git.git
 import ag.grader.{
-  Course,
   CSID,
+  Course,
   CutoffTime,
   Gitolite,
   HtmlGen,
@@ -8,16 +10,7 @@ import ag.grader.{
   Project,
   TestId
 }
-import ag.rules.{
-  human,
-  Maker,
-  NopStateMonitor,
-  RuleBase,
-  State,
-  given_ReadWriter_SortedMap,
-  say,
-  timed
-}
+import ag.rules.{Maker, NopStateMonitor, RuleBase, State, human, say, timed}
 import mainargs.{
   Flag,
   ParserForClass,
@@ -30,7 +23,6 @@ import mainargs.{
 import scala.collection.SortedMap
 import scala.util.matching.Regex
 import scala.collection.SortedSet
-
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
@@ -923,12 +915,7 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    val c = Course("cs439c_f24")
-    val p = Project(c, "p5")
-    val t = p.test_ids.value
-    t.foreach(x => println(p.test_info(x).value))
+    pprint.pprintln(git().notes().call())
   }
 
   def main(args: Array[String]): Unit = {

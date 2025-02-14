@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.rules.given_ReadWriter_LocalDateTime
+import ag.common.given_ReadWriter_LocalDateTime
 import upickle.default.ReadWriter
 import java.time.LocalDateTime
 

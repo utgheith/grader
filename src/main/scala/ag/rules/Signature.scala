@@ -1,5 +1,7 @@
 package ag.rules
 
+import ag.common.update
+
 import upickle.default.{ReadWriter, readwriter}
 
 import java.security.MessageDigest

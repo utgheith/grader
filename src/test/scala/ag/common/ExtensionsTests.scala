@@ -1,4 +1,4 @@
-package ag.rules
+package ag.common
 
 import upickle.default.{read, write}
 

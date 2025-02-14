@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.common.{given_ReadWriter_LocalDateTime, given_ReadWriter_SortedSet}
+
 import ag.rules.{
   check,
   Maker,
@@ -7,8 +9,6 @@ import ag.rules.{
   Rule,
   SignedPath,
   down,
-  given_ReadWriter_LocalDateTime,
-  given_ReadWriter_SortedSet,
   lines,
   run,
   say

@@ -1,15 +1,10 @@
 package ag.grader
 
+import ag.common.given_ReadWriter_SortedMap
+
 import scala.collection.{mutable, SortedMap, SortedSet}
 import upickle.default.ReadWriter
-import ag.rules.{
-  Maker,
-  Periodic,
-  Rule,
-  SignedPath,
-  given_ReadWriter_SortedMap,
-  say
-}
+import ag.rules.{Maker, Periodic, Rule, SignedPath, say}
 
 case class Course(course_name: String) derives ReadWriter {
 

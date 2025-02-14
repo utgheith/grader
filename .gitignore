@@ -1,3 +1,5 @@
+/configs/
+/tracing.log
 /stage
 .bloop/
 /config.json

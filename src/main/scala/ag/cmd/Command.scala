@@ -1,4 +1,7 @@
-package ag.git
+package ag.cmd
+
+import scala.compiletime.summonFrom
+import scala.util.control.NonFatal
 
 trait Command {
   def my_part: os.Shellable
@@ -16,7 +19,16 @@ trait CallableCommand[+Out] extends Command {
   def translate(res: os.CommandResult): Out
 
   def call(cwd: os.Path = os.pwd, check: Boolean = true): Out = {
-    translate(proc.call(cwd = cwd, check = check))
+    trace(os.Shellable.unapply(proc.command).value)
+    try {
+      val out = translate(proc.call(cwd = cwd, check = check))
+      trace("ok")
+      out
+    } catch {
+      case NonFatal(e) =>
+        trace(s"failed with ${e.getCause.getMessage}")
+        throw e
+    }
   }
 }
 
