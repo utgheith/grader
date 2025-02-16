@@ -190,7 +190,10 @@ class HtmlGen(p: Project) {
           .map { case (len, names) => (len, names.sorted) }
           .sortBy(_._1)
           .flatMap(_._2)
-          .partition(test => phase2_tests.contains(test.external_name))
+          .partition(test =>
+            phase1_tests.contains(test.external_name)
+              || phase2_tests.contains(test.external_name)
+          )
 
         // All the test name properly ordered
         val testNames: Seq[RedactedTestId] = chosenTestNames ++ otherTestNames
