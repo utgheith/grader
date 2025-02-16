@@ -5,8 +5,9 @@ D=$(dirname $0)
 echo "building ..."
 (cd $D && make)
 
-echo "setting up for java 23 ..."
-eval "$($D/cs java --jvm graalvm-java23:23.0.2 --env)"
+JVM=$($D/jvm)
+echo "setting up for $JVM ..."
+eval "$($D/cs java --jvm "$JVM" --env)"
 java -version
 
 echo "running ..."
