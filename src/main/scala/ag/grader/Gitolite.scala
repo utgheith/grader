@@ -1,5 +1,8 @@
 package ag.grader
 
+import ag.git.{RefSpec, Repository, Sha, git}
+
+import language.experimental.namedTuples
 import ag.rules.{Maker, Periodic, Rule, SignedPath, say}
 import upickle.default.read
 
@@ -72,12 +75,43 @@ object Gitolite {
             os.makeDir.all(dir)
             say(s"cloning $repo (pull failed)")
             server
-              .SshProc("git", "clone", "--template=", "-c", "remote.origin.fetch=+refs/notes/*:refs/notes/*", server.git_uri(repo), ".")
+              .SshProc(
+                "git",
+                "clone",
+                "--template=",
+                "-c",
+                "remote.origin.fetch=+refs/notes/*:refs/notes/*",
+                server.git_uri(repo),
+                "."
+              )
               .check(cwd = dir)
         }
         true
       case (_, _) =>
         false
+    }
+
+  def notes_for_repo(repo: String): Maker[SortedMap[Sha.Commit, Sha.Note]] =
+    Rule(mirror(repo), os.RelPath(repo)) {
+      case SignedPath(path, _, _, true) =>
+        git(C = path)
+          .fetch(
+            repository = Repository.Name("origin"),
+            refspec = RefSpec(src = "refs/notes/*", dest = "refs/notes/*")
+          )
+          .call()
+        git(C = path)
+          .notes()
+          .call()
+          .map(p => (p.commit_sha, p.note_sha))
+          .to(SortedMap)
+      case _ =>
+        SortedMap[Sha.Commit, Sha.Note]()
+    }
+
+  def notes_for_sha(repo: String, commit_sha: Sha.Commit) =
+    Rule(notes_for_repo(repo), os.RelPath(repo) / commit_sha.sha) { notes =>
+      notes.get(commit_sha)
     }
 
   private val raw_courses: Maker[SortedMap[String, RawCourse]] =

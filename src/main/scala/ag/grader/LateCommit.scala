@@ -2,7 +2,7 @@ package ag.grader
 
 import upickle.default.ReadWriter
 import java.time.{ZonedDateTime, Duration}
-import ag.rules.{given_ReadWriter_ZonedDateTime, given_ReadWriter_Duration}
+import ag.common.{given_ReadWriter_ZonedDateTime, given_ReadWriter_Duration}
 
 final case class LateCommit(
     hash: String,
