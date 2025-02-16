@@ -3,11 +3,13 @@ package ag.grader
 import upickle.default.{readwriter, ReadWriter}
 import scala.math.Ordering
 
-case class Alias(value: Int) {
+case class Alias(value: Int) extends Ordered[Alias] {
   override def toString: String = {
-    if (value >= 1000) throw new Exception(s"alias is too large: $value")
+    if ((value < 0) || (value >= 1000)) throw new IllegalArgumentException(s"$value")
     f"$value%03d"
   }
+
+  override def compare(that: Alias): Int = Ordering[Alias].compare(this, that)
 }
 
 object Alias {

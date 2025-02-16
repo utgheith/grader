@@ -6,7 +6,8 @@ echo "building ..."
 (cd $D && make)
 
 echo "setting up for java 23 ..."
-eval "$($D/cs java --jvm 23 --env)"
+eval "$($D/cs java --jvm graalvm-java23:23.0.2 --env)"
+java -version
 
 echo "running ..."
 exec $D/target/universal/stage/bin/grader "$@"

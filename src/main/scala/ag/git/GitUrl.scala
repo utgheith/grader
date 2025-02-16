@@ -1,18 +1,26 @@
 package ag.git
 
 sealed trait GitUrl {
-  def host: String
-  def port: Option[Int]
-
+  def is_remote: Boolean
+  //def host: String
+  //def port: Option[Int]
 }
 
 object GitUrl {
+  case class Path(
+      path: os.Path) extends GitUrl {
+    override val is_remote: Boolean = false
+    override lazy val toString: String = path.toString
+  }
+  def path(path: os.Path): Path = Path(path)
+  
   case class Ssh(
       user: Option[String],
       host: String,
       port: Option[Int],
       path: os.RelPath
   ) extends GitUrl {
+    override val is_remote: Boolean = true
     override lazy val toString: String = {
       val u = user.map(x => s"$x@").getOrElse("")
       val p = port.map(x => s":$x").getOrElse("")
@@ -34,6 +42,7 @@ object GitUrl {
 
   case class Git(host: String, port: Option[Int], path: os.RelPath)
       extends GitUrl {
+    override val is_remote: Boolean = true
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
       s"git://$host$p/$path"
@@ -46,6 +55,7 @@ object GitUrl {
       port: Option[Int],
       path: os.RelPath
   ) extends GitUrl {
+    override val is_remote: Boolean = true
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
       val s = if (secure) "s" else ""
@@ -59,6 +69,7 @@ object GitUrl {
       port: Option[Int],
       path: os.RelPath
   ) extends GitUrl {
+    override val is_remote: Boolean = true
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
       val s = if (secure) "s" else ""

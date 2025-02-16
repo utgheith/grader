@@ -99,10 +99,10 @@ object Gitolite {
             repository = Repository.Name("origin"),
             refspec = RefSpec(src = "refs/notes/*", dest = "refs/notes/*")
           )
-          .call()
+          .check()
         git(C = path)
           .notes()
-          .call()
+          .check()
           .map(p => (p.commit_sha, p.note_sha))
           .to(SortedMap)
       case _ =>

@@ -915,7 +915,7 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit = {
-    pprint.pprintln(git().notes().call())
+    pprint.pprintln(git().notes().check())
   }
 
   def main(args: Array[String]): Unit = {

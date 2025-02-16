@@ -1,11 +1,16 @@
 package ag.cmd
 
 import scala.compiletime.summonFrom
-import scala.util.control.NonFatal
 
 trait Command {
+  def parent: Option[Command]
   def my_part: os.Shellable
-  def cmd: os.Shellable = my_part
+  def my_remote: Boolean
+  def cmd: os.Shellable = parent.map(_.cmd) match {
+    case Some(ps) => Seq(ps, my_part)
+    case None => my_part
+  }
+  def remote: Boolean = my_remote || parent.exists(_.remote)
 
   def opt[A](o: String, a: A | Null)(using
       ev: A => os.Shellable
@@ -18,21 +23,26 @@ trait CallableCommand[+Out] extends Command {
   lazy val proc: os.proc = os.proc(cmd)
   def translate(res: os.CommandResult): Out
 
-  def call(cwd: os.Path = os.pwd, check: Boolean = true): Out = {
+  def call(cwd: os.Path): Either[os.CommandResult, Out] = {
     trace(os.Shellable.unapply(proc.command).value)
-    try {
-      val out = translate(proc.call(cwd = cwd, check = check))
+    val res = proc.call(cwd = cwd, check = false)
+    if (res.exitCode != 0) {
+      trace(s"failed with ${res.exitCode}")
+      Left(res)
+    } else {
       trace("ok")
-      out
-    } catch {
-      case NonFatal(e) =>
-        trace(s"failed with ${e.getCause.getMessage}")
-        throw e
+      val out = translate(res)
+      Right(out)
+    }
+  }
+
+  def check(cwd: os.Path = os.pwd): Out = {
+    call(cwd = cwd) match {
+      case Left(res) =>
+        throw os.SubprocessException(res)
+      case Right(out) =>
+        out
     }
   }
 }
 
-trait SubCommand extends Command {
-  def parent: Command
-  override lazy val cmd: os.Shellable = Seq[os.Shellable](parent.cmd, my_part)
-}
