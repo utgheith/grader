@@ -332,8 +332,39 @@ class HtmlGen(p: Project) {
         }
 
         def weights_table(using HtmlContext): Unit = table {
-          var phase1_total_weight = 0
-          var phase2_total_weight = 0
+          // Match the sorting of test cases elsewhere (t0-4 before user test cases)
+          val selected_tests = phase1_tests ++ phase2_tests
+          val sorted_tests = selected_tests.toList.sortBy(c => (c.length, c))
+
+          // Get the summed raw test weights for each phase
+          var phase1_raw_weight = 0
+          var phase2_raw_weight = 0
+          sorted_tests.foreach { c =>
+            val weight = weights.find { w =>
+              scala.util.matching.Regex(w.pattern).matches(c)
+            }
+            weight match {
+              case Some(w) => {
+                if (phase1_tests.contains(c)) {
+                  phase1_raw_weight += w.weight
+                }
+                if (phase2_tests.contains(c)) {
+                  phase2_raw_weight += w.weight
+                }
+              }
+              case _ => {}
+            }
+          }
+          // get the lcm of the raw phase1 and phase2 summed weights
+          val factor = (phase1_raw_weight / BigInt(phase1_raw_weight)
+            .gcd(phase2_raw_weight)
+            .toInt) * phase2_raw_weight
+          val phase1_total_weight = phase1_weight * factor
+          val phase2_total_weight = phase2_weight * factor
+          val phase1_factor = phase1_total_weight / phase1_raw_weight
+          val phase2_factor = phase2_total_weight / phase2_raw_weight
+          val total_weight = phase1_total_weight + phase2_total_weight
+
           tr { td { h3 { pre { text("Selected test weights") } } } }
           tr {
             td {
@@ -342,42 +373,27 @@ class HtmlGen(p: Project) {
                   tr {
                     td { text("test") }
                     td { text("weight") }
-                    td { text(s"phase 1 weight (x$phase1_weight)") }
-                    td { text(s"phase 2 weight (x$phase2_weight)") }
+                    td { text(s"phase 1 weight (x$phase1_factor)") }
+                    td { text(s"phase 2 weight (x$phase2_factor)") }
                   }
                 }
                 tbody {
-                  // Match the sorting of test cases elsewhere (t0-4 before user test cases)
-                  val selected_tests = phase1_tests ++ phase2_tests
-                  val sorted = selected_tests.toList.sortBy(c => (c.length, c))
-                  sorted.foreach { c =>
+                  sorted_tests.foreach { c =>
                     val weight = weights.find { w =>
                       scala.util.matching.Regex(w.pattern).matches(c)
                     }
-
-                    phase1_total_weight += (weight match {
-                      case Some(w) if phase1_tests.contains(c) =>
-                        w.weight * phase1_weight
-                      case _ => 0
-                    })
-                    phase2_total_weight += (weight match {
-                      case Some(w) if phase2_tests.contains(c) =>
-                        w.weight * phase2_weight
-                      case _ => 0
-                    })
-
                     val weight_str = weight match {
                       case Some(w) => w.weight.toString
                       case None    => "?"
                     }
                     val phase1_weight_str = weight match {
                       case Some(w) if phase1_tests.contains(c) =>
-                        (w.weight * phase1_weight).toString()
+                        (w.weight * phase1_factor).toString
                       case _ => "0"
                     }
                     val phase2_weight_str = weight match {
                       case Some(w) if phase2_tests.contains(c) =>
-                        (w.weight * phase2_weight).toString()
+                        (w.weight * phase2_factor).toString
                       case _ => "0"
                     }
                     tr {
@@ -400,12 +416,11 @@ class HtmlGen(p: Project) {
             }
           }
 
-          val total_weight = phase1_total_weight + phase2_total_weight
           tr.style("font-weight: bold;") {
             td {
               pre {
                 text(
-                  s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight"
+                  s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight; Phase1:Phase2 = $phase1_weight:$phase2_weight"
                 )
               }
             }
@@ -485,7 +500,7 @@ class HtmlGen(p: Project) {
                   |.results { font-family: monospace; }
                   |.weights { font-family: monospace; }
                   |.weights td { padding-right: 1.0em; }
-                  |.weights tfoot td { font-weight: bold; padding-top: 0.5em; }
+                  |.weights tfoot td { font-weight: bold; }
                   |
                   |.results td.alias + td { border-right: 1px solid var(--border-table); }
                   |.results thead { position: sticky; top: 0; z-index: 1; }
