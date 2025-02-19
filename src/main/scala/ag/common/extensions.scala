@@ -5,7 +5,10 @@ import java.security.MessageDigest
 import java.time.{Duration, Instant, LocalDateTime, ZoneId, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 import scala.collection.{SortedMap, SortedSet}
-import upickle.default.{readwriter, ReadWriter}
+import upickle.default.{ReadWriter, readwriter}
+
+import java.util.concurrent.CountDownLatch
+import scala.concurrent.Future
 
 ///// ReadWriter for SortedMap ////
 
@@ -71,4 +74,17 @@ given ReadWriter[Duration] = readwriter[String]
 extension (md: MessageDigest) {
   def update(s: String, charset: Charset = StandardCharsets.UTF_8.nn): Unit =
     md.update(s.getBytes(charset))
+}
+
+/////// Future ///////
+
+extension [A](fa: Future[A]) {
+  def block: A = {
+    val latch = new CountDownLatch(1)
+    fa.onComplete { _ =>
+      latch.countDown()
+    }
+    latch.await()
+    fa.value.get.get
+  }
 }
