@@ -1,8 +1,7 @@
 package ag.rules
 
 import ag.common.update
-
-import upickle.default.{ReadWriter, readwriter}
+import upickle.default.{ReadWriter, readwriter, writeBinary}
 
 import java.security.MessageDigest
 import scala.collection.SortedSet
@@ -17,6 +16,11 @@ object Signature {
   def apply(bytes: Array[Byte]): Signature =
     val it = bytes.map(b => f"$b%02x").mkString("")
     Signature(it)
+    
+  def of[A: ReadWriter](a: A): Signature = {
+    val md = MessageDigest.getInstance("sha1").nn
+    Signature(md.digest(writeBinary(a)))
+  }
 
   def of(
       paths: SortedSet[os.Path],
