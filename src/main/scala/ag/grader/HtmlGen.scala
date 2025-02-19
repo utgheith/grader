@@ -359,13 +359,21 @@ class HtmlGen(p: Project) {
             }
           }
           // get the lcm of the raw phase1 and phase2 summed weights
-          val factor = (phase1_raw_weight / BigInt(phase1_raw_weight)
-            .gcd(phase2_raw_weight)
-            .toInt) * phase2_raw_weight
+          val factor =
+            if (phase1_raw_weight == 0) phase2_raw_weight
+            else if (phase2_raw_weight == 0) phase1_raw_weight
+            else
+              (phase1_raw_weight / BigInt(phase1_raw_weight)
+                .gcd(phase2_raw_weight)
+                .toInt) * phase2_raw_weight
           val phase1_total_weight = phase1_weight * factor
           val phase2_total_weight = phase2_weight * factor
-          val phase1_factor = phase1_total_weight / phase1_raw_weight
-          val phase2_factor = phase2_total_weight / phase2_raw_weight
+          val phase1_factor =
+            if (phase1_raw_weight != 0) phase1_total_weight / phase1_raw_weight
+            else 0
+          val phase2_factor =
+            if (phase2_raw_weight != 0) phase2_total_weight / phase2_raw_weight
+            else 0
           val total_weight = phase1_total_weight + phase2_total_weight
 
           tr { td { h3 { pre { text("Selected test weights") } } } }
