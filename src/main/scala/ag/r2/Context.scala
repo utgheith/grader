@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.common.{block, Lazy}
+import ag.common.block
 import ag.rules.Signature
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -8,6 +8,8 @@ import scala.caps.Capability
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
+
+import upickle.default.ReadWriter
 
 //
 // Context for a running computations
@@ -27,18 +29,18 @@ import scala.concurrent.Future
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
-case class Context[+A](state: State, target: Target[A], parent: Option[Context[?]]) extends Capability {
+case class Context[+A](state: State, target: Option[Target[A]], parent: Option[Context[?]]) extends Capability {
   
   private val phase = new AtomicInteger(1)
   
   // Called by "track" to add a discovered dependency
-  private val added_dependencies = TrieMap[os.RelPath, Future[Saved[?]]]()
-  def add_dependency(d: Target[?], fs: Future[Saved[?]]): Unit = {
+  private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
+  def add_dependency(d: Target[?], fr: Future[Result[?]]): Unit = {
     if (phase.get() != 1) {
       throw IllegalStateException(s"phase = ${phase.get()}")
     }
-    println(s"${target.path} depends on ${d.path}")
-    added_dependencies.update(d.path, fs)
+    println(s"${target.map(_.path)} depends on ${d.path}")
+    added_dependencies.update(d.path, fr)
   }
 
   // Returns the known dependencies
@@ -48,8 +50,8 @@ case class Context[+A](state: State, target: Target[A], parent: Option[Context[?
       throw IllegalStateException(s"phase = ${phase.get()}")
     }
     (for {
-      (p,fs) <- added_dependencies.toSeq
-    } yield (p,fs.block.result.signature)).to(SortedMap)
+      (p,result) <- added_dependencies.toSeq
+    } yield (p,result.block.signature)).to(SortedMap)
   }
 }
 
@@ -57,6 +59,6 @@ object Context {
   def apply(using Context[?]): Context[?] = summon[Context[?]]
 }
 
-def run_if_needed[A](f: => Future[A])(using ctx: Context[A]): Lazy[Future[A]] = {
-  Lazy(() => f)
+def run_if_needed[A: ReadWriter](f: => Future[A])(using ctx: Context[A]): Future[Result[A]] = {
+  ctx.state.run_if_needed { () => f }
 } 

@@ -1,9 +1,5 @@
 package ag.r2
 
-import ag.common.Lazy
-import ag.common.given_VirtualExecutionContext
-import ag.rules.Signature
-
 import scala.concurrent.Future
 import upickle.default.ReadWriter
 
@@ -24,7 +20,7 @@ trait Target[+A: ReadWriter] {
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make[B >: A](using Context[?]): Future[Made[B]]
+  def make[B >: A](using Context[?]): Future[Result[B]]
 
   // returns our current value (used by the value consumer)
   def track(using ctx: Context[?]): Future[A] = {
@@ -33,15 +29,9 @@ trait Target[+A: ReadWriter] {
 }
 
 object Target {
-  def apply[A: ReadWriter](p: os.RelPath)(f: Context[A] ?=> Lazy[Future[A]]): Target[A] = new Target[A] {
+  def apply[A: ReadWriter](p: os.RelPath)(f: Context[A] ?=> Future[Result[A]]): Target[A] = new Target[A] {
     override val path: os.RelPath = p
-    override def make[B >: A](using old_ctx: Context[?]): Future[Made[B]] = Future {
-      given new_ctx: Context[A] = Context[A](state=old_ctx.state, target=this, parent=Some(old_ctx))
-      val phase2: Lazy[Future[A]] = f(using new_ctx)
-      
-      Made(dependencies = new_ctx.dependencies,result = Lazy { () =>
-        phase2.get().map(v => Result(v, Signature.of(v)))
-      })
-    }
+    override def make[B >: A](using old_ctx: Context[?]): Future[Result[B]] =
+      f(using Context[A](state=old_ctx.state, target=Some(this), parent=Some(old_ctx)))
   }
 }
