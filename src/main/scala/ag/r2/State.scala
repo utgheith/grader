@@ -4,30 +4,49 @@ import ag.common.given_VirtualExecutionContext
 import ag.rules.Signature
 import upickle.default.{read, ReadWriter, write}
 
-import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 import scala.util.control.NonFatal
 
 class State(val targets: os.Path) {
   
-  private val cache = TrieMap[os.RelPath, Future[Saved[?]]]()
+  private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
   
   
   def apply[A: ReadWriter](f: Context[A] ?=> Future[A]): Future[A] = {
-    given ctx: Context[A] = Context(this, Target(os.RelPath("$")) {
-      run_if_needed(f) }, None)
-    ctx.target.track
+    given ctx: Context[A] = Context(this, None, None)
+    Target(os.RelPath("$")) {
+      run_if_needed { () => f }
+    }.track
   }
-
-  def track[A: ReadWriter](target: Target[A])(using ctx: Context[?]): Future[A] = {
-    val saved = cache.getOrElseUpdate (target.path, {
-      config.on_miss(target)
-
+ 
+  // pre-condition: ctx is populated with dependencies for this target
+  // The simplest way to achieve this is to write code that looks like this:
+  //  Target {
+  //       a.track
+  //       b.track
+  //       run_if_needed { // depends on a and b
+  //            ...
+  //       }
+  //  }
+  def run_if_needed[A: ReadWriter](f: () => Future[A])(using ctx: Context[?]): Future[Result[A]] = ctx.target match {
+    case None =>
+      ???
+    case Some(target) =>
       val target_path = targets / target.path
+
+      // (1) let's find out if we have a saved value
       val old_saved: Option[Saved[A]] = if (os.isFile(target_path)) {
         try {
-          Some(read[Saved[A]](os.read(target_path)))
+          val old = read[Saved[A]](os.read(target_path))
+          // (2) we seem to have one, check if the dependencies changed
+          // ctx has the newly discovered dependencies
+          // old has the dependency at the time the value was saved
+          if (ctx.dependencies.forall((p, s) => old.depends_on.get(p) == s)) {
+            Some(old)
+          } else {
+            None
+          }
         } catch {
           case NonFatal(e) =>
             config.on_read_error(target, e)
@@ -38,34 +57,32 @@ class State(val targets: os.Path) {
         None
       }
 
-      val saved: Future[Saved[A]] =
-        for {
-          // run make(Phase I) to generate the new dependencies
-          made: Made[A] <- target.make
-          new_dependencies: SortedMap[os.RelPath, Signature] = made.dependencies
-
-          // decide if we want to use the old saved value or generate a new one
-          result: Saved[A] <- old_saved match {
-            case Some(old_saved) if new_dependencies.forall((p, s) => old_saved.depends_on.get(p) == s) =>
-              // we have a saved value and dependencies are unchanged, keep what we have
-              Future.successful(old_saved)
-            case _ =>
-              // we either don't have an old saved value or we have one and dependencies changed, run
-              // phase II
-              made.result.get().map { new_result =>
-                val s = Saved(new_result, new_dependencies)
-                os.write.over(target_path, write(s, indent = 2), createFolders = true)
-                s
-              }
+      old_saved match {
+        case Some(old_saved) => Future.successful(old_saved.result)
+        case None =>
+          f().map { new_value =>
+            val new_result = Result(new_value, Signature.of(new_value))
+            val new_saved = Saved(new_result, ctx.dependencies)
+            os.write.over(target_path, write(new_saved, indent = 2))
+            new_result
           }
-        } yield {
-          result
-        }
-      saved
-    })
 
-    ctx.add_dependency(target, saved)
-    saved.map { s => s.result.value.asInstanceOf[A] }
+      }
   }
+
+  def track[A: ReadWriter](target: Target[A])(using ctx: Context[?]): Future[A] = {
+    val result: Future[Result[?]] = cache.getOrElseUpdate(target.path, {
+      config.on_miss(target)
+      target.make
+    })
+      
+    ctx.add_dependency(target, result)
+    
+    for {
+      r <- result
+    } yield r.value.asInstanceOf[A]
+    
+  }
+    
 
 }

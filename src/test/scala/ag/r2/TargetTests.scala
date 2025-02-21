@@ -18,12 +18,20 @@ val b = Target(os.RelPath("b")) {
 }
 
 class TargetTests extends munit.FunSuite {
-  test("a") {
-    val state = State(os.temp.dir())
-    val tb = state {
-      b.track
+  test("basic tracking") {
+    val dir = os.temp.dir(deleteOnExit=true)
+    def doit(): Unit = {
+      val tb = State(dir) {
+        for {
+          a <- a.track
+          _ = assertEquals(a, 10)
+          b <- b.track
+          _ = assertEquals(b, 11)
+        } yield (a + b)
+      }
+      assertEquals(tb.block, 21)
     }
-    assertEquals(tb.block, 11)
-    println(state.targets)
+    doit()
+    doit()
   }
 }
