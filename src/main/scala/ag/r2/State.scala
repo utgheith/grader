@@ -12,9 +12,9 @@ class State(val targets: os.Path) {
 
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
 
-  def apply[A: ReadWriter](f: Context[A] => Future[A]): Future[A] = {
+  def apply[A: ReadWriter](f: Context[A] ?=> Future[A]): Future[A] = {
     val ctx: Context[A] = Context(this, None, None)
-    f(ctx)
+    f(using ctx)
   }
 
   // pre-condition: ctx is populated with dependencies for this target
