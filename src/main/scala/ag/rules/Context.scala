@@ -1,6 +1,9 @@
 package ag.rules
 
-case class Context[A](state: State, rule: Rule[?, A], old: Option[A]) {}
+import scala.caps.Capability
+
+case class Context[A](state: State, rule: Rule[?, A], old: Option[A])
+    extends Capability {}
 
 object Context {
   def old[A](using ctx: Context[A]): Option[A] = ctx.old

@@ -16,7 +16,7 @@ object Signature {
   def apply(bytes: Array[Byte]): Signature =
     val it = bytes.map(b => f"$b%02x").mkString("")
     Signature(it)
-    
+
   def of[A: ReadWriter](a: A): Signature = {
     val md = MessageDigest.getInstance("sha1").nn
     Signature(md.digest(writeBinary(a)))

@@ -13,25 +13,55 @@ import upickle.default.ReadWriter
 //            * it has never been computed before
 //            * one of its dependencies is recomputed
 //
-trait Target[+A: ReadWriter] {
+trait Target[A: ReadWriter] {
   // our unique name
   val path: os.RelPath
 
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make[B >: A](using Context[?]): Future[Result[B]]
+  def make(ctx: Context[?]): Future[Result[A]]
 
   // returns our current value (used by the value consumer)
-  def track(using ctx: Context[?]): Future[A] = {
-    ctx.state.track(this)
+  def track(ctx: Context[?]): Future[A] = {
+    ctx.state.track(ctx, this)
   }
 }
 
 object Target {
-  def apply[A: ReadWriter](p: os.RelPath)(f: Context[A] ?=> Future[Result[A]]): Target[A] = new Target[A] {
+  def apply[A: ReadWriter](
+      p: os.RelPath
+  )(f: Context[A] => Future[Result[A]]): Target[A] = new Target[A] {
     override val path: os.RelPath = p
-    override def make[B >: A](using old_ctx: Context[?]): Future[Result[B]] =
-      f(using Context[A](state=old_ctx.state, target=Some(this), parent=Some(old_ctx)))
+    override def make(old_ctx: Context[?]): Future[Result[A]] =
+      f(
+        Context[A](
+          state = old_ctx.state,
+          target = Some(this),
+          parent = Some(old_ctx)
+        )
+      )
   }
+}
+
+def target[Out: ReadWriter](
+    f: Context[Out] => Future[Result[Out]]
+)(using fn: sourcecode.FullName): Target[Out] = Target(
+  ToRelPath(fn)
+)(f)
+
+def scoped_target[A: ToRelPath, Out: ReadWriter](
+    f: (Context[Out], A) => Future[Result[Out]]
+)(using fn: sourcecode.FullName): A => Target[Out] = { a =>
+  Target[Out](
+    ToRelPath(fn) / ToRelPath(a)
+  ) { ctx => f(ctx, a) }
+}
+
+def scoped_target[A: ToRelPath, B: ToRelPath, Out: ReadWriter](
+    f: (Context[Out], A, B) => Future[Result[Out]]
+)(using fn: sourcecode.FullName): (A, B) => Target[Out] = { (a, b) =>
+  Target[Out](
+    ToRelPath(fn) / ToRelPath(a) / ToRelPath(b)
+  ) { ctx => f(ctx, a, b) }
 }

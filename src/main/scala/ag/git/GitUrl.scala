@@ -2,18 +2,17 @@ package ag.git
 
 sealed trait GitUrl {
   def is_remote: Boolean
-  //def host: String
-  //def port: Option[Int]
+  // def host: String
+  // def port: Option[Int]
 }
 
 object GitUrl {
-  case class Path(
-      path: os.Path) extends GitUrl {
+  case class Path(path: os.Path) extends GitUrl {
     override val is_remote: Boolean = false
     override lazy val toString: String = path.toString
   }
   def path(path: os.Path): Path = Path(path)
-  
+
   case class Ssh(
       user: Option[String],
       host: String,
