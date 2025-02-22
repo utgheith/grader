@@ -9,17 +9,14 @@ import scala.concurrent.Future
 import scala.util.control.NonFatal
 
 class State(val targets: os.Path) {
-  
+
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
-  
-  
-  def apply[A: ReadWriter](f: Context[A] ?=> Future[A]): Future[A] = {
-    given ctx: Context[A] = Context(this, None, None)
-    Target(os.RelPath("$")) {
-      run_if_needed { () => f }
-    }.track
+
+  def apply[A: ReadWriter](f: Context[A] => Future[A]): Future[A] = {
+    val ctx: Context[A] = Context(this, None, None)
+    f(ctx)
   }
- 
+
   // pre-condition: ctx is populated with dependencies for this target
   // The simplest way to achieve this is to write code that looks like this:
   //  Target {
@@ -29,7 +26,9 @@ class State(val targets: os.Path) {
   //            ...
   //       }
   //  }
-  def run_if_needed[A: ReadWriter](f: () => Future[A])(using ctx: Context[?]): Future[Result[A]] = ctx.target match {
+  def run_if_needed[A: ReadWriter](ctx: Context[A])(
+      f: () => Future[A]
+  ): Future[Result[A]] = ctx.target match {
     case None =>
       ???
     case Some(target) =>
@@ -42,14 +41,16 @@ class State(val targets: os.Path) {
           // (2) we seem to have one, check if the dependencies changed
           // ctx has the newly discovered dependencies
           // old has the dependency at the time the value was saved
-          if (ctx.dependencies.forall((p, s) => old.depends_on.get(p) == s)) {
+          if (
+            ctx.dependencies.forall((p, s) => old.depends_on.get(p).contains(s))
+          ) {
             Some(old)
           } else {
             None
           }
         } catch {
           case NonFatal(e) =>
-            config.on_read_error(target, e)
+            config.on_read_error(ctx, target, e)
             os.remove.all(target_path)
             None
         }
@@ -63,26 +64,34 @@ class State(val targets: os.Path) {
           f().map { new_value =>
             val new_result = Result(new_value, Signature.of(new_value))
             val new_saved = Saved(new_result, ctx.dependencies)
-            os.write.over(target_path, write(new_saved, indent = 2))
+            os.write.over(
+              target_path,
+              write(new_saved, indent = 2),
+              createFolders = true
+            )
             new_result
           }
 
       }
   }
 
-  def track[A: ReadWriter](target: Target[A])(using ctx: Context[?]): Future[A] = {
-    val result: Future[Result[?]] = cache.getOrElseUpdate(target.path, {
-      config.on_miss(target)
-      target.make
-    })
-      
+  def track[A: ReadWriter](
+      ctx: Context[?],
+      target: Target[A]
+  ): Future[A] = {
+    val result: Future[Result[?]] = cache.getOrElseUpdate(
+      target.path, {
+        config.on_miss(ctx, target)
+        target.make(ctx)
+      }
+    )
+
     ctx.add_dependency(target, result)
-    
+
     for {
       r <- result
     } yield r.value.asInstanceOf[A]
-    
+
   }
-    
 
 }

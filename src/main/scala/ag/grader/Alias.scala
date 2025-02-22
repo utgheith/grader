@@ -5,7 +5,8 @@ import scala.math.Ordering
 
 case class Alias(value: Int) extends Ordered[Alias] {
   override def toString: String = {
-    if ((value < 0) || (value >= 1000)) throw new IllegalArgumentException(s"$value")
+    if ((value < 0) || (value >= 1000))
+      throw new IllegalArgumentException(s"$value")
     f"$value%03d"
   }
 

@@ -4,34 +4,37 @@ import ag.common.{block, given_VirtualExecutionContext}
 import scala.concurrent.Future
 
 
-val a = Target(os.RelPath("a")) {
-  run_if_needed {
+val a: Target[Int] = target { ctx =>
+  ctx.run_if_needed {
     Future.successful(10)
   }
 }
 
-val b = Target(os.RelPath("b")) {
-  val ta = a.track
-  run_if_needed {
-    ta.map(_ + 1)
-  }
+val b: (String, Int) => Target[Int] = scoped_target { (ctx, s, i) =>
+    println(s"tracking $s $i")
+    val ta = a.track(ctx)
+    ctx.run_if_needed {
+      println(s"running $s $i")
+      ta.map(_ + i)
+    }
 }
 
 class TargetTests extends munit.FunSuite {
   test("basic tracking") {
     val dir = os.temp.dir(deleteOnExit=true)
-    def doit(): Unit = {
-      val tb = State(dir) {
+    def doit(d: Int): Unit = {
+      val tb: Future[Int] = State(dir) { ctx =>
         for {
-          a <- a.track
+          a <- a.track(ctx)
           _ = assertEquals(a, 10)
-          b <- b.track
-          _ = assertEquals(b, 11)
+          b <- b("thing", d).track(ctx)
+          _ = assertEquals(b, 10 + d)
         } yield (a + b)
       }
-      assertEquals(tb.block, 21)
+      assertEquals(tb.block, 20 + d)
     }
-    doit()
-    doit()
+    doit(6)
+    doit(4)
+    doit(6)
   }
 }

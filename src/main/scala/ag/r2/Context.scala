@@ -4,7 +4,6 @@ import ag.common.block
 import ag.rules.Signature
 
 import java.util.concurrent.atomic.AtomicInteger
-import scala.caps.Capability
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
@@ -29,10 +28,14 @@ import upickle.default.ReadWriter
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
-case class Context[+A](state: State, target: Option[Target[A]], parent: Option[Context[?]]) extends Capability {
-  
+case class Context[A](
+    state: State,
+    target: Option[Target[A]],
+    parent: Option[Context[?]]
+) {
+
   private val phase = new AtomicInteger(1)
-  
+
   // Called by "track" to add a discovered dependency
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
   def add_dependency(d: Target[?], fr: Future[Result[?]]): Unit = {
@@ -50,15 +53,13 @@ case class Context[+A](state: State, target: Option[Target[A]], parent: Option[C
       throw IllegalStateException(s"phase = ${phase.get()}")
     }
     (for {
-      (p,result) <- added_dependencies.toSeq
-    } yield (p,result.block.signature)).to(SortedMap)
+      (p, result) <- added_dependencies.toSeq
+    } yield (p, result.block.signature)).to(SortedMap)
+  }
+
+  def run_if_needed(
+      f: => Future[A]
+  )(using ReadWriter[A]): Future[Result[A]] = {
+    state.run_if_needed(this) { () => f }
   }
 }
-
-object Context {
-  def apply(using Context[?]): Context[?] = summon[Context[?]]
-}
-
-def run_if_needed[A: ReadWriter](f: => Future[A])(using ctx: Context[A]): Future[Result[A]] = {
-  ctx.state.run_if_needed { () => f }
-} 
