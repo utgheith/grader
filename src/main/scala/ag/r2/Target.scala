@@ -23,7 +23,7 @@ trait Target[A: ReadWriter] {
   def make(ctx: Context[?]): Future[Result[A]]
 
   // returns our current value (used by the value consumer)
-  def track(ctx: Context[?]): Future[A] = {
+  def track(using ctx: Context[?]): Future[A] = {
     ctx.state.track(ctx, this)
   }
 }
@@ -42,26 +42,4 @@ object Target {
         )
       )
   }
-}
-
-def target[Out: ReadWriter](
-    f: Context[Out] => Future[Result[Out]]
-)(using fn: sourcecode.FullName): Target[Out] = Target(
-  ToRelPath(fn)
-)(f)
-
-def scoped_target[A: ToRelPath, Out: ReadWriter](
-    f: (Context[Out], A) => Future[Result[Out]]
-)(using fn: sourcecode.FullName): A => Target[Out] = { a =>
-  Target[Out](
-    ToRelPath(fn) / ToRelPath(a)
-  ) { ctx => f(ctx, a) }
-}
-
-def scoped_target[A: ToRelPath, B: ToRelPath, Out: ReadWriter](
-    f: (Context[Out], A, B) => Future[Result[Out]]
-)(using fn: sourcecode.FullName): (A, B) => Target[Out] = { (a, b) =>
-  Target[Out](
-    ToRelPath(fn) / ToRelPath(a) / ToRelPath(b)
-  ) { ctx => f(ctx, a, b) }
 }
