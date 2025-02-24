@@ -1,12 +1,14 @@
 package ag.grader
 
-import ag.common.given_ReadWriter_RelPath
-import ag.rules.{Maker, Rule, down, run}
+import ag.common.{down, given_ReadWriter_RelPath, given_VirtualExecutionContext, run}
+import ag.r2.{Target, run_if_needed, target}
+import os.RelPath
 import upickle.default.{ReadWriter, read}
 
 import java.util.concurrent.Semaphore
 import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
+import scala.concurrent.Future
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RemoteServer(user: String, host: String, port: Int)
@@ -63,23 +65,31 @@ case class Config(
 
 object Config {
 
-  private val config: Maker[Config] = Rule() {
-    @tailrec
-    def find(d: os.Path): os.Path = {
-      val t = d / "config.json"
-      if os.isFile(t) then t else find(d / os.up)
-    }
-    val cf = find(os.pwd)
-    // logger.info(s"loading config from $cf")
-    read[Config](os.read(cf))
+  private lazy val config: Target[Config] = target() {
+
+      @tailrec
+      def find(d: os.Path): os.Path = {
+        val t = d / "config.json"
+        if os.isFile(t) then t else find(d / os.up)
+      }
+
+      val cf = find(os.pwd)
+      // logger.info(s"loading config from $cf")
+      read[Config](os.read(cf))
+    
   }
 
-  val gitolite: Maker[RemoteServer] = Rule(config, null)(_.gitolite)
-  val dropbox_path: Maker[Option[os.RelPath]] =
-    Rule(config, null)(_.dropbox_path)
-  val site_base: Maker[Option[String]] = Rule(config, null)(_.site_base)
-  val can_send_mail: Maker[Boolean] =
-    Rule(config, null)(_.can_send_mail.getOrElse(false)).peek
-  val can_push_repo: Maker[Boolean] =
-    Rule(config, null)(_.can_push_repo.getOrElse(false))
+  lazy val gitolite: Target[RemoteServer] = target(config)(_.gitolite)
+  
+  lazy val dropbox_path: Target[Option[RelPath]] = target(config)(_.dropbox_path)
+  
+  lazy val site_base: Target[Option[String]] = target(config)(_.site_base)
+  
+  // TODO: peek
+  lazy val can_send_mail: Target[Boolean] =  target(config) { config =>
+    throw Exception("implement peek")
+    config.can_send_mail.getOrElse(false)
+  }
+  
+  lazy val can_push_repo: Target[Boolean] = target(config)(_.can_push_repo.getOrElse(false))
 }

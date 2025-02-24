@@ -1,10 +1,10 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
+import ag.r2.Target
 
-import scala.collection.{mutable, SortedMap, SortedSet}
+import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
-import ag.rules.{Maker, Periodic, Rule, SignedPath, say}
 
 case class Course(course_name: String) derives ReadWriter {
 
@@ -12,7 +12,7 @@ case class Course(course_name: String) derives ReadWriter {
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
-  private lazy val raw: Maker[RawCourse] = Gitolite.raw_course(course_name)
+  private lazy val raw: Target[RawCourse] = Gitolite.raw_course(course_name)
 
   lazy val notifications: Maker[NotificationConfig] =
     Rule(raw, scope)(_.notifications)
