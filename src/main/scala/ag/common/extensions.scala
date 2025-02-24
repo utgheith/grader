@@ -1,12 +1,13 @@
 package ag.common
 
 import java.nio.charset.{Charset, StandardCharsets}
-import java.security.MessageDigest
+import java.security.{DigestOutputStream, MessageDigest}
 import java.time.{Duration, Instant, LocalDateTime, ZoneId, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 import scala.collection.{SortedMap, SortedSet}
 import upickle.default.{ReadWriter, readwriter}
 
+import java.io.OutputStream
 import java.util.concurrent.CountDownLatch
 import scala.concurrent.Future
 
@@ -74,6 +75,36 @@ given ReadWriter[Duration] = readwriter[String]
 extension (md: MessageDigest) {
   def update(s: String, charset: Charset = StandardCharsets.UTF_8.nn): Unit =
     md.update(s.getBytes(charset))
+  def update(path: os.Path, exclude: os.RelPath => Boolean): Unit = {
+    def one(base: os.Path, path: os.Path): Unit = {
+      if (!exclude(path.relativeTo(base))) {
+        md.update(path.relativeTo(base).toString)
+        if (os.isLink(path)) {
+          md.update("L")
+          os.followLink(path)
+            .foreach(p => md.update(p.relativeTo(base).toString))
+          md.update("l")
+        } else if (os.isFile(path)) {
+          md.update("F")
+          val dos = DigestOutputStream(OutputStream.nullOutputStream(), md)
+          try {
+            os.read.stream(path).writeBytesTo(dos)
+          } finally {
+            dos.close()
+          }
+          md.update("f")
+        } else if (os.isDir(path)) {
+          for {
+            p <- os.list(path, sort = true)
+          } one(base, p)
+        } else if (os.exists(path)) {
+          throw Exception(s"$path")
+        }
+      }
+    }
+
+    one(path, path)
+  }
 }
 
 /////// Future ///////

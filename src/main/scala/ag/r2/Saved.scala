@@ -1,7 +1,10 @@
 package ag.r2
 
-import ag.common.{given_ReadWriter_RelPath, given_ReadWriter_SortedMap}
-import ag.rules.Signature
+import ag.common.{
+  Signature,
+  given_ReadWriter_RelPath,
+  given_ReadWriter_SortedMap
+}
 import upickle.default.{macroRW, ReadWriter}
 
 import scala.collection.SortedMap

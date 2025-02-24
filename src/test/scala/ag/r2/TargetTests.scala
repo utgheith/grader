@@ -6,6 +6,9 @@ import scala.concurrent.Future
 
 val a: Target[Int] = target[Int] {
   run_if_needed {
+    create_data(_ => false) { (path: os.Path) =>
+      os.write(path / "xyz", "hello\n")
+    }
     Future.successful(10)
   }
 }
@@ -21,9 +24,8 @@ val b: (String, Int) => Target[Int] = target[String, Int, Int] { (s, i) =>
 
 class TargetTests extends munit.FunSuite {
   test("basic tracking") {
-    val dir = os.temp.dir(deleteOnExit=true)
     def doit(d: Int): Unit = {
-      val tb: Future[Int] = State(dir) {
+      val tb: Future[Int] = State(config.get_test_dir) {
         for {
           a <- a.track
           _ = assertEquals(a, 10)
