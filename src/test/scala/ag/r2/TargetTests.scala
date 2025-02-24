@@ -13,13 +13,10 @@ val a: Target[Int] = target[Int] {
   }
 }
 
-val b: (String, Int) => Target[Int] = target[String, Int, Int] { (s, i) =>
-    println(s"tracking $s $i")
-    val ta = a.track
-    run_if_needed {
-      println(s"running $s $i")
-      ta.map(_ + i)
-    }
+val b: (String, Int) => Target[Int] = scoped[String, Int] { (s, i) =>
+  target(a) { a =>
+    println(s"running $s $i")
+    a+i
 }
 
 class TargetTests extends munit.FunSuite {

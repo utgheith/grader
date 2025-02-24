@@ -13,7 +13,7 @@ import upickle.default.ReadWriter
 //            * it has never been computed before
 //            * one of its dependencies is recomputed
 //
-trait Target[A: ReadWriter] {
+trait Target[A: ReadWriter] { outer =>
   // our unique name
   val path: os.RelPath
 
@@ -26,6 +26,13 @@ trait Target[A: ReadWriter] {
   def track(using ctx: Context[?]): Future[A] = {
     ctx.state.track(ctx, this)
   }
+  
+  def append(p: os.RelPath): Target[A] = new Target[A] {
+    override val path: os.RelPath = outer.path / p
+    override def make(c: Context[?]): Future[Result[A]] = outer.make(c)
+  }
+  
+  def data_path(using ctx: Context[?]): os.Path = ctx.state.targets / path / "data" 
 }
 
 object Target {
