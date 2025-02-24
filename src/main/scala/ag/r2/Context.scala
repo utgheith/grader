@@ -1,7 +1,6 @@
 package ag.r2
 
-import ag.common.block
-import ag.rules.Signature
+import ag.common.{Signature, block}
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.SortedMap
@@ -28,13 +27,20 @@ import upickle.default.ReadWriter
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
-case class Context[A](
-    state: State,
-    target: Option[Target[A]],
-    parent: Option[Context[?]]
+class Context[A](
+    val state: State,
+    val target: Option[Target[A]],
+    val parent: Option[Context[?]]
 ) {
 
+  var skip_filter: (os.RelPath => Boolean) | Null = null
+
   private val phase = new AtomicInteger(1)
+
+  lazy val target_path: os.Path = state.targets / target.get.path
+  lazy val data_path: os.Path = target_path / "data"
+  lazy val dirty_path: os.Path = target_path / "dirty"
+  lazy val saved_path: os.Path = target_path / "saved.json"
 
   // Called by "track" to add a discovered dependency
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()

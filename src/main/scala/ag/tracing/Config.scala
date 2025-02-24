@@ -1,8 +1,8 @@
 package ag.tracing
 
 import ag.cfg.load
-import ag.common.{given_ReadWriter_LocalDateTime, given_ReadWriter_RelPath}
-import upickle.default.{Reader, Writer, write, writeJs}
+import ag.common.given_ReadWriter_RelPath
+import upickle.default.Reader
 
 import java.time.LocalDateTime
 import java.util.concurrent.locks.ReentrantLock
@@ -19,20 +19,21 @@ object Config {
   val trace_lock = new ReentrantLock()
 }
 
-def trace[A: Writer](msg: => A): Unit = {
+def trace[A](msg: => A): Unit = {
   config.file.foreach { file =>
-    val out = ujson.Obj()
     val path = os.pwd / file
-    out("message") = writeJs(msg)
-    if (config.thread_name) {
-      out("thread_name") = Thread.currentThread.getName
-    }
+    val thread_part = if (config.thread_name) {
+      s"[${Thread.currentThread.getName}] "
+    } else ""
+    val time_part = if (config.timestamp) {
+      s"[${LocalDateTime.now()}] "
+    } else ""
+
+    val line = s"$thread_part$time_part$msg\n"
+
     Config.trace_lock.lockInterruptibly()
     try {
-      if (config.timestamp) {
-        out("timestamp") = writeJs(LocalDateTime.now())
-      }
-      os.write.append(path, write(out, indent = 2))
+      os.write.append(path, line)
     } finally {
       Config.trace_lock.unlock()
     }

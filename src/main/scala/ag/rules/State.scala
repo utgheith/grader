@@ -1,10 +1,11 @@
 package ag.rules
 
+import ag.common.Signature
 import upickle.default.{ReadWriter, read, write}
 
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
-import scala.collection.{SortedMap}
+import scala.collection.SortedMap
 import scala.collection.mutable
 import scala.util.control.NonFatal
 import scala.util.Success

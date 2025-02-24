@@ -1,5 +1,6 @@
 package ag.rules
 
+import ag.common.Signature
 import upickle.default.ReadWriter
 
 import scala.collection.SortedSet

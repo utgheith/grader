@@ -1,6 +1,6 @@
 package ag.rules
 
-import ag.common.given_ReadWriter_Path
+import ag.common.{Signature, Signer, given_ReadWriter_Path}
 
 import scala.collection.SortedSet
 import upickle.default.ReadWriter
@@ -54,7 +54,9 @@ object SignedPath {
       os.remove.all(dirty_file)
       SignedPath(
         base_dir,
-        Signature.of(SortedSet(base_dir), ignore_last),
+        Signer.sign(
+          (base_dir, { (p: os.RelPath) => ignore_last.contains(p.ext) })
+        ),
         ignore_last,
         d
       )

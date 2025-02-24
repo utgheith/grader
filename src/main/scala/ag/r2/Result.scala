@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.rules.Signature
+import ag.common.Signature
 import upickle.default.{macroRW, ReadWriter}
 
 // The result of a computations: the value and its signature
