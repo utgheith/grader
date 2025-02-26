@@ -1,12 +1,14 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
-import ag.r2.Target
+import ag.r2.{create_data, Context, periodic, Scope, Target, ToRelPath, run_if_needed}
 
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
 
-case class Course(course_name: String) derives ReadWriter {
+import scala.concurrent.{ExecutionContext, Future}
+
+case class Course(course_name: String) extends Scope(ToRelPath(course_name)) derives ReadWriter {
 
   private val scope = os.RelPath(course_name)
 
@@ -14,35 +16,44 @@ case class Course(course_name: String) derives ReadWriter {
 
   private lazy val raw: Target[RawCourse] = Gitolite.raw_course(course_name)
 
-  lazy val notifications: Maker[NotificationConfig] =
-    Rule(raw, scope)(_.notifications)
+  lazy val notifications: Target[NotificationConfig] =
+    target(raw)(_.notifications)
 
-  lazy val projects: Maker[SortedMap[String, Project]] =
-    Rule(raw, scope) { rc =>
+  lazy val projects: Target[SortedMap[String, Project]] =
+    target(raw) { rc =>
       val s = for {
         pn <- rc.projects.keySet.toSeq
       } yield (pn, Project(this, pn))
       SortedMap(s*)
     }
 
-  lazy val active: Maker[Boolean] = Rule(raw, scope) { rc =>
+  lazy val active: Target[Boolean] = target(raw) { rc =>
     rc.active
   }
 
-  lazy val staff: Maker[SortedSet[CSID]] = Rule(raw, scope) { rc => rc.staff }
+  lazy val staff: Target[SortedSet[CSID]] = target(raw) { rc => rc.staff }
 
-  lazy val active_projects: Maker[SortedMap[String, Project]] =
-    Rule(Maker.select(projects.map(_.values.toSeq))(_.active), scope) {
-      projects =>
-        projects.map(p => (p.project_name, p)).to(SortedMap)
+  lazy val active_projects: Target[SortedMap[String, Project]] =
+    complex_target {
+      val projects_f = projects.track
+      val active_flags_f = for {
+        projects <- projects_f
+        active_flags <- Future.sequence(projects.values.map(_.active.track))
+      } yield active_flags
+      run_if_needed {
+        for {
+          projects <- projects_f
+          active_flags <- active_flags_f
+        } yield projects.values.zip(active_flags).filter(_._2).map(p => (p._1.project_name, p._1)).to(SortedMap)
+      }
     }
 
   def project(project_name: String): Project =
     Project(this, project_name)
 
   // Get a sorted list of csids in the dropbox
-  lazy val dropbox: Maker[SortedMap[CSID, String]] =
-    Rule(Periodic(60000) *: Config.dropbox_path, scope) {
+  lazy val dropbox: Target[SortedMap[CSID, String]] =
+    target(periodic(60000), Config.dropbox_path) {
       case (_, Some(dropbox)) =>
         val base = os.home / dropbox / course_name
         val pairs = for {
@@ -119,9 +130,9 @@ case class Course(course_name: String) derives ReadWriter {
 
   // read the enrollment repo
 
-  lazy val enrollment: Maker[SortedMap[CSID, String]] =
-    Rule(Gitolite.mirror(enrollment_repo_name), scope) { sp =>
-      if (sp.data) {
+  lazy val enrollment: Target[SortedMap[CSID, String]] =
+    target(Gitolite.mirror(enrollment_repo_name)) { sp =>
+      if (sp) {
         val f = enrollment_file(sp.path)
         if (os.isFile(f)) {
           upickle.default.read[SortedMap[CSID, String]](
@@ -137,28 +148,28 @@ case class Course(course_name: String) derives ReadWriter {
     }
 
   // create/update the enrollment repo
-  lazy val publish_enrollment: Maker[SignedPath[SortedMap[CSID, String]]] =
-    SignedPath.rule(
+  lazy val publish_enrollment: Target[SortedMap[CSID, String]] =
+    target(
       Gitolite.repo_info(
         enrollment_repo_name
-      ) *: publish_keys *: Config.can_push_repo,
-      SortedSet(".git"),
-      scope
-    ) { case (dir, (g, keys, can_push_repo)) =>
-      g.update(
-        path = dir,
-        fork_from = Some("empty"),
-        msg = "enrolling students",
-        readers = Seq(staff_group_name),
-        writers = Seq(),
-        can_push_repo
-      ) { _ =>
-        os.write.over(
-          enrollment_file(dir),
-          upickle.default.write(keys.data, indent = 2)
-        )
-        keys.data
+      ), publish_keys, Config.can_push_repo
+    ) { (g, keys, can_push_repo) =>
+      create_data(skip = {_.last == ".git"}) { dir =>
+        g.update(
+          path = dir,
+          fork_from = Some("empty"),
+          msg = "enrolling students",
+          readers = Seq(staff_group_name),
+          writers = Seq(),
+          can_push_repo
+        ) { _ =>
+          os.write.over(
+            enrollment_file(dir),
+            upickle.default.write(keys, indent = 2)
+          )
+        }
       }
+      keys
     }
 
   private lazy val grades_repo_name = s"${course_name}__grades"
@@ -194,16 +205,23 @@ case class Course(course_name: String) derives ReadWriter {
     }
 }
 
-object Course {
+object Course extends Scope(os.RelPath(".")) {
   given Ordering[Course] = Ordering.by(_.course_name)
 
-  lazy val all: Maker[Seq[Course]] =
-    for {
-      courses <- Gitolite.course_names
-    } yield for {
-      cn <- courses.toSeq
-    } yield Course(cn)
+  lazy val all: Target[Seq[Course]] = target(Gitolite.course_names){ course_names =>
+    course_names.toSeq.map(name => Course(name))
+  }
 
-  lazy val active_courses: Maker[Seq[Course]] = Maker.select(all)(_.active)
+  lazy val active_courses: Target[Seq[Course]] = complex_target {
+    val all_future: Future[Seq[Course]] = all.track
+    val active_flags_future: Future[Seq[Boolean]] = all_future.flatMap(all => Future.sequence(all.map(_.active.track)))
+    run_if_needed {
+      for {
+        all <- all_future
+        active_flags <- active_flags_future
+      } yield all.zip(active_flags).filter(_._2).map(_._1)
+    }
+  }
+
 
 }

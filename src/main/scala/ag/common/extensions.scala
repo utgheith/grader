@@ -8,7 +8,7 @@ import scala.collection.{SortedMap, SortedSet}
 import upickle.default.{ReadWriter, readwriter}
 
 import java.io.OutputStream
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.{CountDownLatch, Semaphore}
 import scala.concurrent.Future
 
 ///// ReadWriter for SortedMap ////
@@ -118,4 +118,18 @@ extension [A](fa: Future[A]) {
     latch.await()
     fa.value.get.get
   }
+}
+
+
+////// Semaphore /////
+
+extension (s: Semaphore) {
+  def down[A](permits: Int)(f: => A): A = try {
+    s.acquire(permits)
+    f
+  } finally {
+    s.release(permits)
+  }
+
+  def down[A](f: => A): A = down(1)(f)
 }

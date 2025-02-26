@@ -5,9 +5,10 @@ import ag.common.{Signature, block}
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Future
-
+import scala.concurrent.{ExecutionContext, Future}
 import upickle.default.ReadWriter
+
+import scala.annotation.implicitNotFound
 
 //
 // Context for a running computations
@@ -27,31 +28,49 @@ import upickle.default.ReadWriter
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
-class Context[A](
-    val state: State,
-    val target: Option[Target[A]],
-    val parent: Option[Context[?]]
-) {
+@implicitNotFound("Can't find given Context")
+trait Context extends ExecutionContext {
+  val state: State
+  val target_opt: Option[TargetBase]
+  val parent_opt: Option[Context]
+
+  def add_dependency(target: TargetBase, fr: Future[Result[?]]): Unit
+}
+
+@implicitNotFound("Can't fund given Consumer")
+class Consumer(val state: State) extends Context {
+    override lazy val target_opt: Option[TargetBase] = None
+    override lazy val parent_opt: Option[Consumer] = None
+  
+    override def add_dependency(target: TargetBase, fr: Future[Result[?]]): Unit = {}
+}
+
+@implicitNotFound("Can't find given Producer")
+class Producer[A](override val state: State,
+    val target: Target[A],
+    val parent: Context
+) extends Context {
 
   var skip_filter: (os.RelPath => Boolean) | Null = null
+  
+  lazy val target_path: os.Path = state.target_path(target)
+  lazy val saved_path: os.Path = state.saved_path(target)
+  lazy val dirty_path: os.Path = state.dirty_path(target)
+  lazy val data_path: os.Path = state.data_path(target)
 
   private val phase = new AtomicInteger(1)
-
-  lazy val target_path: os.Path = state.targets / target.get.path
-  lazy val data_path: os.Path = target_path / "data"
-  lazy val dirty_path: os.Path = target_path / "dirty"
-  lazy val saved_path: os.Path = target_path / "saved.json"
-
+  
   // Called by "track" to add a discovered dependency
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
-  def add_dependency(d: Target[?], fr: Future[Result[?]]): Unit = {
+  
+  override def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
     if (phase.get() != 1) {
       throw IllegalStateException(s"phase = ${phase.get()}")
     }
-    println(s"${target.map(_.path)} depends on ${d.path}")
+    println(s"${target.path} depends on ${d.path}")
     added_dependencies.update(d.path, fr)
   }
-
+  
   // Returns the known dependencies
   lazy val dependencies: SortedMap[os.RelPath, Signature] = {
     val old = phase.getAndAdd(1)
@@ -68,4 +87,7 @@ class Context[A](
   )(using ReadWriter[A]): Future[Result[A]] = {
     state.run_if_needed(this) { () => f }
   }
+  
+  override lazy val target_opt: Option[Target[A]] = Some(target)
+  override lazy val parent_opt: Option[Context] = Some(parent)
 }

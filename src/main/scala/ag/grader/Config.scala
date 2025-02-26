@@ -1,7 +1,7 @@
 package ag.grader
 
-import ag.common.{down, given_ReadWriter_RelPath, given_VirtualExecutionContext, run}
-import ag.r2.{Target, run_if_needed, target}
+import ag.common.{down, given_ReadWriter_RelPath}
+import ag.r2.{Scope, Target, run_if_needed}
 import os.RelPath
 import upickle.default.{ReadWriter, read}
 
@@ -63,7 +63,7 @@ case class Config(
     can_push_repo: Option[Boolean] = None
 ) derives ReadWriter {}
 
-object Config {
+object Config extends Scope(".") {
 
   private lazy val config: Target[Config] = target() {
 

@@ -1,18 +1,8 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_LocalDateTime, given_ReadWriter_SortedSet}
-
-import ag.rules.{
-  check,
-  Maker,
-  Optional,
-  Rule,
-  SignedPath,
-  down,
-  lines,
-  run,
-  say
-}
+import ag.r2.{Scope, Target, WithData}
+import ag.rules.{Maker, Optional, Rule, SignedPath, check, down, lines, run, say}
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
@@ -56,56 +46,49 @@ object CutoffTime:
 private val started_runs = AtomicLong(0)
 private val finished_runs = AtomicLong(0)
 
-case class Project(course: Course, project_name: String) derives ReadWriter {
-  lazy val scope: os.RelPath = os.RelPath(course.course_name) / project_name
+case class Project(course: Course, project_name: String) extends Scope(course / project_name) derives ReadWriter {
 
-  lazy val info: Maker[RawProject] =
+  lazy val info: Target[RawProject] =
     Gitolite.raw_project(course.course_name, project_name)
 
-  lazy val active: Maker[Boolean] =
-    Rule(
-      course.active *: info *: Gitolite.repo_info(project_repo_name),
-      scope
-    ) {
+  lazy val active: Target[Boolean] =
+    target(course.active, info, Gitolite.repo_info(project_repo_name)) {
       case (course_is_active, info, RepoInfo(_, _, Some(_))) =>
         course_is_active && info.active
       case (_, _, RepoInfo(_, _, None)) =>
         false
     }
 
-  lazy val chosen: Maker[SortedSet[String]] =
-    Rule(info, scope)(p => p.chosen.to(SortedSet))
+  lazy val chosen: Target[SortedSet[String]] =
+    target(info)(p => p.chosen.to(SortedSet))
 
-  lazy val weights: Maker[Seq[Weight]] =
-    Rule(info, scope)(p => p.weights)
+  lazy val weights: Target[Seq[Weight]] =
+    target(info)(p => p.weights)
 
-  lazy val bad_tests: Maker[SortedSet[String]] =
-    Rule(info, scope)(p => SortedSet(p.bad_tests*))
+  lazy val bad_tests: Target[SortedSet[String]] =
+    target(info)(p => SortedSet(p.bad_tests*))
 
-  private lazy val cores: Maker[Int] =
-    Rule(info, scope)(p => p.cores)
+  private lazy val cores: Target[Int] =
+    target(info)(p => p.cores)
 
-  lazy val test_cutoff: Maker[LocalDateTime] =
-    Rule(info, scope) { p =>
-      p.test_cutoff
-    }
-  lazy val code_cutoff: Maker[LocalDateTime] =
-    Rule(info, scope) { p =>
+  lazy val test_cutoff: Target[LocalDateTime] =
+    target(info) (p =>p.test_cutoff)
+  lazy val code_cutoff: Target[LocalDateTime] =
+    target(info) ( p =>
       p.code_cutoff
-    }
-  lazy val test_extensions: Maker[SortedSet[String]] =
-    Rule(info, scope) { p =>
+    )
+  lazy val test_extensions: Target[SortedSet[String]] = target(info) ( p =>
       SortedSet(p.test_extensions*)
-    }
+  )
 
   private lazy val project_repo_name: String =
     s"${course.course_name}_$project_name"
 
-  private lazy val project_repo: Maker[SignedPath[Boolean]] =
+  private lazy val project_repo: Target[WithData[Boolean]] =
     Gitolite.mirror(project_repo_name)
 
-  lazy val staff: Maker[SortedSet[CSID]] =
-    Rule(info, scope) { p =>
+  lazy val staff: Target[SortedSet[CSID]] =
+    target(info) { p =>
       SortedSet(p.staff*)
     }
 
