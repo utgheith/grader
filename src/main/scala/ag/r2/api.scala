@@ -6,7 +6,7 @@ import upickle.default.ReadWriter
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: ReadWriter](f: => A|Future[A])(using
-    ctx: Context[A]
+    ctx: Producer[A]
 ): Future[Result[A]] =
   ctx.run_if_needed(f match {
     case a: A => Future.successful(a)
@@ -14,18 +14,19 @@ def run_if_needed[A: ReadWriter](f: => A|Future[A])(using
   })
 
 // Called from inside the code called by run_if_needed if it need to populate the data directory
-def create_data(skip: os.RelPath => Boolean)(
-    f: Context[?] ?=> os.Path => Unit
-)(using ctx: Context[?]): Unit = {
+def create_data[A](skip: os.RelPath => Boolean)(
+    f: Producer[WithData[A]] ?=> os.Path => A
+)(using ctx: Producer[WithData[A]]): WithData[A] = {
   ctx.skip_filter = skip
   val data_dir: os.Path = ctx.data_path
   os.remove.all(data_dir)
   os.makeDir.all(data_dir)
-  f(using ctx)(data_dir)
+  val a = f(using ctx)(data_dir)
+  WithData(a, ctx.target.path)
 }
 
-val periodic = scoped { (ms: Long) =>
-  target() {
+val periodic = Scope().fun { (ms: Long) =>
+  Scope().target() {
     (System.currentTimeMillis() / ms) * ms
   }
 }
@@ -34,49 +35,9 @@ val periodic = scoped { (ms: Long) =>
 
 
 // val x = target { ... }
-def target[Out: ReadWriter]()(f: Context[?] ?=> Out)(using fn: sourcecode.FullName): Target[Out] = Target(
-  ToRelPath(fn)
-) { ctx =>
-  given Context[Out] = ctx
-  
-  run_if_needed {
-    Future.successful(f)
-  }
-}
 
-// val x = target(ta) { va => ... }
-def target[A, Out: ReadWriter](ta: Target[A])(f: Context[?] ?=> A => Out)(using fn: sourcecode.FullName): Target[Out] = Target(
-  ToRelPath(fn)
-) { ctx =>
-  given Context[Out] = ctx
-
-  val fa = ta.track
-  run_if_needed {
-    for {
-      a <- fa
-    } yield f(a)
-  }
-}
-
-// val ta: Target[A]
-// val tb: Target[B]
-// val x = target(ta, tb) { (va, vb) => ... }
-def target[A, B, Out: ReadWriter](ta: Target[A], tb: Target[B])(f: (A, B) => Out)(using fn: sourcecode.FullName): Target[Out] = Target(
-  ToRelPath(fn)
-) { ctx =>
-  given Context[Out] = ctx
-  val fa = ta.track
-  val fb = tb.track
-  run_if_needed {
-    for {
-      a <- fa
-      b <- fb
-    } yield f(a, b)
-  }
-}
-
-def scoped[A: ToRelPath, Out: ReadWriter](f: A => Target[Out]): A => Target[Out] = { (a: A) => f(a).append(ToRelPath(a)) }
-def scoped[A: ToRelPath, B: ToRelPath, Out: ReadWriter](f: (A,B) => Target[Out]): (A,B) => Target[Out] = {(a: A,b: B) => f(a,b).append(ToRelPath(a) / ToRelPath(b))}
+//def scoped[A: ToRelPath, Out: ReadWriter](f: A => Target[Out]): A => Target[Out] = { (a: A) => f(a).append(ToRelPath(a)) }
+//def scoped[A: ToRelPath, B: ToRelPath, Out: ReadWriter](f: (A,B) => Target[Out]): (A,B) => Target[Out] = {(a: A,b: B) => f(a,b).append(ToRelPath(a) / ToRelPath(b))}
 
 //
 // defines a scoped target, 'a' will contribute to the scope
@@ -89,6 +50,7 @@ def scoped[A: ToRelPath, B: ToRelPath, Out: ReadWriter](f: (A,B) => Target[Out])
 //
 // use: s(10).path ===> ".../s/10"
 //
+/*
 def target[A: ToRelPath, Out: ReadWriter](
     f: Context[Out] ?=> A => Future[Result[Out]]
 )(using fn: sourcecode.FullName): A => Target[Out] = { a =>
@@ -114,4 +76,5 @@ def target[A: ToRelPath, B: ToRelPath, C: ToRelPath, Out: ReadWriter](
     ToRelPath(fn) / ToRelPath(a) / ToRelPath(b) / ToRelPath(c)
   ) { ctx => f(ctx, a, b, c) }
 }
+*/
 

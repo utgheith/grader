@@ -2,7 +2,7 @@ package ag.grader
 
 import ag.common.given_VirtualExecutionContext
 import ag.git.{RefSpec, Repository, Sha, git}
-import ag.r2.{Target, create_data, periodic, run_if_needed, scoped, target}
+import ag.r2.{Producer, Scope, Target, WithData, create_data, periodic, run_if_needed}
 import upack.Msg
 
 import language.experimental.namedTuples
@@ -11,7 +11,7 @@ import upickle.default.read
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.control.NonFatal
 
-object Gitolite {
+object Gitolite extends Scope(".") {
 
   // private val sem = Semaphore(4)
 
@@ -57,7 +57,7 @@ object Gitolite {
     SortedMap(pairs *)
   }
 
-  lazy val repo_info: String => Target[RepoInfo] = scoped { (repo: String) =>
+  lazy val repo_info: String => Target[RepoInfo] =  fun { (repo: String) =>
     target(Config.gitolite, latest) { (server, latest) =>
       RepoInfo(server, repo, latest.get(repo))
     }
@@ -65,42 +65,43 @@ object Gitolite {
 
   // def repo_exists(repo: String): Maker[Boolean] = Rule(latest_for(repo), repo)(_.isDefined)
 
-  lazy val mirror: String => Target[Boolean] = scoped { (repo: String) =>
-    target(repo_info(repo)) {
-      case RepoInfo(server, _, Some(_)) => // SortedSet(".git"), os.RelPath(repo)) {
-        create_data(skip = _.last == ".git") { dir =>
-          try {
-            println(s"pulling $repo")
-            server.SshProc("git", "pull").check(cwd = dir)
-          } catch {
-            case NonFatal(_) =>
-              os.remove.all(dir)
-              os.makeDir.all(dir)
-              println(s"cloning $repo because pull failed")
-              server
-                .SshProc(
-                  "git",
-                  "clone",
-                  "--template=",
-                  "-c",
-                  "remote.origin.fetch=+refs/notes/*:refs/notes/*",
-                  server.git_uri(repo),
-                  "."
-                )
-                .check(cwd = dir)
-          }
+  lazy val mirror: String => Target[WithData[Boolean]] = fun { (repo: String) =>
+    target[RepoInfo, WithData[Boolean]](repo_info(repo)) { repo_info =>
+      create_data[Boolean](skip = _.last == "git") { dir =>
+        repo_info match {
+          case RepoInfo(server, _, Some(_)) =>
+            try {
+              println(s"pulling $repo")
+              server.SshProc("git", "pull").check(cwd = dir)
+            } catch {
+              case NonFatal(_) =>
+                os.remove.all(dir)
+                os.makeDir.all(dir)
+                println(s"cloning $repo because pull failed")
+                server
+                  .SshProc(
+                    "git",
+                    "clone",
+                    "--template=",
+                    "-c",
+                    "remote.origin.fetch=+refs/notes/*:refs/notes/*",
+                    server.git_uri(repo),
+                    "."
+                  ).check(cwd = dir)
+            }
+            true
+          case _ =>
+            false
         }
-        true
-      case (_, _) =>
-        false
+      }
     }
   }
 
-  lazy val notes_for_repo: (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] = scoped { (repo: String, notes_ref: String) =>
+  lazy val notes_for_repo: (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] = fun { (repo: String, notes_ref: String) =>
     val mirror_target = mirror(repo)
     target(mirror_target) {
-      case true =>
-        git(C = mirror_target.data_path)
+      case m @ WithData(true, _) =>
+        git(C = m.get_data_path)
           .notes(ref = notes_ref)
           .check()
           .map(p => (p.commit_sha, p.note_sha))
@@ -113,8 +114,8 @@ object Gitolite {
   private lazy val raw_courses: Target[SortedMap[String, RawCourse]] = {
     val mirror_target = mirror("courses_config")
     target(mirror_target) { mirror =>
-      if (mirror) {
-        val file = mirror_target.data_path / "courses.json"
+      if (mirror.value) {
+        val file = mirror.get_data_path / "courses.json"
         val not_sorted = read[Map[String, RawCourseNotSorted]](os.read(file))
         not_sorted.view.mapValues(_.sorted).to(SortedMap)
       } else {
@@ -128,13 +129,13 @@ object Gitolite {
     courses.keySet
   }
 
-  lazy val raw_course: String => Target[RawCourse] = scoped { (name: String) =>
+  lazy val raw_course: String => Target[RawCourse] = fun { (name: String) =>
     target(raw_courses) { courses =>
       courses(name)
     }
   }
 
-  lazy val raw_project: (String, String) => Target[RawProject] = scoped { (course_name: String, project_name: String) =>
+  lazy val raw_project: (String, String) => Target[RawProject] = fun { (course_name: String, project_name: String) =>
     target(raw_course(course_name)) { course =>
       course.projects(project_name)
     }
