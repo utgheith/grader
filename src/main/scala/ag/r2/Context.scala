@@ -28,6 +28,43 @@ import scala.annotation.implicitNotFound
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
+@implicitNotFound("no given Context")
+trait Context[A] extends ExecutionContext {
+  val state: State
+  def producing_opt: Option[Target[A]]
+}
+
+@implicitNotFound("no given Tracker")
+trait Tracker[A] extends Context[A] {
+
+  private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
+
+  def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
+    added_dependencies.update(d.path, fr)
+  }
+
+  // Returns the known dependencies
+  lazy val dependencies: SortedMap[os.RelPath, Signature] = {
+    (for {
+      (p, result) <- added_dependencies.toSeq
+    } yield (p, result.block.signature)).to(SortedMap)
+  }
+}
+
+@implicitNotFound("no given Producer")
+trait Producer[A] extends Context[A] {
+  def producing: Target[A]
+  
+  override lazy val producing_opt: Option[Target[A]] = Some(producing)
+
+  //var skip_filter: (os.RelPath => Boolean) | Null = null
+
+  lazy val target_path: os.Path = state.target_path(producing)
+  lazy val saved_path: os.Path = state.saved_path(producing)
+  lazy val dirty_path: os.Path = state.dirty_path(producing)
+  lazy val data_path: os.Path = state.data_path(producing)
+}
+/*
 @implicitNotFound("Can't find given Context")
 trait Context extends ExecutionContext {
   val state: State
@@ -37,12 +74,16 @@ trait Context extends ExecutionContext {
   def add_dependency(target: TargetBase, fr: Future[Result[?]]): Unit
 }
 
-@implicitNotFound("Can't fund given Consumer")
-class Consumer(val state: State) extends Context {
+class Consumer extends Context {
     override lazy val target_opt: Option[TargetBase] = None
     override lazy val parent_opt: Option[Consumer] = None
-  
+
     override def add_dependency(target: TargetBase, fr: Future[Result[?]]): Unit = {}
+}
+
+@implicitNotFound("Can't fund given Consumer")
+class SimpleConsumer(val state: State) extends Consumer {
+    
 }
 
 @implicitNotFound("Can't find given Producer")
@@ -91,3 +132,4 @@ class Producer[A](override val state: State,
   override lazy val target_opt: Option[Target[A]] = Some(target)
   override lazy val parent_opt: Option[Context] = Some(parent)
 }
+*/

@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
-import ag.r2.{create_data, Context, periodic, Scope, Target, ToRelPath, run_if_needed}
+import ag.r2.{Context, Producer, Scope, Target, ToRelPath, WithData, create_data, periodic, run_if_needed, update_data}
 
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
@@ -9,8 +9,6 @@ import upickle.default.ReadWriter
 import scala.concurrent.{ExecutionContext, Future}
 
 case class Course(course_name: String) extends Scope(ToRelPath(course_name)) derives ReadWriter {
-
-  private val scope = os.RelPath(course_name)
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
@@ -81,47 +79,47 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
    * Key deletion is manual and need to be done in both places
    */
 
-  lazy val publish_keys: Maker[SignedPath[SortedMap[CSID, String]]] =
-    SignedPath.rule(
+  lazy val publish_keys: Target[WithData[SortedMap[CSID, String]]] =
+    target(
       Gitolite.repo_info(
         "gitolite-admin"
-      ) *: dropbox *: notifications.peek *: Config.can_send_mail *: Config.can_push_repo,
-      SortedSet(".git"),
-      scope
-    ) { case (dir, (g, dropbox, notifications, can_send_mail, can_push_repo)) =>
-      val added = g.update(
-        path = dir,
-        fork_from = None,
-        msg = "updated keys",
-        readers = Seq(),
-        writers = Seq(),
-        can_push_repo
-      ) { _ =>
+      ), dropbox, notifications.peek, Config.can_send_mail, Config.can_push_repo
+    ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
+      create_data(_.last == ".git") { dir =>
+        val added = g.update(
+          path = dir,
+          fork_from = None,
+          msg = "updated keys",
+          readers = Seq(),
+          writers = Seq(),
+          can_push_repo
+        ) { _ =>
 
-        val added = mutable.SortedSet[CSID]()
+          val added = mutable.SortedSet[CSID]()
 
-        for {
-          // all keys in dropbox
-          (csid, new_key) <- dropbox.toSeq
-          key_file_name = s"$csid.pub"
-          key_file_path = dir / "keydir" / key_file_name
-          // if the key doesn't exist or is different
-          if !os
-            .exists(key_file_path) || os.read(key_file_path).trim.nn != new_key
-        } {
-          // If we make it here then the key needs to be added or updated
-          say(s"adding $csid to gitolite-admin")
-          os.write.over(key_file_path, new_key)
-          added.add(csid)
+          for {
+            // all keys in dropbox
+            (csid, new_key) <- dropbox.toSeq
+            key_file_name = s"$csid.pub"
+            key_file_path = dir / "keydir" / key_file_name
+            // if the key doesn't exist or is different
+            if !os
+              .exists(key_file_path) || os.read(key_file_path).trim.nn != new_key
+          } {
+            // If we make it here then the key needs to be added or updated
+            println(s"adding $csid to gitolite-admin")
+            os.write.over(key_file_path, new_key)
+            added.add(csid)
+          }
+          added
         }
-        added
-      }
 
-      for (csid <- added) {
-        notifications.send_key_update(this, csid, g.server, can_send_mail)
-      }
+        for (csid <- added) {
+          notifications.send_key_update(this, csid, g.server, can_send_mail)
+        }
 
-      dropbox
+        dropbox
+      }
 
     }
 
@@ -132,14 +130,14 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
 
   lazy val enrollment: Target[SortedMap[CSID, String]] =
     target(Gitolite.mirror(enrollment_repo_name)) { sp =>
-      if (sp) {
-        val f = enrollment_file(sp.path)
+      if (sp.value) {
+        val f = enrollment_file(sp.get_data_path)
         if (os.isFile(f)) {
           upickle.default.read[SortedMap[CSID, String]](
-            os.read(enrollment_file(sp.path))
+            os.read(enrollment_file(sp.get_data_path))
           )
         } else {
-          say(s"enrollment file $f doesn't exist")
+          println(s"enrollment file $f doesn't exist")
           SortedMap()
         }
       } else {
@@ -148,13 +146,13 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
     }
 
   // create/update the enrollment repo
-  lazy val publish_enrollment: Target[SortedMap[CSID, String]] =
+  lazy val publish_enrollment: Target[WithData[SortedMap[CSID, String]]] =
     target(
       Gitolite.repo_info(
         enrollment_repo_name
       ), publish_keys, Config.can_push_repo
     ) { (g, keys, can_push_repo) =>
-      create_data(skip = {_.last == ".git"}) { dir =>
+      update_data[SortedMap[CSID, String]](skip = {_.last == ".git"}) { dir =>
         g.update(
           path = dir,
           fork_from = Some("empty"),
@@ -168,38 +166,38 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
             upickle.default.write(keys, indent = 2)
           )
         }
+        keys.value
       }
-      keys
     }
 
   private lazy val grades_repo_name = s"${course_name}__grades"
 
-  lazy val create_grades_repo: Maker[SignedPath[Unit]] =
-    SignedPath.rule(
-      Gitolite.repo_info(grades_repo_name) *: Config.can_push_repo,
-      SortedSet(".git"),
-      scope
-    ) { case (dir, (g, can_push_repo)) =>
-      g.update(
-        path = dir,
-        fork_from = Some("empty"),
-        msg = "creating grades repo",
-        readers = Seq(staff_group_name),
-        writers = Seq(staff_group_name),
-        can_push_repo
-      ) { newly_created =>
-        if newly_created then {
-          os.write(
-            dir / "README.md",
-            f"""
-            |# Grading data for `$course_name`
-            |
-            |This is a per-course workspace for synchronizing grading data
-            |used by the grading scripts between TAs. The grader itself
-            |automatically creates this repo, but does not otherwise use
-            |it; that may change in the future.
-            |""".stripMargin
-          )
+  lazy val create_grades_repo: Target[WithData[Unit]] =
+    target(
+      Gitolite.repo_info(grades_repo_name), Config.can_push_repo
+    ) { (g, can_push_repo) =>
+      create_data(_.last == ".git") { dir =>
+        g.update(
+          path = dir,
+          fork_from = Some("empty"),
+          msg = "creating grades repo",
+          readers = Seq(staff_group_name),
+          writers = Seq(staff_group_name),
+          can_push_repo
+        ) { newly_created =>
+          if newly_created then {
+            os.write(
+              dir / "README.md",
+              f"""
+                 |# Grading data for `$course_name`
+                 |
+                 |This is a per-course workspace for synchronizing grading data
+                 |used by the grading scripts between TAs. The grader itself
+                 |automatically creates this repo, but does not otherwise use
+                 |it; that may change in the future.
+                 |""".stripMargin
+            )
+          }
         }
       }
     }

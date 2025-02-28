@@ -21,23 +21,23 @@ case class Config(
       trace(s"[DIRTY] ${target.path}")
     }
   }
-  def trace_miss(ctx: Context, target: TargetBase): Unit = {
+  def trace_miss(ctx: Context[?], target: TargetBase): Unit = {
     if (trace_flags.miss) {
-      trace(s"[MISS] ${ctx.target_opt.map(_.path)} looking for ${target.path}")
+      trace(s"[MISS] ${ctx.producing_opt.map(_.path)} looking for ${target.path}")
     }
   }
   def trace_read_error(
-      ctx: Context,
+      ctx: Context[?],
       target: TargetBase,
       e: Throwable
   ): Unit = {
     if (trace_flags.read_error) {
       trace(
-        s"[READ ERROR] ${ctx.target_opt.map(_.path)} looking for ${target.path}: ${e.getMessage}"
+        s"[READ ERROR] ${ctx.producing_opt.map(_.path)} looking for ${target.path}: ${e.getMessage}"
       )
     }
   }
-  def trace_make(ctx: Context, target: TargetBase): Unit = {
+  def trace_make(ctx: Context[?], target: TargetBase): Unit = {
     if (trace_flags.make) {
       trace(
         s"[MAKE] ${target.path}"

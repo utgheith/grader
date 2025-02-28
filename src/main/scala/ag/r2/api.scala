@@ -1,28 +1,37 @@
 package ag.r2
 
-import ag.common.given_VirtualExecutionContext
+import ag.common.{Signature, Signer, given_VirtualExecutionContext}
+
 import scala.concurrent.Future
 import upickle.default.ReadWriter
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
-def run_if_needed[A: ReadWriter](f: => A|Future[A])(using
-    ctx: Producer[A]
-): Future[Result[A]] =
-  ctx.run_if_needed(f match {
+def run_if_needed[A: ReadWriter](f: Producer[A] ?=> A|Future[A])(using tracker: Tracker[A]): Future[Result[A]] =
+  tracker.state.run_if_needed(f match {
     case a: A => Future.successful(a)
     case fa: Future[A] => fa
   })
 
-// Called from inside the code called by run_if_needed if it need to populate the data directory
 def create_data[A](skip: os.RelPath => Boolean)(
     f: Producer[WithData[A]] ?=> os.Path => A
 )(using ctx: Producer[WithData[A]]): WithData[A] = {
-  ctx.skip_filter = skip
   val data_dir: os.Path = ctx.data_path
   os.remove.all(data_dir)
   os.makeDir.all(data_dir)
   val a = f(using ctx)(data_dir)
-  WithData(a, ctx.target.path)
+  WithData(a, ctx.producing.path, Signer[(os.Path, os.RelPath => Boolean)].sign((data_dir, skip)))
+}
+
+def update_data[A](skip: os.RelPath => Boolean)(
+  f: Producer[WithData[A]] ?=> os.Path => A
+)(using ctx: Producer[WithData[A]]): WithData[A] = {
+  val data_dir: os.Path = ctx.data_path
+  if (!os.isDir(data_dir)) {
+    os.remove.all(data_dir)
+    os.makeDir.all(data_dir)
+  }
+  val a = f(using ctx)(data_dir)
+  WithData(a, ctx.producing.path, Signer[(os.Path, os.RelPath => Boolean)].sign((data_dir, skip)))
 }
 
 val periodic = Scope().fun { (ms: Long) =>

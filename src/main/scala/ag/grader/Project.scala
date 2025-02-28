@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_LocalDateTime, given_ReadWriter_SortedSet}
-import ag.r2.{Scope, Target, WithData}
+import ag.r2.{Scope, Target, WithData, run_if_needed, update_data}
 import ag.rules.{Maker, Optional, Rule, SignedPath, check, down, lines, run, say}
 import upickle.default.ReadWriter
 
@@ -13,6 +13,7 @@ import scala.collection.concurrent.TrieMap
 import java.util.concurrent.atomic.AtomicLong
 import java.time.{Duration, Instant, ZoneId, ZoneOffset, ZonedDateTime}
 import java.time.format.DateTimeFormatter
+import scala.concurrent.Future
 import scala.util.Try
 import scala.util.matching.Regex
 
@@ -175,56 +176,64 @@ case class Project(course: Course, project_name: String) extends Scope(course / 
 
   def work_repo_name(csid: CSID): String = s"${project_repo_name}_${csid.value}"
 
-  def work_repo(csid: CSID): Maker[SignedPath[Boolean]] =
+  def work_repo(csid: CSID): Target[WithData[Boolean]] =
     Gitolite.mirror(work_repo_name(csid))
 
-  def publish_work_repo(csid: CSID): Maker[SignedPath[Unit]] =
-    SignedPath.rule(
+  lazy val publish_work_repo: CSID => Target[WithData[Unit]] = fun { (csid: CSID) =>
+    target(
       Gitolite.repo_info(
         work_repo_name(csid)
-      ) *: course.notifications *: Config.can_send_mail *: Config.can_push_repo,
-      SortedSet(".git"),
-      scope / csid.value
-    ) { case (dir, (repo_info, n, can_send_mail, can_push_repo)) =>
-      repo_info.update(
-        path = dir,
-        fork_from = Some(project_repo_name),
-        readers = Seq(csid.value, course.staff_group_name),
-        writers = Seq(csid.value),
-        msg = s"create",
-        can_push_repo
-      ) { forked =>
-        if (forked) {
-          n.send_repo_created(this, repo_info, csid, can_send_mail, dir)
+      ), course.notifications, Config.can_send_mail, Config.can_push_repo
+    ) { (repo_info, n, can_send_mail, can_push_repo) =>
+      update_data(_.last == ".git") { dir =>
+        repo_info.update(
+          path = dir,
+          fork_from = Some(project_repo_name),
+          readers = Seq(csid.value, course.staff_group_name),
+          writers = Seq(csid.value),
+          msg = s"create",
+          can_push_repo
+        ) { forked =>
+          if (forked) {
+            n.send_repo_created(this, repo_info, csid, can_send_mail, dir)
+          }
+          ()
         }
-        ()
       }
     }
+  }
 
-  private def submission(csid: CSID): Maker[Option[SignedPath[Unit]]] =
-    Rule(work_repo(csid) *: project_repo, scope / csid.value) {
-      case (work_repo, project_repo) =>
+  private lazy val submission: CSID => Target[Option[WithData[Unit]]] = fun { (csid: CSID) =>
+    target(work_repo(csid), project_repo) {
+      (work_repo, project_repo) =>
         if (
-          (!work_repo.data) || (work_repo.signature == project_repo.signature)
+          (!work_repo.value) || (work_repo.data_signature == project_repo.data_signature)
         ) {
           None
         } else {
-          Some(work_repo.copy(data = ()))
+          Some(work_repo.copy(value = ()))
         }
     }
+  }
 
-  lazy val submissions: Maker[SortedMap[CSID, SignedPath[Unit]]] = Rule(
-    course.enrollment.map(_.keySet).flatMapSeq { (csid: CSID) =>
-      for {
-        s <- submission(csid)
-      } yield (csid, s)
-    },
-    scope
-  ) { pairs =>
-    val valid_pairs = pairs.collect { case (csid, Some(sp)) =>
-      (csid, sp)
+  lazy val submissions: Target[SortedMap[CSID, WithData[Unit]]] = complex_target {
+    val pairs: Future[SortedMap[CSID, WithData[Unit]]] = for { /* Future */
+      enrollment <- course.enrollment.track
+      csids: Seq[CSID] = enrollment.keySet.toSeq
+      submissions <- Future.sequence {
+        for {
+          csid: CSID <- csids
+          s: Future[WithData[Unit]] = for {
+            so <- submission(csid).track
+            if so.nonEmpty
+          } yield so.get
+        } yield s
+      }
+    } yield csids.zip(submissions).to(SortedMap)
+    
+    run_if_needed {
+      pairs
     }
-    SortedMap(valid_pairs*)
   }
 
   lazy val students_with_submission: Maker[SortedSet[CSID]] =

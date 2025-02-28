@@ -2,6 +2,7 @@ package ag.grader
 
 import ag.common.{down, given_ReadWriter_RelPath}
 import ag.r2.{Scope, Target, run_if_needed}
+import ag.rules.run
 import os.RelPath
 import upickle.default.{ReadWriter, read}
 
