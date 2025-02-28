@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.r2.ToRelPath
 import upickle.default.{readwriter, ReadWriter}
 import scala.math.Ordering
 
@@ -13,4 +14,5 @@ object CSID {
     value => CSID(value)
   )
   given Ordering[CSID] = Ordering.by(_.value)
+  given ToRelPath[CSID] = { csid => os.RelPath(csid.value) }
 }

@@ -100,7 +100,7 @@ object Gitolite extends Scope(".") {
   lazy val notes_for_repo: (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] = fun { (repo: String, notes_ref: String) =>
     val mirror_target = mirror(repo)
     target(mirror_target) {
-      case m @ WithData(true, _) =>
+      case m @ WithData(true, _, _) =>
         git(C = m.get_data_path)
           .notes(ref = notes_ref)
           .check()
