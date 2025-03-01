@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.rules.SignedPath
+import ag.r2.WithData
 import upickle.default.ReadWriter
 
-case class TestInfo(id: TestId, sp: SignedPath[Unit]) derives ReadWriter
+case class TestInfo(id: TestId, sp: WithData[Unit]) derives ReadWriter
