@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.r2.Target
+
 import java.io.FileWriter
 import ag.rules.{Maker, Rule, say}
 
@@ -137,21 +139,20 @@ class HtmlGen(p: Project) {
   private val displayFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
-  val gen_html: Maker[Unit] =
-    Rule(
-      p.results *:
-        Config.site_base *:
-        p.chosen *:
-        p.weights *:
-        p.bad_tests *:
-        p.test_extensions *:
-        p.test_cutoff *:
-        p.code_cutoff *:
-        p.course.enrollment *:
-        p.anti_aliases *:
-        p.course.staff *:
-        p.staff,
-      p.scope
+  val gen_html: Target[Unit] =
+    p.target(
+      p.results,
+        Config.site_base,
+        p.chosen,
+        p.weights,
+        p.bad_tests,
+        p.test_extensions,
+        p.test_cutoff,
+        p.code_cutoff,
+        p.course.enrollment,
+        p.anti_aliases,
+        p.course.staff,
+        p.staff
     ) {
       case (
             Some(results),

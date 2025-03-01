@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.common.{Signature, Signer, given_VirtualExecutionContext}
+import ag.common.{block, Signature, Signer, given_VirtualExecutionContext}
 
 import scala.concurrent.Future
 import upickle.default.ReadWriter
