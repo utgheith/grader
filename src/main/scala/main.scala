@@ -1,4 +1,4 @@
-import ag.common.given_ReadWriter_SortedMap
+import ag.common.{block, given_ReadWriter_SortedMap, human, timed}
 import ag.git.git
 import ag.grader.{
   CSID,
@@ -6,11 +6,13 @@ import ag.grader.{
   CutoffTime,
   Gitolite,
   HtmlGen,
+  Outcome,
   OutcomeStatus,
   Project,
   TestId
 }
-import ag.rules.{Maker, NopStateMonitor, RuleBase, State, human, say, timed}
+import ag.r2.{Scope, State, Target, run_if_needed, WithData}
+
 import mainargs.{
   Flag,
   ParserForClass,
@@ -26,26 +28,11 @@ import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import scala.annotation.tailrec
-import ag.rules.SignedPath
-import ag.grader.Outcome
 
-class MyMonitor(commonArgs: CommonArgs) extends NopStateMonitor {
-
-  override def onStart(s: State, rule: RuleBase): Unit = {
-    // println(s"********** [${Thread.currentThread().nn.getName}] ${rule.path}")
-  }
-  override def onCompute(s: State, rule: RuleBase, in: Any): Unit = {
-    if (commonArgs.verbose.value) {
-      say(rule.path)
-    }
-  }
-}
+import scala.concurrent.Future
 
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
-
-  /** read
-    */
   override def read(strings: Seq[String]): Either[String, os.Path] = if (
     strings.isEmpty
   ) {
@@ -66,8 +53,6 @@ given TokensReader.Simple[Regex] with {
 
   override def alwaysRepeatable: Boolean = true
 
-  /** read
-    */
   override def read(strings: Seq[String]): Either[String, Regex] = if (
     strings.isEmpty
   ) {
@@ -82,8 +67,6 @@ given TokensReader.Simple[CutoffTime] with {
   override def allowEmpty: Boolean = true
   override def alwaysRepeatable: Boolean = false
 
-  /** read
-    */
   override def read(strings: Seq[String]): Either[String, CutoffTime] =
     Right(CutoffTime.fromString(strings.headOption))
 }
@@ -97,8 +80,6 @@ given TokensReader.Simple[AliasSortMode] with {
   override def allowEmpty: Boolean = false
   override def alwaysRepeatable: Boolean = false
 
-  /** read
-    */
   override def read(strings: Seq[String]): Either[String, AliasSortMode] =
     strings.head match
       case "alias" => Right(AliasSortMode.Alias)
@@ -124,75 +105,118 @@ case class CommonArgs(
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     workspace: os.Path = os.pwd / "workspace"
-) {
+) extends Scope(".") {
 
   // TODO: warn when no courses matched
-  lazy val selected_courses: Maker[Seq[Course]] = for {
-    courses <- Course.active_courses
-    selected_courses = for {
-      course <- courses
-      if this.courses.matches(course.course_name)
-    } yield course
-  } yield selected_courses
+  lazy val selected_courses: Target[Seq[Course]] = complex_target {
+    val active_courses = Course.active_courses.track
+    run_if_needed[Seq[Course]] {
+      active_courses.map { active_courses =>
+        active_courses
+          .filter(course => this.courses.matches(course.course_name))
+          .sorted
+      }
+    }
+  }
 
   // TODO: warn when no projects matched
-  lazy val selected_projects: Maker[Seq[Project]] = for {
-    // <- Maker
-    selected_courses: Seq[Course] <- this.selected_courses
-    active_projects: Seq[Seq[Project]] <- Maker.sequence(for {
-      course <- selected_courses
-    } yield course.active_projects.map(ps => ps.values.toSeq))
-    selected_projects: Seq[Project] = for {
-      sp <- active_projects
-      p <- sp
-      if this.projects.matches(p.project_name)
-    } yield p
-  } yield selected_projects
+  lazy val selected_projects: Target[Seq[Project]] = complex_target {
+    val selected_courses = this.selected_courses.track
+    val active_projects = for {
+      selected_courses <- selected_courses
+      active_projects <- Future.sequence {
+        selected_courses.map { course =>
+          course.active_projects.track
+        }
+      }
+    } yield active_projects
 
-  lazy val submissions: Maker[Seq[(Project, CSID)]] = for {
-    projects: Seq[Project] <- selected_projects
-    per_project_csids <- Maker.sequence(for {
-      project: Project <- projects
-    } yield project.students_with_submission)
-  } yield for {
-    (p, csids) <- projects.zip(per_project_csids)
-    csid <- csids.toSeq
-    if students.matches(csid.value)
-  } yield (p, csid)
+    run_if_needed {
+      active_projects.map { active_projects =>
+        active_projects
+          .flatMap(_.values.filter(p => this.projects.matches(p.project_name)))
+          .sorted
+      }
+    }
+  }
 
-  lazy val test_ids: Maker[Seq[(Project, TestId)]] = for {
-    projects: Seq[Project] <- selected_projects
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
-  } yield for {
-    (p, test_ids) <- projects.zip(per_project_test_ids)
-    test_id <- test_ids
-    if tests.matches(test_id.external_name) || tests.matches(
-      test_id.internal_name
-    )
-  } yield (p, test_id)
+  lazy val submissions: Target[Seq[(Project, CSID)]] = complex_target {
+    val f: Future[(Seq[Project], Seq[SortedSet[CSID]])] = for {
+      projects: Seq[Project] <- selected_projects.track
+      csids: Seq[SortedSet[CSID]] <- Future.sequence {
+        for {
+          p <- projects
+        } yield p.students_with_submission.track
+      }
+    } yield (projects, csids)
 
-  lazy val runs: Maker[Seq[(Project, CSID, TestId)]] = for {
-    projects: Seq[Project] <- selected_projects
-    per_project_csids <- Maker.sequence(for {
-      project: Project <- projects
-    } yield project.students_with_submission)
-    per_project_test_ids: Seq[SortedSet[TestId]] <- Maker.sequence(for {
-      p <- projects
-    } yield if (only_chosen.value) p.chosen_test_ids else p.test_ids)
-  } yield for {
-    ((p, csids), test_ids) <- projects
-      .zip(per_project_csids)
-      .zip(per_project_test_ids)
-    the_test_ids = test_ids.filter(id =>
-      tests.matches(id.external_name) || tests.matches(id.internal_name)
-    )
-    if the_test_ids.nonEmpty
-    csid <- csids.toSeq
-    if students.matches(csid.value)
-    test_id <- the_test_ids
-  } yield (p, csid, test_id)
+    run_if_needed {
+      for {
+        (ps, csids) <- f
+      } yield for {
+        (p, csids) <- ps.zip(csids)
+        csid <- csids
+        if students.matches(csid.value)
+      } yield (p, csid)
+    }
+  }
+
+  lazy val test_ids: Target[Seq[(Project, TestId)]] = complex_target {
+    // determine dependencies as quickly as possible
+    val f: Future[(Seq[Project], Seq[SortedSet[TestId]])] = for {
+      projects: Seq[Project] <- selected_projects.track
+      per_project_test_ids: Seq[SortedSet[TestId]] <- Future.sequence {
+        for {
+          p <- projects
+        } yield
+          if (only_chosen.value) p.chosen_test_ids.track else p.test_ids.track
+      }
+    } yield (projects, per_project_test_ids)
+
+    run_if_needed {
+      // run less often, we can afford to work harder here
+      for {
+        (projects, per_project_test_ids) <- f
+      } yield for {
+        (p, test_ids) <- projects.zip(per_project_test_ids)
+        test_id <- test_ids
+        if tests.matches(test_id.external_name) || tests.matches(
+          test_id.internal_name
+        )
+      } yield (p, test_id)
+    }
+  }
+
+  lazy val runs: Target[Seq[(Project, CSID, TestId)]] = complex_target {
+    val f: Future[(Seq[Project], Seq[(SortedSet[CSID], SortedSet[TestId])])] =
+      for {
+        projects: Seq[Project] <- selected_projects.track
+        per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] <- Future
+          .sequence {
+            for {
+              p: Project <- projects
+            } yield p.students_with_submission.track.zip(
+              if (only_chosen.value) p.chosen_test_ids.track
+              else p.test_ids.track
+            )
+          }
+      } yield (projects, per_project_ids)
+
+    run_if_needed {
+      f.map { case (projects, per_project_ids) =>
+        for {
+          (p, (csids, test_ids)) <- projects.zip(per_project_ids)
+          the_test_ids = test_ids.filter(id =>
+            tests.matches(id.external_name) || tests.matches(id.internal_name)
+          )
+          if the_test_ids.nonEmpty
+          csid <- csids.toSeq
+          if students.matches(csid.value)
+          test_id <- the_test_ids
+        } yield (p, csid, test_id)
+      }
+    }
+  }
 }
 
 object CommonArgs {
@@ -202,23 +226,21 @@ object CommonArgs {
 object Main {
   @main
   def dropbox(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(s"\n------ ${c.course_name} -------")
-      println(upickle.default.write(c.dropbox.value, indent = 2))
+      println(upickle.default.write(c.dropbox.track.block, indent = 2))
     }
   }
 
   @main
   def bad_tests(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
     val r = (for {
-      p <- commonArgs.selected_projects.value
-      s <- p.course.enrollment.value.keySet.toSeq
+      p <- commonArgs.selected_projects.track.block
+      s <- p.course.enrollment.track.block.keySet.toSeq
       if commonArgs.students.matches(s.value)
-      r <- p.get_student_results(s).value.toSeq
+      r <- p.get_student_results(s).track.block.toSeq
       (test, outcome) <- r.outcomes.toSeq
     } yield (p, s, test, outcome)).groupMapReduce {
       case (p, s, test, outcome) => (p, test)
@@ -233,97 +255,89 @@ object Main {
 
   @main
   def publish_keys(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(s"\n------ ${c.course_name} -------")
-      println(upickle.default.write(c.publish_keys.value.data.size, indent = 2))
+      println(
+        upickle.default.write(c.publish_keys.track.block.value.size, indent = 2)
+      )
     }
   }
 
   @main
   def publish_enrollment(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(s"\n------ ${c.course_name} -------")
-      println(c.publish_enrollment.value.data.size)
+      println(c.publish_enrollment.track.block.value.size)
       // println(upickle.default.write(c.publish_enrollment.value, indent=2))
     }
   }
 
   @main
   def enrollment(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(s"\n------ ${c.course_name} -------")
-      println(c.enrollment.value.size)
+      println(c.enrollment.track.block.size)
       // println(upickle.default.write(c.publish_enrollment.value, indent=2))
     }
   }
 
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(s"Creating ${c.course_name}__grades")
-      val _ = c.create_grades_repo.value
+      val _ = c.create_grades_repo.track.block
     }
   }
 
   @main
   def courses(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    println(commonArgs.selected_courses.value)
+    given State = State(commonArgs.workspace)
+    println(commonArgs.selected_courses.track.block)
   }
 
   @main
   def history(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    Gitolite.history.value.foreach(println)
+    given State = State(commonArgs.workspace)
+    Gitolite.history.track.block.foreach(println)
   }
 
   @main
   def info(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    Gitolite.info.value.foreach(println)
+    given State = State(commonArgs.workspace)
+    Gitolite.info.track.block.foreach(println)
   }
 
   @main
   def projects(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    println(commonArgs.selected_projects.value)
+    given State = State(commonArgs.workspace)
+    println(commonArgs.selected_projects.track.block)
   }
 
   @main
   def overrides(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (p <- commonArgs.selected_projects.value) {
-      println(p.publish_override_repo.value)
+    given State = State(commonArgs.workspace)
+    for (p <- commonArgs.selected_projects.track.block) {
+      println(p.publish_override_repo.track.block)
     }
   }
 
   @main
   def work_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.track.block
         if commonArgs.projects.matches(pn)
       } {
         for {
-          (csid, _) <- c.enrollment.value
+          (csid, _) <- c.enrollment.guilty
           if commonArgs.students.matches(csid.value)
         } {
-          println(p.work_repo(csid).value)
+          println(p.work_repo(csid).guilty)
         }
       }
     }
@@ -338,21 +352,20 @@ object Main {
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val sort = sortMode match
       case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
 
-    for (c <- commonArgs.selected_courses.value) {
-      val enrollment = c.enrollment.value
+    for (c <- commonArgs.selected_courses.track.block) {
+      val enrollment = c.enrollment.guilty
 
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.guilty
         if commonArgs.projects.matches(pn)
       } {
-        val aliases = p.get_aliases.value
+        val aliases = p.get_aliases.guilty
         val csids = enrollment.keys
           .filter((id: CSID) => commonArgs.students.matches(id.value))
           .toIndexedSeq
@@ -384,33 +397,32 @@ object Main {
       )
       cutoff: CutoffTime
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val base = os.pwd / "prepared"
 
-    for (c <- commonArgs.selected_courses.value) {
+    for (c <- commonArgs.selected_courses.track.block) {
 
-      val enrollment = c.enrollment.value
+      val enrollment = c.enrollment.track.block
 
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.track.block
         if commonArgs.projects.matches(pn)
       } {
 
-        val aliases = p.get_aliases.value
-        val tests = p.publish_tests.value
-        val test_extensions = p.test_extensions.value
+        val aliases = p.get_aliases.guilty
+        val tests = p.publish_tests.guilty
+        val test_extensions = p.test_extensions.guilty
 
         for {
           (csid, _) <- enrollment
           if commonArgs.students.matches(csid.value)
         } {
-          val prep = p.prepare(csid, cutoff).value
+          val prep = p.prepare(csid, cutoff).guilty
           val target_name = s"${c.course_name}_${pn}_$csid"
           val target_path = base / target_name
 
-          prep.data match {
+          prep.value match {
             case Some(data) =>
               println(
                 s"${aliases.getOrElse(csid, "?")} $target_name ${data.commit_time
@@ -418,7 +430,7 @@ object Main {
                     .map(ins => ins.atZone(ZoneId.systemDefault()))}"
               )
               os.copy.over(
-                from = prep.path,
+                from = prep.get_data_path,
                 to = target_path,
                 followLinks = false,
                 replaceExisting = true,
@@ -426,9 +438,14 @@ object Main {
               )
 
               for {
-                (_, test_info) <- tests.data
+                (_, test_info) <- tests.value
               } {
-                p.copy_test(test_info, tests.path, target_path, test_extensions)
+                p.copy_test(
+                  test_info,
+                  tests.get_data_path,
+                  target_path,
+                  test_extensions
+                )
               }
             case None =>
           }
@@ -458,25 +475,24 @@ object Main {
       )
       sort: Flag
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
     val show_details = details.value
 
-    for (c <- commonArgs.selected_courses.value) {
-      val enrollment = c.enrollment.value
+    for (c <- commonArgs.selected_courses.track.block) {
+      val enrollment = c.enrollment.track.block
 
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.track.block
         if commonArgs.projects.matches(pn)
       } {
-        val project_deadline = p.code_cutoff.value.format(datetime_format)
+        val project_deadline = p.code_cutoff.track.block.format(datetime_format)
 
         val late_repos = enrollment
           .map((csid, _) => csid)
           .filter(csid => commonArgs.students.matches(csid.value))
-          .map(csid => (csid, p.late_commits(csid, cutoff).value.data))
+          .map(csid => (csid, p.late_commits(csid, cutoff).track.block.value))
           .filter((_, late_commits) => late_commits.nonEmpty)
           .toSeq
 
@@ -541,21 +557,20 @@ object Main {
 
   @main
   def publish_work_repos(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(c.course_name)
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.track.block
         if commonArgs.projects.matches(pn)
       } {
         println(s"    $pn")
         var count = 0
         for {
-          (csid, _) <- c.enrollment.value
+          (csid, _) <- c.enrollment.guilty
           if commonArgs.students.matches(csid.value)
         } {
-          val _ = p.publish_work_repo(csid).value
+          val _ = p.publish_work_repo(csid).guilty
           count = count + 1
         }
         println(s"            $count")
@@ -565,18 +580,16 @@ object Main {
 
   @main
   def submissions(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for ((p, csid) <- commonArgs.submissions.value) {
+    given State = State(commonArgs.workspace)
+    for ((p, csid) <- commonArgs.submissions.track.block) {
       println(s"$p $csid")
     }
   }
 
   @main
   def test_ids(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for ((p, test_id) <- commonArgs.test_ids.value) {
+    given State = State(commonArgs.workspace)
+    for ((p, test_id) <- commonArgs.test_ids.track.block) {
       println(s"$p $test_id")
     }
 
@@ -586,16 +599,15 @@ object Main {
   def latest(
       commonArgs: CommonArgs
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
-    Gitolite.latest.value.foreach(println)
+    Gitolite.latest.track.block.foreach(println)
 
   }
 
-  private def show_failures(out: Seq[SignedPath[Outcome]]): Unit = {
+  private def show_failures(out: Seq[WithData[Outcome]]): Unit = {
     out
-      .map(_.data)
+      .map(_.value)
       .filterNot(_.outcome.contains(OutcomeStatus.pass))
       .groupBy(_.csid)
       .to(SortedMap)
@@ -660,13 +672,13 @@ object Main {
   ): Int = {
     loop(1 to commonArgs.count, minutes, 1) { (c, _) =>
       val outcomes = for {
-        runs <- commonArgs.runs
-        out <- Maker.sequence {
+        runs <- commonArgs.runs.track
+        out <- Future.sequence {
           for ((p, csid, test_id) <- runs)
-            yield p.run(csid, cutoff, test_id, c)
+            yield p.run(csid, cutoff, test_id, c).track
         }
       } yield out
-      val out = outcomes.value
+      val out = outcomes.block
       if (loud) show_failures(out)
       c
     }._1
@@ -684,8 +696,7 @@ object Main {
       @arg(doc = "maximum number of minutes per iteration")
       minutes: Int = 10
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val _ = do_run(commonArgs, cutoff, minutes, false)
   }
@@ -705,24 +716,23 @@ object Main {
       )
       result_file: Option[String]
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
 
     @tailrec
-    def loop(c: Int, in: Seq[SignedPath[Outcome]]): Seq[SignedPath[Outcome]] =
+    def loop(c: Int, in: Seq[WithData[Outcome]]): Seq[WithData[Outcome]] =
       if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
 
         val outcomes = for {
-          runs <- commonArgs.runs
-          out <- Maker.sequence {
+          runs <- commonArgs.runs.track
+          out <- Future.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run_one(csid, cutoff, test_id, c)
+              yield p.run_one(csid, cutoff, test_id, c).track
           }
         } yield out
 
-        val out = outcomes.value
+        val out = outcomes.block
 
         show_failures(out)
 
@@ -743,9 +753,9 @@ object Main {
     result_file.foreach(file_name => {
       val results =
         outs
-          .groupBy(_.data.csid)
+          .groupBy(_.value.csid)
           .map((csid, signed_paths) => {
-            val outcomes = signed_paths.map(_.data)
+            val outcomes = signed_paths.map(_.value)
             val test_results = outcomes
               .groupBy(_.test_id)
               .map((test_id, runs) => {
@@ -782,33 +792,31 @@ object Main {
       cutoff: CutoffTime,
       minutes: Int = 10
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
+    given State = State(commonArgs.workspace)
 
     val c = do_run(commonArgs, cutoff, minutes, false)
 
-    for (p <- commonArgs.selected_projects.value) {
-      val _ = p.publish_results(c).value
+    for (p <- commonArgs.selected_projects.track.block) {
+      val _ = p.publish_results(c).track.block
       // println(upickle.default.write(results, indent=2))
     }
   }
 
   @main
   def get_results(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       println(c.course_name)
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.guilty
         if commonArgs.projects.matches(pn)
       } {
         println(s"${c.course_name}:$pn")
         for {
-          (csid, _) <- c.enrollment.value
+          (csid, _) <- c.enrollment.guilty
           if commonArgs.students.matches(csid.value)
         } {
-          val res = p.get_student_results(csid).value
+          val res = p.get_student_results(csid).guilty
           res.foreach { res =>
             val count = res.outcomes.size
             val pass =
@@ -824,19 +832,18 @@ object Main {
 
   @main
   def notify_results(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.track.block) {
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.guilty
         if commonArgs.projects.matches(pn)
       } {
         for {
-          (csid, _) <- c.enrollment.value
+          (csid, _) <- c.enrollment.guilty
           if commonArgs.students.matches(csid.value)
         } {
           // say(s"---> ${c.course_name}:$pn:$csid")
-          p.notify_student_results(csid).value
+          p.notify_student_results(csid).guilty
         }
       }
     }
@@ -844,15 +851,15 @@ object Main {
 
   @main
   def gen_html(commonArgs: CommonArgs): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
-    for (c <- commonArgs.selected_courses.value) {
+
+    given State = State(commonArgs.workspace)
+    for (c <- commonArgs.selected_courses.guilty) {
       for {
-        (pn, p) <- c.active_projects.value
+        (pn, p) <- c.active_projects.guilty
         if commonArgs.projects.matches(pn)
       } {
 
-        HtmlGen(p).gen_html.value
+        HtmlGen(p).gen_html.guilty
 
       }
     }
@@ -864,12 +871,12 @@ object Main {
       cutoff_time: CutoffTime,
       minutes: Int = 1
   ): Unit = {
-    val m = MyMonitor(commonArgs)
-    given State = State.of(commonArgs.workspace, m)
 
-    for (p <- commonArgs.selected_projects.value) {
-      val chosen = p.chosen_test_ids.value
-      val weights = p.weights.value
+    given State = State(commonArgs.workspace)
+
+    for (p <- commonArgs.selected_projects.guilty) {
+      val chosen = p.chosen_test_ids.guilty
+      val weights = p.weights.guilty
       val test_weights = (for {
         c <- chosen
         external_name = c.external_name
@@ -882,7 +889,7 @@ object Main {
 
       val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
-          (csid, passing) <- p.compute_scores(cutoff_time, c).value.toSeq
+          (csid, passing) <- p.compute_scores(cutoff_time, c).guilty.toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum
         } yield (csid, score)).to(SortedMap)
         acc :+ scores
@@ -901,7 +908,7 @@ object Main {
       for {
         (csid, raw_score) <- totals
       } {
-        val is_late = p.is_late(csid, cutoff_time).value
+        val is_late = p.is_late(csid, cutoff_time).guilty
         val score =
           if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(

@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.{down, given_ReadWriter_RelPath}
-import ag.r2.{Scope, Target, run_if_needed}
+import ag.r2.{Scope, Target}
 import ag.rules.run
 import os.RelPath
 import upickle.default.{ReadWriter, read}
@@ -9,7 +9,6 @@ import upickle.default.{ReadWriter, read}
 import java.util.concurrent.Semaphore
 import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Future
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RemoteServer(user: String, host: String, port: Int)
@@ -68,29 +67,31 @@ object Config extends Scope(".") {
 
   private lazy val config: Target[Config] = target() {
 
-      @tailrec
-      def find(d: os.Path): os.Path = {
-        val t = d / "config.json"
-        if os.isFile(t) then t else find(d / os.up)
-      }
+    @tailrec
+    def find(d: os.Path): os.Path = {
+      val t = d / "config.json"
+      if os.isFile(t) then t else find(d / os.up)
+    }
 
-      val cf = find(os.pwd)
-      // logger.info(s"loading config from $cf")
-      read[Config](os.read(cf))
-    
+    val cf = find(os.pwd)
+    // logger.info(s"loading config from $cf")
+    read[Config](os.read(cf))
+
   }
 
   lazy val gitolite: Target[RemoteServer] = target(config)(_.gitolite)
-  
-  lazy val dropbox_path: Target[Option[RelPath]] = target(config)(_.dropbox_path)
-  
+
+  lazy val dropbox_path: Target[Option[RelPath]] =
+    target(config)(_.dropbox_path)
+
   lazy val site_base: Target[Option[String]] = target(config)(_.site_base)
-  
+
   // TODO: peek
-  lazy val can_send_mail: Target[Boolean] =  target(config) { config =>
+  lazy val can_send_mail: Target[Boolean] = target(config) { config =>
     throw Exception("implement peek")
     config.can_send_mail.getOrElse(false)
   }
-  
-  lazy val can_push_repo: Target[Boolean] = target(config)(_.can_push_repo.getOrElse(false))
+
+  lazy val can_push_repo: Target[Boolean] =
+    target(config)(_.can_push_repo.getOrElse(false))
 }

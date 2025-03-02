@@ -1,9 +1,7 @@
 package ag.grader
 
-import ag.common.given_VirtualExecutionContext
-import ag.git.{RefSpec, Repository, Sha, git}
-import ag.r2.{Producer, Scope, Target, WithData, create_data, periodic, run_if_needed}
-import upack.Msg
+import ag.git.{Sha, git}
+import ag.r2.{Scope, Target, WithData, create_data, periodic}
 
 import language.experimental.namedTuples
 import upickle.default.read
@@ -15,49 +13,50 @@ object Gitolite extends Scope(".") {
 
   // private val sem = Semaphore(4)
 
-  lazy val history: Target[SortedMap[String, String]] = target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
-    val (rc, stdout, stderr) =
-      g.ssh("history").run(cwd = os.pwd, check = false)
-    if (rc != 0) {
-      println(
-        s"getting history failed, reverting to expensive check [details ${
-          stderr
-            .map(_.relativeTo(os.pwd))
-        }]"
-      )
-      SortedMap()
-    } else {
-      (for {
-        l <- os.read.lines(stdout)
-        parts = l.split(' ').nn
-        if parts.length == 2
-        Array(name, sha) = parts
-      } yield (name, sha)).to(SortedMap)
+  lazy val history: Target[SortedMap[String, String]] =
+    target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
+      val (rc, stdout, stderr) =
+        g.ssh("history").run(cwd = os.pwd, check = false)
+      if (rc != 0) {
+        println(
+          s"getting history failed, reverting to expensive check [details ${stderr
+              .map(_.relativeTo(os.pwd))}]"
+        )
+        SortedMap()
+      } else {
+        (for {
+          l <- os.read.lines(stdout)
+          parts = l.split(' ').nn
+          if parts.length == 2
+          Array(name, sha) = parts
+        } yield (name, sha)).to(SortedMap)
+      }
     }
-  }
 
-  lazy val info: Target[SortedSet[String]] = target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
-    val lines = {
-      g.ssh("info").lines(cwd = os.pwd)
+  lazy val info: Target[SortedSet[String]] =
+    target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
+      val lines = {
+        g.ssh("info").lines(cwd = os.pwd)
+      }
+      val repos = for {
+        line <- lines
+        if line.nonEmpty
+        if !line.startsWith("hello")
+        repo = line.split("""\s""").nn.toSeq.last.nn
+      } yield repo
+
+      SortedSet(repos*)
     }
-    val repos = for {
-      line <- lines
-      if line.nonEmpty
-      if !line.startsWith("hello")
-      repo = line.split("""\s""").nn.toSeq.last.nn
-    } yield repo
 
-    SortedSet(repos *)
-  }
+  lazy val latest: Target[SortedMap[String, Option[String]]] =
+    target(history, info) { (history, info) =>
+      val pairs = for {
+        repo <- info.toSeq
+      } yield (repo, history.get(repo))
+      SortedMap(pairs*)
+    }
 
-  lazy val latest: Target[SortedMap[String, Option[String]]] = target(history, info) { (history, info) =>
-    val pairs = for {
-      repo <- info.toSeq
-    } yield (repo, history.get(repo))
-    SortedMap(pairs *)
-  }
-
-  lazy val repo_info: String => Target[RepoInfo] =  fun { (repo: String) =>
+  lazy val repo_info: String => Target[RepoInfo] = fun { (repo: String) =>
     target(Config.gitolite, latest) { (server, latest) =>
       RepoInfo(server, repo, latest.get(repo))
     }
@@ -87,7 +86,8 @@ object Gitolite extends Scope(".") {
                     "remote.origin.fetch=+refs/notes/*:refs/notes/*",
                     server.git_uri(repo),
                     "."
-                  ).check(cwd = dir)
+                  )
+                  .check(cwd = dir)
             }
             true
           case _ =>
@@ -97,18 +97,20 @@ object Gitolite extends Scope(".") {
     }
   }
 
-  lazy val notes_for_repo: (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] = fun { (repo: String, notes_ref: String) =>
-    val mirror_target = mirror(repo)
-    target(mirror_target) {
-      case m @ WithData(true, _, _) =>
-        git(C = m.get_data_path)
-          .notes(ref = notes_ref)
-          .check()
-          .map(p => (p.commit_sha, p.note_sha))
-          .to(SortedMap)
-      case _ =>
-        SortedMap[Sha.Commit, Sha.Note]()
-    }
+  lazy val notes_for_repo
+      : (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] = fun {
+    (repo: String, notes_ref: String) =>
+      val mirror_target = mirror(repo)
+      target(mirror_target) {
+        case m @ WithData(true, _, _) =>
+          git(C = m.get_data_path)
+            .notes(ref = notes_ref)
+            .check()
+            .map(p => (p.commit_sha, p.note_sha))
+            .to(SortedMap)
+        case _ =>
+          SortedMap[Sha.Commit, Sha.Note]()
+      }
   }
 
   private lazy val raw_courses: Target[SortedMap[String, RawCourse]] = {
@@ -125,8 +127,9 @@ object Gitolite extends Scope(".") {
     }
   }
 
-  lazy val course_names: Target[SortedSet[String]] = target(raw_courses) { courses =>
-    courses.keySet
+  lazy val course_names: Target[SortedSet[String]] = target(raw_courses) {
+    courses =>
+      courses.keySet
   }
 
   lazy val raw_course: String => Target[RawCourse] = fun { (name: String) =>
@@ -135,10 +138,10 @@ object Gitolite extends Scope(".") {
     }
   }
 
-  lazy val raw_project: (String, String) => Target[RawProject] = fun { (course_name: String, project_name: String) =>
-    target(raw_course(course_name)) { course =>
-      course.projects(project_name)
-    }
+  lazy val raw_project: (String, String) => Target[RawProject] = fun {
+    (course_name: String, project_name: String) =>
+      target(raw_course(course_name)) { course =>
+        course.projects(project_name)
+      }
   }
 }
-

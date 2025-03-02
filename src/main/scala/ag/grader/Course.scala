@@ -1,14 +1,24 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
-import ag.r2.{Context, Producer, Scope, Target, ToRelPath, WithData, create_data, periodic, run_if_needed, update_data}
+import ag.r2.{
+  Scope,
+  Target,
+  ToRelPath,
+  WithData,
+  create_data,
+  periodic,
+  run_if_needed,
+  update_data
+}
 
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 
-case class Course(course_name: String) extends Scope(ToRelPath(course_name)) derives ReadWriter {
+case class Course(course_name: String) extends Scope(ToRelPath(course_name))
+    derives ReadWriter {
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
@@ -42,7 +52,11 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
         for {
           projects <- projects_f
           active_flags <- active_flags_f
-        } yield projects.values.zip(active_flags).filter(_._2).map(p => (p._1.project_name, p._1)).to(SortedMap)
+        } yield projects.values
+          .zip(active_flags)
+          .filter(_._2)
+          .map(p => (p._1.project_name, p._1))
+          .to(SortedMap)
       }
     }
 
@@ -83,7 +97,11 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
     target(
       Gitolite.repo_info(
         "gitolite-admin"
-      ), dropbox, notifications.peek, Config.can_send_mail, Config.can_push_repo
+      ),
+      dropbox,
+      notifications.peek,
+      Config.can_send_mail,
+      Config.can_push_repo
     ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
       create_data(_.last == ".git") { dir =>
         val added = g.update(
@@ -104,7 +122,10 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
             key_file_path = dir / "keydir" / key_file_name
             // if the key doesn't exist or is different
             if !os
-              .exists(key_file_path) || os.read(key_file_path).trim.nn != new_key
+              .exists(key_file_path) || os
+              .read(key_file_path)
+              .trim
+              .nn != new_key
           } {
             // If we make it here then the key needs to be added or updated
             println(s"adding $csid to gitolite-admin")
@@ -150,9 +171,11 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
     target(
       Gitolite.repo_info(
         enrollment_repo_name
-      ), publish_keys, Config.can_push_repo
+      ),
+      publish_keys,
+      Config.can_push_repo
     ) { (g, keys, can_push_repo) =>
-      update_data[SortedMap[CSID, String]](skip = {_.last == ".git"}) { dir =>
+      update_data[SortedMap[CSID, String]](skip = { _.last == ".git" }) { dir =>
         g.update(
           path = dir,
           fork_from = Some("empty"),
@@ -174,7 +197,8 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
 
   lazy val create_grades_repo: Target[WithData[Unit]] =
     target(
-      Gitolite.repo_info(grades_repo_name), Config.can_push_repo
+      Gitolite.repo_info(grades_repo_name),
+      Config.can_push_repo
     ) { (g, can_push_repo) =>
       create_data(_.last == ".git") { dir =>
         g.update(
@@ -206,13 +230,15 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name)) der
 object Course extends Scope(os.RelPath(".")) {
   given Ordering[Course] = Ordering.by(_.course_name)
 
-  lazy val all: Target[Seq[Course]] = target(Gitolite.course_names){ course_names =>
-    course_names.toSeq.map(name => Course(name))
+  lazy val all: Target[Seq[Course]] = target(Gitolite.course_names) {
+    course_names =>
+      course_names.toSeq.map(name => Course(name))
   }
 
   lazy val active_courses: Target[Seq[Course]] = complex_target {
     val all_future: Future[Seq[Course]] = all.track
-    val active_flags_future: Future[Seq[Boolean]] = all_future.flatMap(all => Future.sequence(all.map(_.active.track)))
+    val active_flags_future: Future[Seq[Boolean]] =
+      all_future.flatMap(all => Future.sequence(all.map(_.active.track)))
     run_if_needed {
       for {
         all <- all_future
@@ -220,6 +246,5 @@ object Course extends Scope(os.RelPath(".")) {
       } yield all.zip(active_flags).filter(_._2).map(_._1)
     }
   }
-
 
 }

@@ -2,11 +2,9 @@ package ag.r2
 
 import ag.common.{Signature, block}
 
-import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.{ExecutionContext, Future}
-import upickle.default.ReadWriter
 
 import scala.annotation.implicitNotFound
 
@@ -54,10 +52,10 @@ trait Tracker[A] extends Context[A] {
 @implicitNotFound("no given Producer")
 trait Producer[A] extends Context[A] {
   def producing: Target[A]
-  
-  override lazy val producing_opt: Option[Target[A]] = Some(producing)
 
-  //var skip_filter: (os.RelPath => Boolean) | Null = null
+  // override lazy val producing_opt: Option[Target[A]] = Some(producing)
+
+  // var skip_filter: (os.RelPath => Boolean) | Null = null
 
   lazy val target_path: os.Path = state.target_path(producing)
   lazy val saved_path: os.Path = state.saved_path(producing)
@@ -83,7 +81,7 @@ class Consumer extends Context {
 
 @implicitNotFound("Can't fund given Consumer")
 class SimpleConsumer(val state: State) extends Consumer {
-    
+
 }
 
 @implicitNotFound("Can't find given Producer")
@@ -93,17 +91,17 @@ class Producer[A](override val state: State,
 ) extends Context {
 
   var skip_filter: (os.RelPath => Boolean) | Null = null
-  
+
   lazy val target_path: os.Path = state.target_path(target)
   lazy val saved_path: os.Path = state.saved_path(target)
   lazy val dirty_path: os.Path = state.dirty_path(target)
   lazy val data_path: os.Path = state.data_path(target)
 
   private val phase = new AtomicInteger(1)
-  
+
   // Called by "track" to add a discovered dependency
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
-  
+
   override def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
     if (phase.get() != 1) {
       throw IllegalStateException(s"phase = ${phase.get()}")
@@ -111,7 +109,7 @@ class Producer[A](override val state: State,
     println(s"${target.path} depends on ${d.path}")
     added_dependencies.update(d.path, fr)
   }
-  
+
   // Returns the known dependencies
   lazy val dependencies: SortedMap[os.RelPath, Signature] = {
     val old = phase.getAndAdd(1)
@@ -128,8 +126,8 @@ class Producer[A](override val state: State,
   )(using ReadWriter[A]): Future[Result[A]] = {
     state.run_if_needed(this) { () => f }
   }
-  
+
   override lazy val target_opt: Option[Target[A]] = Some(target)
   override lazy val parent_opt: Option[Context] = Some(parent)
 }
-*/
+ */

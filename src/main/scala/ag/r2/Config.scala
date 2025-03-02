@@ -23,7 +23,9 @@ case class Config(
   }
   def trace_miss(ctx: Context[?], target: TargetBase): Unit = {
     if (trace_flags.miss) {
-      trace(s"[MISS] ${ctx.producing_opt.map(_.path)} looking for ${target.path}")
+      trace(
+        s"[MISS] ${ctx.producing_opt.map(_.path)} looking for ${target.path}"
+      )
     }
   }
   def trace_read_error(
