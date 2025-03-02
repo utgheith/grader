@@ -1,21 +1,38 @@
 package ag.r2
 
-import ag.common.{Signature, Signer, given_VirtualExecutionContext}
+import ag.common.Signer
 import os.Path
 import upickle.default.{ReadWriter, read, write}
 
-import java.security.MessageDigest
+import java.lang.Thread.Builder
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.util.control.NonFatal
 
+object State {
+  val builder: Builder.OfVirtual = Thread.ofVirtual().name("v", 0)
+}
+
 class State(val workspace: os.Path) extends Tracker {
-  
+
+  // Context[Nothing] methods
   override val state: State = this
-  
-  def target_path(target: TargetBase): os.Path = workspace / "targets" / target.path
+  override def producing_opt: Option[Target[Nothing]] = None
+
+  // ExecutionContext methods
+  override def execute(runnable: Runnable): Unit = {
+    val _ = State.builder.start(runnable)
+  }
+  override def reportFailure(cause: Throwable): Unit = {
+    cause.printStackTrace()
+    sys.exit(-1)
+  }
+
+  def target_path(target: TargetBase): os.Path =
+    workspace / "targets" / target.path
   def data_path(target: TargetBase): os.Path = target_path(target) / "data"
-  def saved_path(target: TargetBase): os.Path = target_path(target) / "saved.json"
+  def saved_path(target: TargetBase): os.Path =
+    target_path(target) / "saved.json"
   def dirty_path(target: TargetBase): os.Path = target_path(target) / "dirty"
 
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
@@ -29,14 +46,26 @@ class State(val workspace: os.Path) extends Tracker {
   //            ...
   //       }
   //  }
-  def run_if_needed[A: ReadWriter](using tracker: Tracker[A])(
+  def run_if_needed[A: ReadWriter](using
+      tracker: Tracker[A]
+  )(
       f: Producer[A] ?=> Future[A]
   ): Future[Result[A]] = {
-    
+
+    val s = this
+
     val producer = new Producer[A] {
-      override val producing: Target[A] = tracker.producing_opt.get 
+      override val producing: Target[A] = tracker.producing_opt.get
+      override val state: State = s
+
+      override def producing_opt: Option[Target[A]] = tracker.producing_opt
+
+      override def execute(runnable: Runnable): Unit = s.execute(runnable)
+
+      override def reportFailure(cause: Throwable): Unit =
+        s.reportFailure(cause)
     }
-    
+
     if (os.exists(producer.dirty_path)) {
       config.trace_dirty(producer.producing)
       os.remove.all(producer.target_path)
@@ -50,7 +79,8 @@ class State(val workspace: os.Path) extends Tracker {
         // ctx has the newly discovered dependencies
         // old has the dependency at the time the value was saved
         if (
-          tracker.dependencies.forall((p, s) => old.depends_on.get(p).contains(s))
+          tracker.dependencies
+            .forall((p, s) => old.depends_on.get(p).contains(s))
         ) {
           Some(old)
         } else {
@@ -73,14 +103,14 @@ class State(val workspace: os.Path) extends Tracker {
       case None =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
-        
+
         // remove the old result
         os.remove.all(producer.target_path)
-        
+
         // mark it as dirty while we compute it. This allows is to recover is the program
         // terminates in the middle of the computation
         os.write.over(producer.dirty_path, "", createFolders = true)
-        
+
         // Run the computation (asynchronous)
         f(using producer).map { new_value =>
           // We have a new result, store it on disk
@@ -105,9 +135,19 @@ class State(val workspace: os.Path) extends Tracker {
     val result: Future[Result[?]] = cache.getOrElseUpdate(
       target.path, {
         config.trace_miss(tracker, target)
-        target.make(using new Tracker {
+        target.make(using
+          new Tracker {
+            override val state: State = tracker.state
 
-        })
+            override def producing_opt: Option[Target[A]] = Some(target)
+
+            override def execute(runnable: Runnable): Unit =
+              tracker.state.execute(runnable)
+
+            override def reportFailure(cause: Throwable): Unit =
+              tracker.state.reportFailure(cause)
+          }
+        )
       }
     )
 

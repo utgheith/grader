@@ -119,11 +119,10 @@ extension [A](fa: Future[A]) {
     latch.await()
     fa.value.get
   }
-  
+
   inline def block_try: Try[A] = fa.value.getOrElse(slow)
   inline def block: A = block_try.get
 }
-
 
 ////// Semaphore /////
 
@@ -136,4 +135,22 @@ extension (s: Semaphore) {
   }
 
   def down[A](f: => A): A = down(1)(f)
+}
+
+//////// timed ///////
+
+def timed[A](f: => A): (Long, A) = {
+  val start = System.currentTimeMillis()
+  val out = f
+  (System.currentTimeMillis() - start, out)
+}
+
+def human(ms: Long): String = {
+  if (ms < 1000) {
+    s"${ms}ms"
+  } else if (ms < 60 * 1000) {
+    f"${ms / 1000.0}%.03fs"
+  } else {
+    f"${ms / (1000.0 * 60.0)}%.03fm"
+  }
 }

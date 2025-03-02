@@ -3,13 +3,12 @@ package ag.grader
 import ag.r2.Target
 
 import java.io.FileWriter
-import ag.rules.{Maker, Rule, say}
+import ag.rules.say
 
 import scala.collection.SortedMap
 import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 import scala.annotation.unused
-import scala.collection.SortedSet
 
 trait HtmlContext {
   def doctype(): Unit
@@ -143,19 +142,19 @@ class HtmlGen(p: Project) {
   val gen_html: Target[Unit] =
     p.target(
       p.results,
-        Config.site_base,
-        p.phase1_tests,
-        p.phase1_weight,
-        p.phase2_tests,
-        p.phase2_weight,
-        p.bad_tests,
-        p.test_extensions,
-        p.test_cutoff,
-        p.code_cutoff,
-        p.course.enrollment,
-        p.anti_aliases,
-        p.course.staff,
-        p.staff
+      Config.site_base,
+      p.phase1_tests,
+      p.phase1_weight,
+      p.phase2_tests,
+      p.phase2_weight,
+      p.bad_tests,
+      p.test_extensions,
+      p.test_cutoff,
+      p.code_cutoff,
+      p.course.enrollment,
+      p.anti_aliases,
+      p.course.staff,
+      p.staff
     ) {
       case (
             Some(results),

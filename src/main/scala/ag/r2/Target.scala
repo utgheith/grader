@@ -1,17 +1,22 @@
 package ag.r2
 
-import ag.common.Signature
+import ag.common.{block, given_ReadWriter_RelPath, Signature}
 
 import scala.concurrent.Future
 import upickle.default.ReadWriter
 
-
-case class WithData[A](value: A, target_name: os.RelPath, data_signature: Signature) {
-  def get_data_path(using p: Producer[?]): os.Path = p.state.data_path(TargetBase(target_name))
+case class WithData[A](
+    value: A,
+    target_name: os.RelPath,
+    data_signature: Signature
+) {
+  def get_data_path(using p: Context[?]): os.Path =
+    p.state.data_path(TargetBase(target_name))
 }
 
 object WithData {
-  given [A: ReadWriter] => ReadWriter[WithData[A]] = ReadWriter.derived[WithData[A]]
+  given [A: ReadWriter] => ReadWriter[WithData[A]] =
+    ReadWriter.derived[WithData[A]]
 }
 
 //
@@ -29,7 +34,7 @@ trait TargetBase {
   // Our unique name
   val path: os.RelPath
 
-  //def data_path(using ctx: Tracker[?]): os.Path = ctx.state.data_path(this)
+  // def data_path(using ctx: Tracker[?]): os.Path = ctx.state.data_path(this)
 }
 
 object TargetBase {
@@ -49,14 +54,16 @@ trait Target[A: ReadWriter] extends TargetBase { outer =>
   def track(using ctx: Tracker[?]): Future[A] = {
     ctx.state.track(this)
   }
-  
+
+  def guilty(using ctx: Tracker[?]): A = track.block
+
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
     override def make(using Tracker[A]): Future[Result[A]] = outer.make
   }
-  
+
   def peek: Target[A] = ???
-  
+
 }
 
 object Target {
