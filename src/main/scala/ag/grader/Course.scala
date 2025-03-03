@@ -103,7 +103,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       Config.can_send_mail,
       Config.can_push_repo
     ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
-      create_data(_.last == ".git") { dir =>
+      create_data(_.lastOpt.contains(".git")) { dir =>
         val added = g.update(
           path = dir,
           fork_from = None,
@@ -175,7 +175,9 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       publish_keys,
       Config.can_push_repo
     ) { (g, keys, can_push_repo) =>
-      update_data[SortedMap[CSID, String]](skip = { _.last == ".git" }) { dir =>
+      update_data[SortedMap[CSID, String]](skip = {
+        _.lastOpt.contains(".git")
+      }) { dir =>
         g.update(
           path = dir,
           fork_from = Some("empty"),
@@ -200,7 +202,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       Gitolite.repo_info(grades_repo_name),
       Config.can_push_repo
     ) { (g, can_push_repo) =>
-      create_data(_.last == ".git") { dir =>
+      create_data(skip = _.lastOpt.contains(".git")) { dir =>
         g.update(
           path = dir,
           fork_from = Some("empty"),
