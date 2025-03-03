@@ -10,7 +10,7 @@ import scala.compiletime.summonFrom
 inline def say(inline msg: => Any): Unit = {
   summonFrom[Context[?]] {
     case ctx: Context[?] => Context.say(ctx.depth, msg)
-    case _ => Context.say(0, msg)
+    case _               => Context.say(0, msg)
   }
 }
 
