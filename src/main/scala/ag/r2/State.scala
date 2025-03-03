@@ -110,7 +110,7 @@ class State(val workspace: os.Path) extends Tracker {
         // In either case, we forget the old result and evaluate again
 
         say("making")
-        
+
         // remove the old result
         os.remove.all(producer.target_path)
 

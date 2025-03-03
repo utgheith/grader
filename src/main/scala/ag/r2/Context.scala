@@ -61,6 +61,7 @@ trait Tracker[A] extends Context[A] {
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
 
   def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
+    Context.say(Some(this), s"depends on ${d.path}")
     added_dependencies.update(d.path, fr)
   }
 
