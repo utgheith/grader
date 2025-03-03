@@ -113,6 +113,9 @@ class State(val workspace: os.Path) extends Tracker {
 
         // Run the computation (asynchronous)
         f(using producer).map { new_value =>
+          println(
+            s"[${Thread.currentThread().getName}] finished ${producer.producing.path}"
+          )
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
           val new_saved = Saved(new_result, tracker.dependencies)

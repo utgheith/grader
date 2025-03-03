@@ -66,7 +66,7 @@ object Gitolite extends Scope(".") {
 
   lazy val mirror: String => Target[WithData[Boolean]] = fun { (repo: String) =>
     target[RepoInfo, WithData[Boolean]](repo_info(repo)) { repo_info =>
-      create_data[Boolean](skip = _.last == "git") { dir =>
+      create_data[Boolean](skip = _.lastOpt.contains(".git")) { dir =>
         repo_info match {
           case RepoInfo(server, _, Some(_)) =>
             try {

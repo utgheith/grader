@@ -130,7 +130,7 @@ case class Project(course: Course, project_name: String)
       project_repo,
       Config.can_push_repo
     ) { (override_repo_info, test_extensions, project_repo, can_push_repo) =>
-      update_data(_.last == ".git") { dir =>
+      update_data(_.lastOpt.contains(".git")) { dir =>
         override_repo_info.update(
           path = dir,
           fork_from = Some("empty"),
@@ -210,7 +210,7 @@ case class Project(course: Course, project_name: String)
         Config.can_send_mail,
         Config.can_push_repo
       ) { (repo_info, n, can_send_mail, can_push_repo) =>
-        update_data(_.last == ".git") { dir =>
+        update_data(_.lastOpt.contains(".git")) { dir =>
           repo_info.update(
             path = dir,
             fork_from = Some(project_repo_name),
@@ -539,7 +539,7 @@ case class Project(course: Course, project_name: String)
       : (CSID, CutoffTime) => Target[WithData[Seq[LateCommit]]] = fun {
     (csid, cutoff) =>
       target(submission(csid), code_cutoff) { (submission_repo, code_cutoff) =>
-        create_data(_.last == ".git") { dir =>
+        create_data(_.lastOpt.contains(".git")) { dir =>
           submission_repo.toSeq.flatMap { submission_repo =>
             val _ = os
               .proc(
@@ -792,7 +792,7 @@ case class Project(course: Course, project_name: String)
           has_test <- has_test
           can_push_repo <- can_push_repo
         } yield {
-          update_data(_.last == ".git") { dir =>
+          update_data(_.lastOpt.contains(".git")) { dir =>
             student_results_repo.update(
               path = dir,
               fork_from = Some("empty"),
@@ -914,7 +914,7 @@ case class Project(course: Course, project_name: String)
 
         run_if_needed {
           repo_info.map { repo_info =>
-            update_data(_.last == ".git") { dir =>
+            update_data(_.lastOpt.contains(".git")) { dir =>
               repo_info.update(
                 path = dir,
                 fork_from = Some("empty"),
@@ -968,7 +968,7 @@ case class Project(course: Course, project_name: String)
         test_extensions,
         test_cutoff
       ) { (submission, test_extensions, test_cutoff) =>
-        create_data(_.last == ".git") { dir =>
+        create_data(_.lastOpt.contains(".git")) { dir =>
           submission.flatMap { submission =>
             // clone, no checkout
             val _ = os
@@ -1061,7 +1061,7 @@ case class Project(course: Course, project_name: String)
       students_with_submission,
       Config.can_push_repo
     ) { (repo_info, students_with_submission, can_push_repo) =>
-      update_data(skip = _.last == ".git") { dir =>
+      update_data(skip = _.lastOpt.contains(".git")) { dir =>
         repo_info.update(
           path = dir,
           fork_from = Some("empty"),
@@ -1201,7 +1201,7 @@ case class Project(course: Course, project_name: String)
           bad_tests,
           can_push_repo
       ) =>
-        update_data(_.last == ".git") { dir =>
+        update_data(_.lastOpt.contains(".git")) { dir =>
           tests_repo_info.update(
             path = dir,
             fork_from = Some("empty"),
@@ -1343,7 +1343,7 @@ case class Project(course: Course, project_name: String)
           test_extensions,
           can_push_repo
       ) =>
-        update_data(_.last == ".git") { dir =>
+        update_data(_.lastOpt.contains(".git")) { dir =>
           submitted_tests_repo_info.update(
             path = dir,
             fork_from = Some("empty"),
