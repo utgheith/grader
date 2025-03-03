@@ -1,9 +1,10 @@
 package ag.grader
 
+import ag.r2.say
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
-import ag.rules.{check, run, say}
+import ag.rules.{check, run}
 
 case class RepoInfo(
     server: RemoteServer,

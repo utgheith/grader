@@ -1,9 +1,8 @@
 package ag.grader
 
-import ag.r2.Target
+import ag.r2.{say, Target}
 
 import java.io.FileWriter
-import ag.rules.say
 
 import scala.collection.SortedMap
 import java.time.{LocalDateTime, ZoneId, ZonedDateTime}

@@ -219,7 +219,7 @@ class State private (
           if (use_old_result) Result(saved.value, saved.signature)
           else evaluate(Some(saved.value))
         case Failure(e) =>
-          say(s"failed to read from $file, remove and retry", e)
+          println(s"failed to read from $file, remove and retry [$e]")
           os.remove.all(file)
           evaluate(None)
       }

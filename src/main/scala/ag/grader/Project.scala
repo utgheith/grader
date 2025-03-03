@@ -2,6 +2,7 @@ package ag.grader
 
 import ag.common.{
   block,
+  down,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
@@ -13,9 +14,10 @@ import ag.r2.{
   WithData,
   create_data,
   run_if_needed,
+  say,
   update_data
 }
-import ag.rules.{Optional, check, down, lines, run, say}
+import ag.rules.{Optional, check, lines, run}
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime

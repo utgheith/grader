@@ -1,7 +1,8 @@
 package ag.grader
 
+import ag.r2.say
 import upickle.default.ReadWriter
-import ag.rules.{check, say}
+import ag.rules.check
 
 @upickle.implicits.allowUnknownKeys(false)
 case class NotificationConfig(

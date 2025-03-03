@@ -4,9 +4,11 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicLong
 import scala.util.control.NonFatal
 
+/*
 def say(msg: Any): Unit = say.synchronized {
   println(s"[${Thread.currentThread().nn.getName}] $msg")
 }
+*/
 
 /** ********
   */
@@ -152,7 +154,7 @@ extension [A](fa: Function0[A]) {
     }
   }
 }
-
+/*
 def timed[A](f: => A): (Long, A) = {
   val start = System.currentTimeMillis()
   val out = f
@@ -168,6 +170,7 @@ def human(ms: Long): String = {
     f"${ms / (1000.0 * 60.0)}%.03fm"
   }
 }
+*/
 
 // Extractor to convert nullable regex matches to Scala Options
 // Originally sourced from https://stackoverflow.com/a/1843127
