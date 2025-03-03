@@ -28,7 +28,7 @@ import scala.annotation.implicitNotFound
 
 object Context {
   private val printLock: Semaphore = new Semaphore(1)
-  
+
   def say(indent: Int, msg: => Any): Unit = {
     val t = if (msg == null) {
       "<null>"
@@ -36,7 +36,7 @@ object Context {
       msg.toString
     }
     printLock.down(1) {
-      (0 to indent).foreach(print)
+      (0 to indent).foreach(_ => print(" "))
       print(t)
       println()
     }
