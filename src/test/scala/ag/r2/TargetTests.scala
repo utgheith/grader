@@ -1,35 +1,37 @@
 package ag.r2
 
-import ag.common.{block, given_VirtualExecutionContext}
+import ag.common.block
 import scala.concurrent.Future
 
-
-val a: Target[Int] = target[Int] {
-  run_if_needed {
-    create_data(_ => false) { (path: os.Path) =>
-      os.write(path / "xyz", "hello\n")
-    }
-    Future.successful(10)
+object Things extends Scope(".") {
+  val a: Target[WithData[Int]] = target() {
+        create_data(_ => false) { path =>
+          os.write(path / "xyz", "hello\n")
+          10
+        }
   }
-}
 
-val b: (String, Int) => Target[Int] = scoped[String, Int] { (s, i) =>
-  target(a) { a =>
-    println(s"running $s $i")
-    a+i
+  val b: (String, Int) => Target[Int] = fun { (s, i) =>
+    target(a) { a =>
+      println(s"running $s $i, a:$a")
+      a.value + i
+    }
+  }
 }
 
 class TargetTests extends munit.FunSuite {
   test("basic tracking") {
     def doit(d: Int): Unit = {
-      val tb: Future[Int] = State(config.get_test_dir) {
+      given State = State(config.get_test_dir)
+
+      val tb: Future[Int] =
         for {
-          a <- a.track
-          _ = assertEquals(a, 10)
-          b <- b("thing", d).track
+          a <- Things.a.track
+          _ = assertEquals(a.value, 10)
+          b <- Things.b("thing", d).track
           _ = assertEquals(b, 10 + d)
-        } yield (a + b)
-      }
+        } yield (a.value + b)
+
       assertEquals(tb.block, 20 + d)
     }
     doit(6)
