@@ -55,8 +55,6 @@ class State(val workspace: os.Path) extends Tracker {
 
     val s = this
 
-    say(s"checking dependencies for ${tracker.producing_opt.map(_.path)}")
-
     val producer = new Producer[A] {
       override val depth: Int = tracker.depth
       override val producing: Target[A] = tracker.producing_opt.get
@@ -71,28 +69,31 @@ class State(val workspace: os.Path) extends Tracker {
     }
 
     if (os.exists(producer.dirty_path)) {
-      config.trace_dirty(producer.producing)
+      say("removing dirty state")
       os.remove.all(producer.target_path)
     }
 
     // (1) let's find out if we have a saved value
     val old_saved: Option[Saved[A]] = if (os.isFile(producer.saved_path)) {
       try {
+        say("loading old state")
         val old = read[Saved[A]](os.read(producer.saved_path))
         // (2) we seem to have one, check if the dependencies changed
         // ctx has the newly discovered dependencies
         // old has the dependency at the time the value was saved
+        say("checking dependencies")
         if (
           tracker.dependencies
             .forall((p, s) => old.depends_on.get(p).contains(s))
         ) {
+          say("keeping old state")
           Some(old)
         } else {
           None
         }
       } catch {
         case NonFatal(e) =>
-          config.trace_read_error(producer, producer.producing, e)
+          say("load error")
           os.remove.all(producer.saved_path)
           None
       }
@@ -108,6 +109,8 @@ class State(val workspace: os.Path) extends Tracker {
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
 
+        say("making")
+        
         // remove the old result
         os.remove.all(producer.target_path)
 
@@ -117,9 +120,6 @@ class State(val workspace: os.Path) extends Tracker {
 
         // Run the computation (asynchronous)
         f(using producer).map { new_value =>
-          say(
-            s"[${Thread.currentThread().getName}] finished ${producer.producing.path}"
-          )
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
           val new_saved = Saved(new_result, tracker.dependencies)
@@ -130,6 +130,7 @@ class State(val workspace: os.Path) extends Tracker {
           )
 
           os.remove.all(producer.dirty_path)
+          say("done")
           new_result
         }
 
@@ -141,7 +142,7 @@ class State(val workspace: os.Path) extends Tracker {
   )(using tracker: Tracker[?]): Future[A] = {
     val result: Future[Result[?]] = cache.getOrElseUpdate(
       target.path, {
-        say(s"miss for ${target.path}")
+        Context.say(Some(tracker), s"miss for ${target.path}")
         target.make(using
           new Tracker {
             override val depth: Int = tracker.depth + 1
