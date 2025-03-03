@@ -38,7 +38,7 @@ object SignedPath {
       val dirty_file = base_dir / os.up / s"__${base_dir.last}__is__dirty"
 
       if (os.exists(dirty_file)) {
-        say(s"Signed Path ${context.rule.path} is dirty, removing")
+        println(s"Signed Path ${context.rule.path} is dirty, removing")
         os.remove.all(base_dir)
         os.remove.all(dirty_file)
       }

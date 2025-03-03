@@ -1,11 +1,11 @@
 package ag.r2
 
-import ag.common.{Signature, block}
+import ag.common.{block, down, Signature}
 
+import java.util.concurrent.Semaphore
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.{ExecutionContext, Future}
-
 import scala.annotation.implicitNotFound
 
 //
@@ -26,8 +26,26 @@ import scala.annotation.implicitNotFound
 // don't want to context created for a particular computation to outlive
 // the dependency collection phase.
 
+object Context {
+  private val printLock: Semaphore = new Semaphore(1)
+  
+  def say(indent: Int, msg: => Any): Unit = {
+    val t = if (msg == null) {
+      "<null>"
+    } else {
+      msg.toString
+    }
+    printLock.down(1) {
+      (0 to indent).foreach(print)
+      print(t)
+      println()
+    }
+  }
+}
+
 @implicitNotFound("no given Context")
 trait Context[A] extends ExecutionContext {
+  val depth: Int
   val state: State
   def producing_opt: Option[Target[A]]
 }

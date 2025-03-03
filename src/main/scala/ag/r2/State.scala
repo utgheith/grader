@@ -16,6 +16,7 @@ object State {
 class State(val workspace: os.Path) extends Tracker {
 
   // Context[Nothing] methods
+  override val depth: Int = 0
   override val state: State = this
   override def producing_opt: Option[Target[Nothing]] = None
 
@@ -55,6 +56,7 @@ class State(val workspace: os.Path) extends Tracker {
     val s = this
 
     val producer = new Producer[A] {
+      override val depth: Int = tracker.depth
       override val producing: Target[A] = tracker.producing_opt.get
       override val state: State = s
 
@@ -140,6 +142,7 @@ class State(val workspace: os.Path) extends Tracker {
         config.trace_miss(tracker, target)
         target.make(using
           new Tracker {
+            override val depth: Int = tracker.depth + 1
             override val state: State = tracker.state
 
             override def producing_opt: Option[Target[A]] = Some(target)

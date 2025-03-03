@@ -5,6 +5,15 @@ import ag.common.Signer
 import scala.concurrent.Future
 import upickle.default.ReadWriter
 
+import scala.compiletime.summonFrom
+
+inline def say(inline msg: => Any): Unit = {
+  summonFrom[Context[?]] {
+    case ctx: Context[?] => Context.say(ctx.depth, msg)
+    case _ => Context.say(0, msg)
+  }
+}
+
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: ReadWriter](
     f: Producer[A] ?=> Future[A]
