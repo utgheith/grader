@@ -55,6 +55,8 @@ class State(val workspace: os.Path) extends Tracker {
 
     val s = this
 
+    say(s"checking dependencies for ${tracker.producing_opt.map(_.path)}")
+
     val producer = new Producer[A] {
       override val depth: Int = tracker.depth
       override val producing: Target[A] = tracker.producing_opt.get
@@ -115,7 +117,7 @@ class State(val workspace: os.Path) extends Tracker {
 
         // Run the computation (asynchronous)
         f(using producer).map { new_value =>
-          println(
+          say(
             s"[${Thread.currentThread().getName}] finished ${producer.producing.path}"
           )
           // We have a new result, store it on disk
@@ -139,7 +141,7 @@ class State(val workspace: os.Path) extends Tracker {
   )(using tracker: Tracker[?]): Future[A] = {
     val result: Future[Result[?]] = cache.getOrElseUpdate(
       target.path, {
-        config.trace_miss(tracker, target)
+        say(s"miss for ${target.path}")
         target.make(using
           new Tracker {
             override val depth: Int = tracker.depth + 1
