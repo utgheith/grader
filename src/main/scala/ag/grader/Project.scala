@@ -8,6 +8,7 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.r2.{
+  eval,
   Scope,
   Target,
   ToRelPath,
@@ -245,22 +246,21 @@ case class Project(course: Course, project_name: String)
 
   lazy val submissions: Target[SortedMap[CSID, WithData[Unit]]] =
     complex_target {
-      val pairs: Future[SortedMap[CSID, WithData[Unit]]] = for { /* Future */
-        enrollment <- course.enrollment.track
-        csids: Seq[CSID] = enrollment.keySet.toSeq
-        submissions <- Future.sequence {
-          for {
-            csid: CSID <- csids
-            s: Future[WithData[Unit]] = for {
-              so <- submission(csid).track
-              if so.nonEmpty
-            } yield so.get
-          } yield s
-        }
-      } yield csids.zip(submissions).to(SortedMap)
+      val csids: Future[SortedSet[CSID]] = course.enrolled_csids.track
+      val submissions: Future[Seq[Option[WithData[Unit]]]] = for {
+        the_csids <- csids
+        submissions <- Future.sequence(
+          the_csids.toSeq.map(csid => submission(csid).track)
+        )
+      } yield submissions
 
-      run_if_needed {
-        pairs
+      eval(csids, submissions) { (csids, submissions) =>
+        Future.successful {
+          (for {
+            (csid, submission) <- csids.toSeq.zip(submissions)
+            if submission.isDefined
+          } yield (csid, submission.get)).to(SortedMap)
+        }
       }
     }
 

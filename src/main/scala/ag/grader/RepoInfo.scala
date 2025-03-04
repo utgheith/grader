@@ -39,6 +39,9 @@ case class RepoInfo(
     }
 
     try {
+      if (!os.isDir(path / ".git")) {
+        throw Exception("forcing")
+      }
       /* The most common path: the repo exists, and we have a local checkout, just pull the latest */
       os.proc("git", "reset", "--hard").check(cwd = path)
       os.proc("git", "clean", "-fdx").check(cwd = path)
