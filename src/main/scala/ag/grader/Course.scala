@@ -9,6 +9,7 @@ import ag.r2.{
   create_data,
   periodic,
   run_if_needed,
+  say,
   update_data
 }
 
@@ -158,13 +159,17 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
             os.read(enrollment_file(sp.get_data_path))
           )
         } else {
-          println(s"enrollment file $f doesn't exist")
+          say(s"enrollment file $f doesn't exist")
           SortedMap()
         }
       } else {
         SortedMap[CSID, String]()
       }
     }
+
+  lazy val enrolled_csids: Target[SortedSet[CSID]] = target(enrollment) {
+    enrollment => enrollment.keySet
+  }
 
   // create/update the enrollment repo
   lazy val publish_enrollment: Target[WithData[SortedMap[CSID, String]]] =

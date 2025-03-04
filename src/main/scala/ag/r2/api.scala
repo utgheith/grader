@@ -20,6 +20,17 @@ def run_if_needed[A: ReadWriter](
 )(using tracker: Tracker[A]): Future[Result[A]] =
   tracker.state.run_if_needed(f)
 
+def eval[A, B, Out: ReadWriter](fa: Future[A], fb: Future[B])(
+    f: Producer[Out] ?=> (A, B) => Future[Out]
+)(using Tracker[Out]): Future[Result[Out]] =
+  run_if_needed {
+    for {
+      a <- fa
+      b <- fb
+      out <- f(a, b)
+    } yield out
+  }
+
 def create_data[A](skip: os.RelPath => Boolean)(
     f: Producer[WithData[A]] ?=> os.Path => A
 )(using ctx: Producer[WithData[A]]): WithData[A] = {

@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.git.{Sha, git}
-import ag.r2.{Scope, Target, WithData, create_data, periodic}
+import ag.r2.{Scope, Target, WithData, create_data, periodic, say}
 
 import language.experimental.namedTuples
 import upickle.default.read
@@ -70,13 +70,13 @@ object Gitolite extends Scope(".") {
         repo_info match {
           case RepoInfo(server, _, Some(_)) =>
             try {
-              println(s"pulling $repo")
+              say(s"pulling $repo")
               server.SshProc("git", "pull").check(cwd = dir)
             } catch {
               case NonFatal(_) =>
                 os.remove.all(dir)
                 os.makeDir.all(dir)
-                println(s"cloning $repo because pull failed")
+                say(s"cloning $repo because pull failed")
                 server
                   .SshProc(
                     "git",
@@ -121,7 +121,7 @@ object Gitolite extends Scope(".") {
         val not_sorted = read[Map[String, RawCourseNotSorted]](os.read(file))
         not_sorted.view.mapValues(_.sorted).to(SortedMap)
       } else {
-        println("courses_config repo is missing")
+        say("courses_config repo is missing")
         SortedMap[String, RawCourse]()
       }
     }
