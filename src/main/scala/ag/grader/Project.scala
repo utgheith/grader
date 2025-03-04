@@ -62,6 +62,17 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
   lazy val info: Maker[RawProject] =
     Gitolite.raw_project(course.course_name, project_name)
 
+  lazy val docker_file: Maker[Option[String]] = Rule(
+    info,
+    null
+  ) { info =>
+    info.docker_file
+  }
+
+  lazy val docker_image: Maker[Option[String]] = Rule(docker_file, null) {
+    docker_file => docker_file.map(fn => Docker.of(os.pwd / fn))
+  }
+
   lazy val active: Maker[Boolean] =
     Rule(
       course.active *: info *: Gitolite.repo_info(project_repo_name),
@@ -619,6 +630,27 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("time")
   }
 
+  private def dockerCommand(
+      workingDir: os.Path,
+      dockerImage: Option[String]
+  ): os.Shellable = {
+    dockerImage.toSeq.flatMap { dockerImage =>
+      Seq(
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        s"${workingDir.toString}:/work",
+        "-w",
+        "/work",
+        "-u",
+        s"${Project.uid}:${Project.gid}",
+        "-t",
+        dockerImage
+      )
+    }
+  }
+
   // Run a submission/test combination once and report the outcome
   def run_one(
       csid: CSID,
@@ -632,107 +664,115 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         csid,
         cutoff,
         commit_id_file
-      ) *: cores,
+      ) *: cores *: docker_image,
       SortedSet(),
       scope / csid.value / cutoff.label / test_id.external_name / test_id.internal_name / n
         .max(1)
         .toString
         / commit_id_file
-    ) { case (out_path, (test_info, test_extensions, prepared, cores)) =>
+    ) { case (out_path, (test_info, test_extensions, prepared, cores, docker_image)) =>
       started_runs.incrementAndGet()
       try {
         if (cores > limit) {
           throw new Exception(s"need $cores cores, limit is $limit")
         }
 
-        // all tests for the same project/csid share the same prepared directory
-        Project.run_lock(prepared.path) {
-          governor.down(cores) {
-            copy_test(
-              test_info.data,
-              test_info.path,
-              prepared.path,
-              test_extensions
-            )
-            val tn = test_id.external_name
-            val m =
-              s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_$csid"
-            say(f"running#$n $m on $cores cores")
+          // all tests for the same project/csid share the same prepared directory
+          Project.run_lock(prepared.path) {
+            governor.down(cores) {
+              copy_test(
+                test_info.data,
+                test_info.path,
+                prepared.path,
+                test_extensions
+              )
+              val tn = test_id.external_name
+              val m =
+                s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_$csid"
+              say(
+                f"running#$n $m on $cores cores (docker_image: $docker_image)"
+              )
 
-            val start = System.currentTimeMillis()
-            var run_time: Option[Double] = None
-            val (_, _, stderr) =
-              try {
-                val _ = os
-                  .proc("make", "-k", "clean")
-                  .run(cwd = prepared.path, check = false)
-                os.proc("make", "-k", s"$tn.test")
-                  .run(cwd = prepared.path, check = false)
-              } finally {
-                val end = System.currentTimeMillis()
-                run_time = Some((end - start).toDouble / 1000)
+              val start = System.currentTimeMillis()
+              var run_time: Option[Double] = None
+              val (_, _, stderr) =
+                try {
+                  val _ = os
+                    .proc("make", "-k", "clean")
+                    .run(cwd = prepared.path, check = false)
+                  os.proc(
+                    dockerCommand(prepared.path, docker_image),
+                    "make",
+                    "-k",
+                    s"$tn.test"
+                  ).run(cwd = prepared.path, check = false)
+                } finally {
+                  val end = System.currentTimeMillis()
+                  run_time = Some((end - start).toDouble / 1000)
+                }
+
+              val result_path = prepared.path / s"$tn.result"
+              val outcome_str =
+                if (os.isFile(result_path))
+                  os.read.lines(result_path).headOption
+                else None
+
+              val time_path = prepared.path / s"$tn.time"
+              val qemu_runtime_str =
+                if (os.isFile(time_path)) os.read.lines(time_path).headOption
+                else None
+
+              val qemu_runtime = qemu_runtime_str match
+                case Some(Project.TimeFormat(Optional(None), min, sec)) =>
+                  Some(min.toDouble * 60 + sec.toDouble)
+                case Some(
+                      Project.TimeFormat(Optional(Some(hours)), min, sec)
+                    ) =>
+                  Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
+                case Some("timeout") => None
+                case _               => None
+
+              val outcome = (
+                outcome_str.map(_.toLowerCase.nn),
+                qemu_runtime_str.map(_.toLowerCase.nn)
+              ) match
+                case (_, Some("timeout")) => OutcomeStatus.timeout
+                case (Some("pass"), _)    => OutcomeStatus.pass
+                case (Some("fail"), _)    => OutcomeStatus.fail
+                case (_, _)               => OutcomeStatus.unknown
+
+              val how_long = run_time.map(t => f"$t%.2f")
+              val out = (if (outcome.isHappy) fansi.Color.Green
+                         else fansi.Color.Red) (outcome.toString)
+
+              say(s"    [${finished_runs.get()}/${started_runs
+                  .get()}] finished [$out] $m in $how_long seconds")
+
+              stderr.foreach { stderr =>
+                os.copy(
+                  from = stderr,
+                  to = out_path / s"$tn.err",
+                  createFolders = true,
+                  replaceExisting = true,
+                  followLinks = false
+                )
               }
-
-            val result_path = prepared.path / s"$tn.result"
-            val outcome_str =
-              if (os.isFile(result_path))
-                os.read.lines(result_path).headOption
-              else None
-
-            val time_path = prepared.path / s"$tn.time"
-            val qemu_runtime_str =
-              if (os.isFile(time_path)) os.read.lines(time_path).headOption
-              else None
-
-            val qemu_runtime = qemu_runtime_str match
-              case Some(Project.TimeFormat(Optional(None), min, sec)) =>
-                Some(min.toDouble * 60 + sec.toDouble)
-              case Some(Project.TimeFormat(Optional(Some(hours)), min, sec)) =>
-                Some(hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble)
-              case Some("timeout") => None
-              case _               => None
-
-            val outcome = (
-              outcome_str.map(_.toLowerCase.nn),
-              qemu_runtime_str.map(_.toLowerCase.nn)
-            ) match
-              case (_, Some("timeout")) => OutcomeStatus.timeout
-              case (Some("pass"), _)    => OutcomeStatus.pass
-              case (Some("fail"), _)    => OutcomeStatus.fail
-              case (_, _)               => OutcomeStatus.unknown
-
-            val how_long = run_time.map(t => f"$t%.2f")
-            val out = (if (outcome.isHappy) fansi.Color.Green
-                       else fansi.Color.Red) (outcome.toString)
-
-            say(s"    [${finished_runs.get()}/${started_runs
-                .get()}] finished [$out] $m in $how_long seconds")
-
-            stderr.foreach { stderr =>
-              os.copy(
-                from = stderr,
-                to = out_path / s"$tn.err",
-                createFolders = true,
-                replaceExisting = true,
-                followLinks = false
+              copy_results(prepared.path, out_path, test_id)
+              Outcome(
+                this,
+                csid,
+                test_id,
+                Some(outcome),
+                // In the case of a timeout, show the outer runtime
+                time = qemu_runtime.orElse(run_time),
+                tries = n,
+                prepared.data.map(_.sha)
               )
             }
-            copy_results(prepared.path, out_path, test_id)
-            Outcome(
-              this,
-              csid,
-              test_id,
-              Some(outcome),
-              // In the case of a timeout, show the outer runtime
-              time = qemu_runtime.orElse(run_time),
-              tries = n,
-              prepared.data.map(_.sha)
-            )
           }
+        } finally {
+          val _ = finished_runs.incrementAndGet()
         }
-      } finally {
-        val _ = finished_runs.incrementAndGet()
-      }
     }
 
   // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
@@ -1443,4 +1483,7 @@ object Project {
 
   private val automatic_override_names: Set[String] =
     Set("Makefile", "makefile")
+
+  lazy val uid: String = os.proc("id", "-u").call().out.lines().head
+  lazy val gid: String = os.proc("id", "-g").call().out.lines().head
 }
