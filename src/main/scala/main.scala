@@ -1,4 +1,10 @@
-import ag.common.{block, given_ReadWriter_SortedMap, human, timed}
+import ag.common.{
+  block,
+  given_ReadWriter_Regex,
+  given_ReadWriter_SortedMap,
+  human,
+  timed
+}
 import ag.git.git
 import ag.grader.{
   CSID,
@@ -11,7 +17,7 @@ import ag.grader.{
   Project,
   TestId
 }
-import ag.r2.{Scope, State, Target, run_if_needed, WithData}
+import ag.r2.{eval, Scope, State, Target, WithData}
 
 import mainargs.{
   Flag,
@@ -90,131 +96,144 @@ given TokensReader.Simple[AliasSortMode] with {
 
 //@main
 case class CommonArgs(
-    @arg(short = 'c', doc = "courses to consider (regex)")
-    courses: Regex = """.*""".r,
+    @arg(name = "courses", short = 'c', doc = "courses to consider (regex)")
+    courses_ : Regex = """.*""".r,
     @arg(short = 'p', doc = "projects to consider (regex)")
-    projects: Regex = """.*""".r,
+    projects_ : Regex = """.*""".r,
     @arg(short = 's', doc = "students to consider (regex)")
-    students: Regex = """.*""".r,
+    students_ : Regex = """.*""".r,
     @arg(short = 't', doc = "tests to consider (regex)")
-    tests: Regex = """.*""".r,
+    tests_ : Regex = """.*""".r,
     @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
     @arg(short = 'o', doc = "restrict to chosen tests")
-    only_chosen: Flag = Flag(false),
+    only_chosen_ : Flag = Flag(false),
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     workspace: os.Path = os.pwd / "workspace"
 ) extends Scope(".") {
 
-  // TODO: warn when no courses matched
-  lazy val selected_courses: Target[Seq[Course]] = complex_target {
-    val active_courses = Course.active_courses.track
-    run_if_needed[Seq[Course]] {
-      active_courses.map { active_courses =>
-        active_courses
-          .filter(course => this.courses.matches(course.course_name))
-          .sorted
-      }
-    }
+  lazy val courses: Target[Regex] = (this / courses_).target() {
+    courses_
   }
+
+  lazy val projects: Target[Regex] = (this / projects_).target() {
+    projects_
+  }
+
+  lazy val students: Target[Regex] = (this / students_).target() {
+    students_
+  }
+
+  lazy val only_chosen: Target[Boolean] = (this / only_chosen_.value).target() {
+    only_chosen_.value
+  }
+
+  lazy val tests: Target[Regex] = (this / tests_).target() {
+    tests_
+  }
+
+  // TODO: warn when no courses matched
+  lazy val selected_courses: Target[Seq[Course]] =
+    target(Course.active_courses, courses) { (active_courses, courses) =>
+      active_courses
+        .filter(course => courses.matches(course.course_name))
+        .sorted
+    }
 
   // TODO: warn when no projects matched
-  lazy val selected_projects: Target[Seq[Project]] = complex_target {
-    val selected_courses = this.selected_courses.track
-    val active_projects = for {
-      selected_courses <- selected_courses
-      active_projects <- Future.sequence {
-        selected_courses.map { course =>
-          course.active_projects.track
-        }
-      }
-    } yield active_projects
-
-    run_if_needed {
-      active_projects.map { active_projects =>
-        active_projects
-          .flatMap(_.values.filter(p => this.projects.matches(p.project_name)))
-          .sorted
-      }
+  lazy val selected_projects: Target[Seq[Project]] =
+    target(Project.active_projects, courses, projects) {
+      (active_projects, courses, projects) =>
+        for {
+          p <- active_projects.toSeq
+          if projects.matches(p.project_name)
+          if courses.matches(p.course.course_name)
+        } yield p
     }
-  }
 
   lazy val submissions: Target[Seq[(Project, CSID)]] = complex_target {
-    val f: Future[(Seq[Project], Seq[SortedSet[CSID]])] = for {
-      projects: Seq[Project] <- selected_projects.track
-      csids: Seq[SortedSet[CSID]] <- Future.sequence {
-        for {
-          p <- projects
-        } yield p.students_with_submission.track
+    val ps: Future[Seq[Project]] = selected_projects.track
+    val csids_seq: Future[Seq[SortedSet[CSID]]] = ps.flatMap { ps =>
+      Future.sequence {
+        for { p <- ps } yield p.students_with_submission.track
       }
-    } yield (projects, csids)
-
-    run_if_needed {
-      for {
-        (ps, csids) <- f
-      } yield for {
-        (p, csids) <- ps.zip(csids)
-        csid <- csids
-        if students.matches(csid.value)
-      } yield (p, csid)
     }
+
+    eval(students.track, ps, csids_seq) {
+      (students: Regex, ps: Seq[Project], csids_seq: Seq[SortedSet[CSID]]) =>
+        Future.successful {
+          for {
+            (p, csids) <- ps.zip(csids_seq)
+            csid <- csids
+            if students.matches(csid.value)
+          } yield (p, csid)
+        }
+    }
+
   }
 
   lazy val test_ids: Target[Seq[(Project, TestId)]] = complex_target {
     // determine dependencies as quickly as possible
-    val f: Future[(Seq[Project], Seq[SortedSet[TestId]])] = for {
-      projects: Seq[Project] <- selected_projects.track
+    val ps: Future[Seq[Project]] = selected_projects.track
+
+    val per_project_test_ids: Future[Seq[SortedSet[TestId]]] = for {
+      projects: Seq[Project] <- ps
+      c <- only_chosen.track
       per_project_test_ids: Seq[SortedSet[TestId]] <- Future.sequence {
         for {
           p <- projects
-        } yield
-          if (only_chosen.value) p.chosen_test_ids.track else p.test_ids.track
+        } yield if (c) p.chosen_test_ids.track else p.test_ids.track
       }
-    } yield (projects, per_project_test_ids)
+    } yield per_project_test_ids
 
-    run_if_needed {
-      // run less often, we can afford to work harder here
-      for {
-        (projects, per_project_test_ids) <- f
-      } yield for {
-        (p, test_ids) <- projects.zip(per_project_test_ids)
-        test_id <- test_ids
-        if tests.matches(test_id.external_name) || tests.matches(
-          test_id.internal_name
-        )
-      } yield (p, test_id)
+    eval(tests.track, ps, per_project_test_ids) {
+      (tests, projects, per_project_test_ids) =>
+        // run less often, we can afford to work harder here
+        Future.successful {
+          for {
+            (p, test_ids) <- projects.zip(per_project_test_ids)
+            test_id <- test_ids
+            if tests.matches(test_id.external_name) || tests.matches(
+              test_id.internal_name
+            )
+          } yield (p, test_id)
+        }
     }
   }
 
   lazy val runs: Target[Seq[(Project, CSID, TestId)]] = complex_target {
-    val f: Future[(Seq[Project], Seq[(SortedSet[CSID], SortedSet[TestId])])] =
+    val ps: Future[Seq[Project]] = selected_projects.track
+
+    val per_project_ids: Future[Seq[(SortedSet[CSID], SortedSet[TestId])]] =
       for {
-        projects: Seq[Project] <- selected_projects.track
+        projects: Seq[Project] <- ps
+        ch <- only_chosen.track
         per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] <- Future
           .sequence {
             for {
               p: Project <- projects
             } yield p.students_with_submission.track.zip(
-              if (only_chosen.value) p.chosen_test_ids.track
+              if (ch) p.chosen_test_ids.track
               else p.test_ids.track
             )
           }
-      } yield (projects, per_project_ids)
+      } yield per_project_ids
 
-    run_if_needed {
-      f.map { case (projects, per_project_ids) =>
-        for {
-          (p, (csids, test_ids)) <- projects.zip(per_project_ids)
-          the_test_ids = test_ids.filter(id =>
-            tests.matches(id.external_name) || tests.matches(id.internal_name)
-          )
-          if the_test_ids.nonEmpty
-          csid <- csids.toSeq
-          if students.matches(csid.value)
-          test_id <- the_test_ids
-        } yield (p, csid, test_id)
-      }
+    eval(students.track, tests.track, ps, per_project_ids) {
+      (students, tests, ps, per_project_ids) =>
+        Future.successful {
+          for {
+            (p, (csids, test_ids)) <- ps.zip(per_project_ids)
+            the_test_ids = test_ids.filter(id =>
+              tests.matches(id.external_name) || tests.matches(id.internal_name)
+            )
+            if the_test_ids.nonEmpty
+            csid <- csids.toSeq
+            if students.matches(csid.value)
+            test_id <- the_test_ids
+          } yield (p, csid, test_id)
+        }
     }
   }
 }
@@ -239,7 +258,7 @@ object Main {
     val r = (for {
       p <- commonArgs.selected_projects.track.block
       s <- p.course.enrollment.track.block.keySet.toSeq
-      if commonArgs.students.matches(s.value)
+      if commonArgs.students.guilty.matches(s.value)
       r <- p.get_student_results(s).track.block.toSeq
       (test, outcome) <- r.outcomes.toSeq
     } yield (p, s, test, outcome)).groupMapReduce {
@@ -331,11 +350,11 @@ object Main {
     for (c <- commonArgs.selected_courses.track.block) {
       for {
         (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.track.block.matches(pn)
       } {
         for {
           (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.matches(csid.value)
+          if commonArgs.students.track.block.matches(csid.value)
         } {
           println(p.work_repo(csid).guilty)
         }
@@ -363,11 +382,13 @@ object Main {
 
       for {
         (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.track.block.matches(pn)
       } {
         val aliases = p.get_aliases.guilty
         val csids = enrollment.keys
-          .filter((id: CSID) => commonArgs.students.matches(id.value))
+          .filter((id: CSID) =>
+            commonArgs.students.track.block.matches(id.value)
+          )
           .toIndexedSeq
         val sorted =
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
@@ -407,7 +428,7 @@ object Main {
 
       for {
         (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.track.block.matches(pn)
       } {
 
         val aliases = p.get_aliases.guilty
@@ -416,7 +437,7 @@ object Main {
 
         for {
           (csid, _) <- enrollment
-          if commonArgs.students.matches(csid.value)
+          if commonArgs.students.track.block.matches(csid.value)
         } {
           val prep = p.prepare(csid, cutoff).guilty
           val target_name = s"${c.course_name}_${pn}_$csid"
@@ -485,13 +506,13 @@ object Main {
 
       for {
         (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.track.block.matches(pn)
       } {
         val project_deadline = p.code_cutoff.track.block.format(datetime_format)
 
         val late_repos = enrollment
           .map((csid, _) => csid)
-          .filter(csid => commonArgs.students.matches(csid.value))
+          .filter(csid => commonArgs.students.track.block.matches(csid.value))
           .map(csid => (csid, p.late_commits(csid, cutoff).track.block.value))
           .filter((_, late_commits) => late_commits.nonEmpty)
           .toSeq
@@ -562,13 +583,13 @@ object Main {
       println(c.course_name)
       for {
         (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.track.block.matches(pn)
       } {
         println(s"    $pn")
         var count = 0
         for {
           (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.matches(csid.value)
+          if commonArgs.students.track.block.matches(csid.value)
         } {
           val _ = p.publish_work_repo(csid).guilty
           count = count + 1
@@ -809,12 +830,12 @@ object Main {
       println(c.course_name)
       for {
         (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.guilty.matches(pn)
       } {
         println(s"${c.course_name}:$pn")
         for {
           (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.matches(csid.value)
+          if commonArgs.students.guilty.matches(csid.value)
         } {
           val res = p.get_student_results(csid).guilty
           res.foreach { res =>
@@ -836,11 +857,11 @@ object Main {
     for (c <- commonArgs.selected_courses.track.block) {
       for {
         (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.guilty.matches(pn)
       } {
         for {
           (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.matches(csid.value)
+          if commonArgs.students.guilty.matches(csid.value)
         } {
           // say(s"---> ${c.course_name}:$pn:$csid")
           p.notify_student_results(csid).guilty
@@ -856,7 +877,7 @@ object Main {
     for (c <- commonArgs.selected_courses.guilty) {
       for {
         (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.matches(pn)
+        if commonArgs.projects.guilty.matches(pn)
       } {
 
         HtmlGen(p).gen_html.guilty
