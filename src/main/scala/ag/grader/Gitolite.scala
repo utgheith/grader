@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.git.{Sha, git}
-import ag.r2.{Scope, Target, WithData, create_data, periodic, say}
+import ag.r2.{Scope, Target, WithData, periodic, update_data, say}
 
 import language.experimental.namedTuples
 import upickle.default.read
@@ -66,10 +66,13 @@ object Gitolite extends Scope(".") {
 
   lazy val mirror: String => Target[WithData[Boolean]] = fun { (repo: String) =>
     target[RepoInfo, WithData[Boolean]](repo_info(repo)) { repo_info =>
-      create_data[Boolean](skip = _.lastOpt.contains(".git")) { dir =>
+      update_data[Boolean](skip = _.lastOpt.contains(".git")) { dir =>
         repo_info match {
           case RepoInfo(server, _, Some(_)) =>
             try {
+              if (!os.isDir(dir / ".git")) {
+                throw Exception("force clone")
+              }
               say(s"pulling $repo")
               server.SshProc("git", "pull").check(cwd = dir)
             } catch {
