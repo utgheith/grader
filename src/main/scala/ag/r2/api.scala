@@ -7,7 +7,20 @@ import upickle.default.ReadWriter
 
 import scala.compiletime.summonFrom
 
-inline def say(inline msg: => Any): Unit = {
+object Noise {
+  private var noise: Boolean = false
+
+  def apply(): Boolean = noise
+
+  Thread.ofPlatform().daemon(true).start { () =>
+    while (true) {
+      val _ = System.in.read()
+      noise = !noise
+    }
+  }
+}
+
+inline def say(inline msg: => Any): Unit = if (Noise()) {
   summonFrom[Context[?]] {
     case ctx: Context[?] => Context.say(Some(ctx), msg)
     case _               => Context.say(None, msg)

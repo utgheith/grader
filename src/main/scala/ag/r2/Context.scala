@@ -29,21 +29,21 @@ import scala.annotation.implicitNotFound
 object Context {
   private val printLock: Semaphore = new Semaphore(1)
 
-  def say(ctx: Option[Context[?]], msg: => Any): Unit = {
+  def say(ctx: Option[Context[?]], msg: => Any): Unit = if (Noise()) {
     val t = if (msg == null) {
       "<null>"
     } else {
       msg.toString
     }
     printLock.down(1) {
-      (1 to ctx.map(_.depth).getOrElse(0)).foreach(_ => print("."))
-      print(s"[${Thread.currentThread().getName}] ")
+      (1 to ctx.map(_.depth).getOrElse(0)).foreach(_ => System.err.print("."))
+      System.err.print(s"[${Thread.currentThread().getName}] ")
       for {
         ctx <- ctx
         prod <- ctx.producing_opt
-      } print(s"[${prod.path}] ")
-      print(t)
-      println()
+      } System.err.print(s"[${prod.path}] ")
+      System.err.print(t)
+      System.err.println()
     }
   }
 }
