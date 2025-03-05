@@ -11,6 +11,7 @@ import java.io.OutputStream
 import java.util.concurrent.{CountDownLatch, Semaphore}
 import scala.concurrent.Future
 import scala.util.Try
+import scala.util.matching.Regex
 
 ///// ReadWriter for SortedMap ////
 
@@ -70,6 +71,11 @@ given ReadWriter[ZonedDateTime] =
 
 given ReadWriter[Duration] = readwriter[String]
   .bimap[Duration](dur => dur.toString, str => Duration.parse(str))
+
+///////// ReadWriter for Regex //////
+
+given ReadWriter[Regex] =
+  readwriter[String].bimap[Regex](r => r.toString, s => new Regex(s))
 
 ////// MessageDigest //////
 

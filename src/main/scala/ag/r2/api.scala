@@ -31,6 +31,36 @@ def eval[A, B, Out: ReadWriter](fa: Future[A], fb: Future[B])(
     } yield out
   }
 
+def eval[A, B, C, Out: ReadWriter](fa: Future[A], fb: Future[B], fc: Future[C])(
+    f: Producer[Out] ?=> (A, B, C) => Future[Out]
+)(using Tracker[Out]): Future[Result[Out]] =
+  run_if_needed {
+    for {
+      a <- fa
+      b <- fb
+      c <- fc
+      out <- f(a, b, c)
+    } yield out
+  }
+
+def eval[A, B, C, D, Out: ReadWriter](
+    fa: Future[A],
+    fb: Future[B],
+    fc: Future[C],
+    fd: Future[D]
+)(
+    f: Producer[Out] ?=> (A, B, C, D) => Future[Out]
+)(using Tracker[Out]): Future[Result[Out]] =
+  run_if_needed {
+    for {
+      a <- fa
+      b <- fb
+      c <- fc
+      d <- fd
+      out <- f(a, b, c, d)
+    } yield out
+  }
+
 def create_data[A](skip: os.RelPath => Boolean)(
     f: Producer[WithData[A]] ?=> os.Path => A
 )(using ctx: Producer[WithData[A]]): WithData[A] = {

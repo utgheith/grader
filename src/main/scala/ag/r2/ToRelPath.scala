@@ -1,6 +1,7 @@
 package ag.r2
 
 import scala.compiletime.{summonAll, summonFrom, summonInline}
+import scala.util.matching.Regex
 
 trait ToRelPath[A] {
   def apply(a: A): os.RelPath
@@ -14,10 +15,14 @@ object ToRelPath {
     case _                  => ???
   }
 
+  given ToRelPath[Boolean] = b => os.RelPath(if (b) "yes" else "no")
+
   given ToRelPath[sourcecode.FullName] = fn =>
     os.RelPath(fn.value.split('.').mkString("/"))
 
   given ToRelPath[os.RelPath] = p => p
+
+  given ToRelPath[Regex] = r => os.RelPath(r.toString)
 
   given [T: ToRelPath] => ToRelPath[Option[T]] = {
     case Some(t) => ToRelPath(t)
