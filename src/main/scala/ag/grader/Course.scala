@@ -2,6 +2,7 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
+  eval,
   Scope,
   Target,
   ToRelPath,
@@ -44,16 +45,13 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val active_projects: Target[SortedMap[String, Project]] =
     complex_target {
-      val projects_f = projects.track
-      val active_flags_f = for {
-        projects <- projects_f
+      val ps = projects.track
+      val active_flags = for {
+        projects <- ps
         active_flags <- Future.sequence(projects.values.map(_.active.track))
       } yield active_flags
-      run_if_needed {
-        for {
-          projects <- projects_f
-          active_flags <- active_flags_f
-        } yield projects.values
+      eval(ps, active_flags) { (projects, active_flags) =>
+        projects.values
           .zip(active_flags)
           .filter(_._2)
           .map(p => (p._1.project_name, p._1))
@@ -104,7 +102,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       Config.can_send_mail,
       Config.can_push_repo
     ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
-      create_data(_.lastOpt.contains(".git")) { dir =>
+      create_data(skip = _.lastOpt.contains(".git")) { dir =>
         val added = g.update(
           path = dir,
           fork_from = None,

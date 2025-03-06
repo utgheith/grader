@@ -1,4 +1,4 @@
-scalaVersion := "3.6.3"
+scalaVersion := "3.6.4"
 
 scalacOptions ++= Seq(
   "-Wall",
@@ -16,7 +16,7 @@ testFrameworks += TestFramework("munit.Framework")
 libraryDependencies ++= Seq(
   "com.lihaoyi" %% "fansi" % "0.5.0" ,
   "com.lihaoyi" %% "mainargs" % "0.7.6" ,
-  "com.lihaoyi" %% "os-lib" % "0.11.3" ,
+  "com.lihaoyi" %% "os-lib" % "0.11.4" ,
   "com.lihaoyi" %% "pprint" % "0.9.0" ,
   "com.lihaoyi" %% "sourcecode" % "0.4.2" ,
   "com.lihaoyi" %% "upickle" % "4.0.2",

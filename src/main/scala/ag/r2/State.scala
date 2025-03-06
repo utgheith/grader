@@ -29,12 +29,17 @@ class State(val workspace: os.Path) extends Tracker {
     sys.exit(-1)
   }
 
-  def target_path(target: TargetBase): os.Path =
-    workspace / "targets" / target.path
-  def data_path(target: TargetBase): os.Path = target_path(target) / "data"
-  def saved_path(target: TargetBase): os.Path =
+  def target_path(target: TargetBase | os.RelPath): os.Path =
+    workspace / "targets" / (target match {
+      case t: TargetBase => t.path
+      case p: os.RelPath => p
+    })
+  def data_path(target: TargetBase | os.RelPath): os.Path =
+    target_path(target) / "data"
+  def saved_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "saved.json"
-  def dirty_path(target: TargetBase): os.Path = target_path(target) / "dirty"
+  def dirty_path(target: TargetBase | os.RelPath): os.Path =
+    target_path(target) / "dirty"
 
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
 
