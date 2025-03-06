@@ -11,7 +11,7 @@ case class WithData[A](
     data_signature: Signature
 ) {
   def get_data_path(using p: Context[?]): os.Path =
-    p.state.data_path(TargetBase(target_name))
+    p.state.data_path(target_name)
 }
 
 object WithData {
@@ -33,13 +33,13 @@ object WithData {
 trait TargetBase {
   // Our unique name
   val path: os.RelPath
-
-  // def data_path(using ctx: Tracker[?]): os.Path = ctx.state.data_path(this)
+  val is_peek: Boolean
 }
 
 object TargetBase {
-  def apply(p: os.RelPath): TargetBase = new TargetBase {
+  def apply(p: os.RelPath, peek: Boolean): TargetBase = new TargetBase {
     override val path: os.RelPath = p
+    override val is_peek: Boolean = peek
   }
 }
 
@@ -60,9 +60,16 @@ trait Target[A: ReadWriter] extends TargetBase { outer =>
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
     override def make(using Tracker[A]): Future[Result[A]] = outer.make
+    override val is_peek: Boolean = outer.is_peek
   }
 
-  def peek: Target[A] = ???
+  def peek: Target[A] = if (is_peek) this
+  else
+    new Target[A] {
+      override val path: os.RelPath = outer.path
+      override def make(using Tracker[A]): Future[Result[A]] = outer.make
+      override val is_peek: Boolean = true
+    }
 
 }
 
@@ -73,5 +80,6 @@ object Target {
     override val path: os.RelPath = p
     override def make(using Tracker[A]): Future[Result[A]] =
       f
+    override val is_peek: Boolean = false
   }
 }
