@@ -77,10 +77,16 @@ trait Tracker[A] extends Context[A] {
   }
 }
 
+enum Old[A] {
+  case Keep(saved: Saved[A])
+  case Make(saved: Option[Saved[A]]) 
+}
+
 @implicitNotFound("no given Producer")
 trait Producer[A] extends Context[A] {
   def producing: Target[A]
-
+  def old: Old[A]
+  
   // override lazy val producing_opt: Option[Target[A]] = Some(producing)
 
   // var skip_filter: (os.RelPath => Boolean) | Null = null

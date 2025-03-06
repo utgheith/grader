@@ -58,59 +58,61 @@ class State(val workspace: os.Path) extends Tracker {
       f: Producer[A] ?=> Future[A]
   ): Future[Result[A]] = {
 
-    val s = this
-
-    val producer = new Producer[A] {
+    val producer: Producer[A] = new Producer[A] {
       override val depth: Int = tracker.depth
       override val producing: Target[A] = tracker.producing_opt.get
-      override val state: State = s
+      override val state: State = State.this
 
       override def producing_opt: Option[Target[A]] = tracker.producing_opt
 
-      override def execute(runnable: Runnable): Unit = s.execute(runnable)
+      override def execute(runnable: Runnable): Unit = state.execute(runnable)
 
       override def reportFailure(cause: Throwable): Unit =
-        s.reportFailure(cause)
-    }
-
-    if (os.exists(producer.dirty_path)) {
-      say("removing dirty state")
-      os.remove.all(producer.target_path)
-    }
-
-    // (1) let's find out if we have a saved value
-    val old_saved: Option[Saved[A]] = if (os.isFile(producer.saved_path)) {
-      try {
-        say("loading old state")
-        val old = read[Saved[A]](os.read(producer.saved_path))
-        // (2) we seem to have one, check if the dependencies changed
-        // ctx has the newly discovered dependencies
-        // old has the dependency at the time the value was saved
-        say("checking dependencies")
-        if (
-          tracker.dependencies
-            .forall((p, s) => old.depends_on.get(p).contains(s))
-        ) {
-          say("keeping old state")
-          Some(old)
-        } else {
-          None
+        state.reportFailure(cause)
+      
+      lazy val old: Old[A] =  {
+        if (os.exists(this.dirty_path)) {
+          say("removing dirty state")
+          os.remove.all(this.target_path)
         }
-      } catch {
-        case NonFatal(e) =>
-          say(s"load error $e")
-          os.remove.all(producer.saved_path)
-          None
+
+        // (1) let's find out if we have a saved value
+        if (os.isFile(this.saved_path)) {
+          try {
+            say("loading old state")
+            val old = read[Saved[A]](os.read(this.saved_path))
+            // (2) we seem to have one, check if the dependencies changed
+            // ctx has the newly discovered dependencies
+            // old has the dependency at the time the value was saved
+            say("checking dependencies")
+            if (
+              tracker.dependencies
+                .forall((p, s) => old.depends_on.get(p).contains(s))
+            ) {
+              say("keeping old state")
+              Old.Keep(old)
+            } else {
+              say("dependencies changed for old state")
+              Old.Make(Some(old))
+            }
+          } catch {
+            case NonFatal(e) =>
+              say(s"load error $e")
+              os.remove.all(this.saved_path)
+              Old.Make(None)
+          }
+        } else {
+          say(s"no old state")
+          Old.Make(None)
+        }  
+        
       }
-    } else {
-      None
     }
 
-    old_saved match {
-      case Some(old_saved) =>
-        // We found a result we like on disk, done
-        Future.successful(old_saved.result)
-      case None =>
+    producer.old match {
+      case Old.Keep(s) =>
+        Future.successful(s.result)
+      case Old.Make(_) =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
 

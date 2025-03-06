@@ -43,7 +43,8 @@ object TargetBase {
   }
 }
 
-trait Target[A: ReadWriter] extends TargetBase { outer =>
+trait Target[A: ReadWriter] extends TargetBase {
+  outer =>
 
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
@@ -59,7 +60,9 @@ trait Target[A: ReadWriter] extends TargetBase { outer =>
 
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
+
     override def make(using Tracker[A]): Future[Result[A]] = outer.make
+
     override val is_peek: Boolean = outer.is_peek
   }
 
@@ -67,11 +70,15 @@ trait Target[A: ReadWriter] extends TargetBase { outer =>
   else
     new Target[A] {
       override val path: os.RelPath = outer.path
+
       override def make(using Tracker[A]): Future[Result[A]] = outer.make
+
       override val is_peek: Boolean = true
     }
-
+    
+  
 }
+
 
 object Target {
   def apply[A: ReadWriter](
