@@ -3,6 +3,7 @@ package ag.r2
 import upickle.default.ReadWriter
 
 import scala.concurrent.Future
+import scala.reflect.ClassTag
 
 class Scope(base_ : os.RelPath | String | Scope) { self =>
 
@@ -13,19 +14,19 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
   }
   def /[A: ToRelPath](more: A): Scope = new Scope(base / ToRelPath(more))
 
-  def target[Out: ReadWriter]()(
-      f: Producer[Out] ?=> Out
+  def target[Out: {ClassTag, ReadWriter}]()(
+      f: Producer[Out] ?=> Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
     run_if_needed {
-      Future.successful(f)
+      f
     }
   }
 
   // val x = target(ta) { va => ... }
-  def target[A, Out: ReadWriter](ta: Target[A])(
-      f: Producer[Out] ?=> A => Out
+  def target[A, Out: {ClassTag, ReadWriter}](ta: Target[A])(
+      f: Producer[Out] ?=> A => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -33,15 +34,16 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     run_if_needed {
       for {
         a <- fa
-      } yield f(a)
+        out <- force_future(f(a))
+      } yield out
     }
   }
 
   // val ta: Target[A]
   // val tb: Target[B]
   // val x = target(ta, tb) { (va, vb) => ... }
-  def target[A, B, Out: ReadWriter](ta: Target[A], tb: Target[B])(
-      f: Producer[Out] ?=> (A, B) => Out
+  def target[A, B, Out: {ClassTag, ReadWriter}](ta: Target[A], tb: Target[B])(
+      f: Producer[Out] ?=> (A, B) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -51,17 +53,18 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       for {
         a <- fa
         b <- fb
-      } yield f(a, b)
+        out <- force_future(f(a, b))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc) { (va, vb, vc) => ... }
-  def target[A, B, C, Out: ReadWriter](
+  def target[A, B, C, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C]
   )(
-      f: Producer[Out] ?=> (A, B, C) => Out
+      f: Producer[Out] ?=> (A, B, C) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -73,18 +76,19 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         a <- fa
         b <- fb
         c <- fc
-      } yield f(a, b, c)
+        out <- force_future(f(a, b, c))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td) { (va, vb, vc, vd) => ... }
-  def target[A, B, C, D, Out: ReadWriter](
+  def target[A, B, C, D, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
       td: Target[D]
   )(
-      f: Producer[Out] ?=> (A, B, C, D) => Out
+      f: Producer[Out] ?=> (A, B, C, D) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -98,19 +102,20 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         b <- fb
         c <- fc
         d <- fd
-      } yield f(a, b, c, d)
+        out <- force_future(f(a, b, c, d))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te) { (va, vb, vc, vd, ve) => ... }
-  def target[A, B, C, D, E, Out: ReadWriter](
+  def target[A, B, C, D, E, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
       td: Target[D],
       te: Target[E]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -126,12 +131,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         c <- fc
         d <- fd
         e <- fe
-      } yield f(a, b, c, d, e)
+        out <- force_future(f(a, b, c, d, e))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf) { (va, vb, vc, vd, ve, vf) => ... }
-  def target[A, B, C, D, E, F, Out: ReadWriter](
+  def target[A, B, C, D, E, F, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -139,7 +145,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       te: Target[E],
       tf: Target[F]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -157,12 +163,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vd <- fd
         ve <- fe
         vf <- ff
-      } yield f(va, vb, vc, vd, ve, vf)
+        out <- force_future(f(va, vb, vc, vd, ve, vf))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg) { (va, vb, vc, vd, ve, vf, vg) => ... }
-  def target[A, B, C, D, E, F, G, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -171,7 +178,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tf: Target[F],
       tg: Target[G]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -191,12 +198,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         ve <- fe
         vf <- ff
         vg <- fg
-      } yield f(va, vb, vc, vd, ve, vf, vg)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th) { (va, vb, vc, vd, ve, vf, vg, vh) => ... }
-  def target[A, B, C, D, E, F, G, H, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, H, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -206,7 +214,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tg: Target[G],
       th: Target[H]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -228,12 +236,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vf <- ff
         vg <- fg
         vh <- fh
-      } yield f(va, vb, vc, vd, ve, vf, vg, vh)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti) { (va, vb, vc, vd, ve, vf, vg, vh, vi) => ... }
-  def target[A, B, C, D, E, F, G, H, I, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, H, I, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -244,7 +253,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       th: Target[H],
       ti: Target[I]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -268,12 +277,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vg <- fg
         vh <- fh
         vi <- fi
-      } yield f(va, vb, vc, vd, ve, vf, vg, vh, vi)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, H, I, J, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -285,7 +295,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       ti: Target[I],
       tj: Target[J]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J) => Out | Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -311,12 +321,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vh <- fh
         vi <- fi
         vj <- fj
-      } yield f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, K, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, H, I, J, K, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -357,12 +368,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vi <- fi
         vj <- fj
         vk <- fk
-      } yield f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk))
+      } yield out
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, K, L, Out: ReadWriter](
+  def target[A, B, C, D, E, F, G, H, I, J, K, L, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -376,7 +388,8 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tk: Target[K],
       tl: Target[L]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L) => Out
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L) => Out |
+        Future[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -406,12 +419,13 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vj <- fj
         vk <- fk
         vl <- fl
-      } yield f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl)
+        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl))
+      } yield out
     }
   }
 
   // fun { (a: A) => target { ... } } same as target { ... } but appends "/a" to the target path
-  def fun[A: ToRelPath, Out: ReadWriter](
+  def fun[A: ToRelPath, Out: {ClassTag, ReadWriter}](
       f: A => Target[Out]
   ): A => Target[Out] = { (a: A) => f(a).append(ToRelPath(a)) }
   def fun[A: ToRelPath, B: ToRelPath, Out: ReadWriter](

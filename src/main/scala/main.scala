@@ -162,13 +162,12 @@ case class CommonArgs(
 
     eval(students.track, ps, csids_seq) {
       (students: Regex, ps: Seq[Project], csids_seq: Seq[SortedSet[CSID]]) =>
-        Future.successful {
-          for {
-            (p, csids) <- ps.zip(csids_seq)
-            csid <- csids
-            if students.matches(csid.value)
-          } yield (p, csid)
-        }
+        for {
+          (p, csids) <- ps.zip(csids_seq)
+          csid <- csids
+          if students.matches(csid.value)
+        } yield (p, csid)
+
     }
 
   }
@@ -190,15 +189,13 @@ case class CommonArgs(
     eval(tests.track, ps, per_project_test_ids) {
       (tests, projects, per_project_test_ids) =>
         // run less often, we can afford to work harder here
-        Future.successful {
-          for {
-            (p, test_ids) <- projects.zip(per_project_test_ids)
-            test_id <- test_ids
-            if tests.matches(test_id.external_name) || tests.matches(
-              test_id.internal_name
-            )
-          } yield (p, test_id)
-        }
+        for {
+          (p, test_ids) <- projects.zip(per_project_test_ids)
+          test_id <- test_ids
+          if tests.matches(test_id.external_name) || tests.matches(
+            test_id.internal_name
+          )
+        } yield (p, test_id)
     }
   }
 
@@ -222,18 +219,16 @@ case class CommonArgs(
 
     eval(students.track, tests.track, ps, per_project_ids) {
       (students, tests, ps, per_project_ids) =>
-        Future.successful {
-          for {
-            (p, (csids, test_ids)) <- ps.zip(per_project_ids)
-            the_test_ids = test_ids.filter(id =>
-              tests.matches(id.external_name) || tests.matches(id.internal_name)
-            )
-            if the_test_ids.nonEmpty
-            csid <- csids.toSeq
-            if students.matches(csid.value)
-            test_id <- the_test_ids
-          } yield (p, csid, test_id)
-        }
+        for {
+          (p, (csids, test_ids)) <- ps.zip(per_project_ids)
+          the_test_ids = test_ids.filter(id =>
+            tests.matches(id.external_name) || tests.matches(id.internal_name)
+          )
+          if the_test_ids.nonEmpty
+          csid <- csids.toSeq
+          if students.matches(csid.value)
+          test_id <- the_test_ids
+        } yield (p, csid, test_id)
     }
   }
 }

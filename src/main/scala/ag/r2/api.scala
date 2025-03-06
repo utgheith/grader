@@ -6,6 +6,7 @@ import scala.concurrent.Future
 import upickle.default.ReadWriter
 
 import scala.compiletime.summonFrom
+import scala.reflect.ClassTag
 
 object Noise {
   private var noise: Boolean = false
@@ -20,6 +21,11 @@ object Noise {
   }
 }
 
+inline def force_future[A: ClassTag](v: A | Future[A]): Future[A] = v match {
+  case fa: Future[?] => fa.mapTo[A]
+  case v             => Future.successful(v).mapTo[A]
+}
+
 inline def say(inline msg: => Any): Unit = if (Noise()) {
   summonFrom[Context[?]] {
     case ctx: Context[?] => Context.say(Some(ctx), msg)
@@ -28,41 +34,45 @@ inline def say(inline msg: => Any): Unit = if (Noise()) {
 }
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
-def run_if_needed[A: ReadWriter](
-    f: Producer[A] ?=> Future[A]
+def run_if_needed[A: {ClassTag, ReadWriter}](
+    f: Producer[A] ?=> A | Future[A]
 )(using tracker: Tracker[A]): Future[Result[A]] =
-  tracker.state.run_if_needed(f)
+  tracker.state.run_if_needed(force_future(f))
 
-def eval[A, B, Out: ReadWriter](fa: Future[A], fb: Future[B])(
-    f: Producer[Out] ?=> (A, B) => Future[Out]
+def eval[A, B, Out: {ClassTag, ReadWriter}](fa: Future[A], fb: Future[B])(
+    f: Producer[Out] ?=> (A, B) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
   run_if_needed {
     for {
       a <- fa
       b <- fb
-      out <- f(a, b)
+      out <- force_future(f(a, b))
     } yield out
   }
 
-def eval[A, B, C, Out: ReadWriter](fa: Future[A], fb: Future[B], fc: Future[C])(
-    f: Producer[Out] ?=> (A, B, C) => Future[Out]
+inline def eval[A, B, C, Out: {ClassTag, ReadWriter}](
+    fa: Future[A],
+    fb: Future[B],
+    fc: Future[C]
+)(
+    f: Producer[Out] ?=> (A, B, C) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
   run_if_needed {
     for {
       a <- fa
       b <- fb
       c <- fc
-      out <- f(a, b, c)
+      out <- force_future(f(a, b, c))
     } yield out
   }
 
-def eval[A, B, C, D, Out: ReadWriter](
+def eval[A, B, C, D, Out: {ClassTag, ReadWriter}](
     fa: Future[A],
     fb: Future[B],
     fc: Future[C],
     fd: Future[D]
 )(
-    f: Producer[Out] ?=> (A, B, C, D) => Future[Out]
+    f: Producer[Out] ?=> (A, B, C, D) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
   run_if_needed {
     for {
@@ -70,7 +80,7 @@ def eval[A, B, C, D, Out: ReadWriter](
       b <- fb
       c <- fc
       d <- fd
-      out <- f(a, b, c, d)
+      out <- force_future(f(a, b, c, d))
     } yield out
   }
 

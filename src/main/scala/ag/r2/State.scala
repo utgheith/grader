@@ -93,7 +93,7 @@ class State(val workspace: os.Path) extends Tracker {
         }
       } catch {
         case NonFatal(e) =>
-          say("load error")
+          say(s"load error $e")
           os.remove.all(producer.saved_path)
           None
       }
