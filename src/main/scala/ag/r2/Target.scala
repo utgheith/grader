@@ -75,10 +75,8 @@ trait Target[A: ReadWriter] extends TargetBase {
 
       override val is_peek: Boolean = true
     }
-    
-  
-}
 
+}
 
 object Target {
   def apply[A: ReadWriter](

@@ -45,19 +45,16 @@ class State(val workspace: os.Path) extends Tracker {
 
   // pre-condition: ctx is populated with dependencies for this target
   // The simplest way to achieve this is to write code that looks like this:
-  //  Target {
+  //  Target
   //       a.track
   //       b.track
-  //       run_if_needed { // depends on a and b
-  //            ...
-  //       }
-  //  }
-  def run_if_needed[A: ReadWriter](using
+  //       run_if_needed { ... } // depends on a and b
+  //
+  def run[A: ReadWriter](using
       tracker: Tracker[A]
   )(
-      f: Producer[A] ?=> Future[A]
+      f: Producer[A] ?=> OldState[A] => OldState.Current[A] | Future[Result[A]]
   ): Future[Result[A]] = {
-
     val producer: Producer[A] = new Producer[A] {
       override val depth: Int = tracker.depth
       override val producing: Target[A] = tracker.producing_opt.get
@@ -69,8 +66,8 @@ class State(val workspace: os.Path) extends Tracker {
 
       override def reportFailure(cause: Throwable): Unit =
         state.reportFailure(cause)
-      
-      lazy val old: Old[A] =  {
+
+      lazy val old_state: OldState[A] = {
         if (os.exists(this.dirty_path)) {
           say("removing dirty state")
           os.remove.all(this.target_path)
@@ -90,33 +87,47 @@ class State(val workspace: os.Path) extends Tracker {
                 .forall((p, s) => old.depends_on.get(p).contains(s))
             ) {
               say("keeping old state")
-              Old.Keep(old)
+              OldState.Current(old)
             } else {
               say("dependencies changed for old state")
-              Old.Make(Some(old))
+              OldState.Expired(old)
             }
           } catch {
             case NonFatal(e) =>
               say(s"load error $e")
               os.remove.all(this.saved_path)
-              Old.Make(None)
+              OldState.Missing
           }
         } else {
           say(s"no old state")
-          Old.Make(None)
-        }  
-        
+          OldState.Missing
+        }
+
       }
     }
 
-    producer.old match {
-      case Old.Keep(s) =>
+    f(using producer)(producer.old_state) match {
+      case OldState.Current(ov)   => Future.successful(ov.result)
+      case fra: Future[Result[A]] => fra
+    }
+
+  }
+
+  def run_if_needed[A: ReadWriter](using
+      tracker: Tracker[A]
+  )(
+      f: Producer[A] ?=> Future[A]
+  ): Future[Result[A]] = {
+    run {
+      case OldState.Current(s) =>
         Future.successful(s.result)
-      case Old.Make(_) =>
+      case old_state =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
 
-        say("making")
+        val producer = summon[Producer[A]]
+
+        say(s"making, old state ${old_state}")
 
         // remove the old result
         os.remove.all(producer.target_path)
@@ -140,7 +151,6 @@ class State(val workspace: os.Path) extends Tracker {
           say("done")
           new_result
         }
-
     }
   }
 
