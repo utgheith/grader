@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 import scala.caps.Capability
 
 case class Context[A](state: State, rule: Rule[?, A], old: Option[A])

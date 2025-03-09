@@ -1,5 +1,7 @@
 package ag.grader
 
+import scala.language.experimental.namedTuples
+
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
   eval,

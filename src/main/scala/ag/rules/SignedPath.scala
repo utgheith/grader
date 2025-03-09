@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 import ag.common.{Signature, Signer, given_ReadWriter_Path}
 
 import scala.collection.SortedSet
