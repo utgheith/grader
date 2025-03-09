@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 import scala.util.control.NonFatal
 
 case class RuleException private (

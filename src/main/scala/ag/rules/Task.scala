@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 trait Task[+Out] { self =>
   def block: Out
 

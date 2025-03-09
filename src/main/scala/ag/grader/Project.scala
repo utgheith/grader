@@ -1,8 +1,9 @@
 package ag.grader
 
+import language.experimental.namedTuples
+
 import ag.common.{
   block,
-  down,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
@@ -14,11 +15,16 @@ import ag.r2.{
   ToRelPath,
   WithData,
   create_data,
+  OldState,
+  Producer,
+  Result,
   run_if_needed,
   say,
+  Saved,
+  Tracker,
   update_data
 }
-import ag.rules.{Optional, check, lines, run}
+import ag.rules.{check, lines, run}
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
@@ -312,12 +318,12 @@ case class Project(course: Course, project_name: String)
   }
 
   def copy_test(
-      test_info: TestInfo,
+      test_id: TestId,
       from: os.Path,
       to: os.Path,
       test_extensions: SortedSet[String]
   ): Unit = {
-    val name = test_info.id.external_name
+    val name = test_id.external_name
     // remove all files that start with this name
     if (os.exists(to)) {
       for {
@@ -592,7 +598,7 @@ case class Project(course: Course, project_name: String)
       }
   }
 
-  private def copy_results(
+  def copy_results(
       src_dir: os.Path,
       dest_dir: os.Path,
       test_id: TestId
@@ -618,141 +624,69 @@ case class Project(course: Course, project_name: String)
   }
 
   // Run a submission/test combination once and report the outcome
-  lazy val run_one
-      : (CSID, CutoffTime, TestId, Int) => Target[WithData[Outcome]] = fun {
-    (csid, cutoff, test_id, n) =>
-      target(
-        test_info(test_id),
-        test_extensions,
-        prepare(csid, cutoff),
-        cores
-      ) { (test_info, test_extensions, prepared, cores) =>
-        create_data(_ => false) { out_path =>
-          started_runs.incrementAndGet()
-          try {
-            if (cores > limit) {
-              throw new Exception(s"need $cores cores, limit is $limit")
-            }
+  def run_one(
+      n: Int
+  ): (CSID, CutoffTime, TestId) => Target[WithData[Outcome]] = fun {
+    (csid, cutoff, test_id) =>
+      complex_target {
+        val test_info_f = test_info(test_id).track
+        val test_extensions_f = test_extensions.track
+        val prepared_f = prepare(csid, cutoff).track
+        val cores_f = cores.track
 
-            // all tests for the same project/csid share the same prepared directory
-            Project.run_lock(prepared.get_data_path) {
-              governor.down(cores) {
-                copy_test(
-                  test_info.value,
-                  test_info.get_data_path,
-                  prepared.get_data_path,
-                  test_extensions
-                )
-                val tn = test_id.external_name
-                val m =
-                  s"$tn/${test_id.internal_name} for ${course.course_name}_${project_name}_$csid"
-                say(f"running#$n $m on $cores cores")
-
-                val start = System.currentTimeMillis()
-                var run_time: Option[Double] = None
-                val (_, _, stderr) =
-                  try {
-                    val _ = os
-                      .proc("make", "-k", "clean")
-                      .run(cwd = prepared.get_data_path, check = false)
-                    os.proc("make", "-k", s"$tn.test")
-                      .run(cwd = prepared.get_data_path, check = false)
-                  } finally {
-                    val end = System.currentTimeMillis()
-                    run_time = Some((end - start).toDouble / 1000)
+        summon[Tracker[WithData[Outcome]]].state.run[WithData[Outcome]] { old_state =>
+          val (cs, history) = old_state match {
+            case cs @ OldState.Current(
+                  Saved(Result(WithData(v, _, _), _), _)
+                ) =>
+              (Some(cs), v.outcomes)
+            case _ =>
+              (None, Seq())
+          }
+          cs match {
+            case Some(cs) if history.size >= n =>
+              cs
+            case _ =>
+              for {
+                test_info <- test_info_f
+                test_extensions <- test_extensions_f
+                prepared <- prepared_f
+                cores <- cores_f
+              } yield {
+                update_data(_ => false) { dir =>
+                  if (history.size == 0) {
+                    os.remove.all(dir)
+                    os.makeDir.all(dir)
                   }
+                  val out_dir = dir / n.toString
+                  os.remove.all(out_dir)
+                  os.makeDir.all(out_dir)
+                  
+                  val res = doit(
+                    project = this,
+                    csid = csid,
+                    cores = cores,
+                    prepared_path = prepared.get_data_path,
+                    test_id = test_info.value.id,
+                    test_path = test_info.get_data_path,
+                    test_extensions = test_extensions,
+                    n = n,
+                    out_path = dir / n.toString
+                  )
 
-                val result_path = prepared.get_data_path / s"$tn.result"
-                val outcome_str =
-                  if (os.isFile(result_path))
-                    os.read.lines(result_path).headOption
-                  else None
-
-                val time_path = prepared.get_data_path / s"$tn.time"
-                val qemu_runtime_str =
-                  if (os.isFile(time_path)) os.read.lines(time_path).headOption
-                  else None
-
-                val qemu_runtime = qemu_runtime_str match
-                  case Some(Project.TimeFormat(Optional(None), min, sec)) =>
-                    Some(min.toDouble * 60 + sec.toDouble)
-                  case Some(
-                        Project.TimeFormat(Optional(Some(hours)), min, sec)
-                      ) =>
-                    Some(
-                      hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble
-                    )
-                  case Some("timeout") => None
-                  case _               => None
-
-                val outcome = (
-                  outcome_str.map(_.toLowerCase.nn),
-                  qemu_runtime_str.map(_.toLowerCase.nn)
-                ) match
-                  case (_, Some("timeout")) => OutcomeStatus.timeout
-                  case (Some("pass"), _)    => OutcomeStatus.pass
-                  case (Some("fail"), _)    => OutcomeStatus.fail
-                  case (_, _)               => OutcomeStatus.unknown
-
-                val how_long = run_time.map(t => f"$t%.2f")
-                val out = (if (outcome.isHappy) fansi.Color.Green
-                           else fansi.Color.Red) (outcome.toString)
-
-                say(s"    [${finished_runs.get()}/${started_runs
-                    .get()}] finished [$out] $m in $how_long seconds")
-
-                stderr.foreach { stderr =>
-                  os.copy(
-                    from = stderr,
-                    to = out_path / s"$tn.err",
-                    createFolders = true,
-                    replaceExisting = true,
-                    followLinks = false
+                  Outcome(
+                    project = this,
+                    test_id = test_id,
+                    csid = csid,
+                    commit_id = prepared.value.map(_.sha),
+                    outcomes = history :+ res
                   )
                 }
-                copy_results(prepared.get_data_path, out_path, test_id)
-                Outcome(
-                  this,
-                  csid,
-                  test_id,
-                  Some(outcome),
-                  // In the case of a timeout, show the outer runtime
-                  time = qemu_runtime.orElse(run_time),
-                  tries = n,
-                  prepared.value.map(_.sha)
-                )
               }
-            }
-          } finally {
-            val _ = finished_runs.incrementAndGet()
           }
         }
       }
   }
-
-  // Run a submission/test combination up to "n" times, up to the first failure and report the last outcome
-  lazy val run: (CSID, CutoffTime, TestId, Int) => Target[WithData[Outcome]] =
-    fun { (csid, cutoff, test_id, n) =>
-      val m = n.max(1)
-      complex_target {
-        val x: Future[WithData[Outcome]] = if (m == 1) {
-          run_one(csid, cutoff, test_id, 1).track
-        } else {
-          val prev_maker = run(csid, cutoff, test_id, n - 1).track
-          for {
-            prev <- prev_maker
-            it <-
-              if (prev.value.outcome.contains(OutcomeStatus.pass))
-                run_one(csid, cutoff, test_id, m).track
-              else prev_maker
-          } yield it
-        }
-
-        run_if_needed {
-          x
-        }
-      }
-    }
 
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
@@ -770,7 +704,7 @@ case class Project(course: Course, project_name: String)
       val outcomes = test_ids.track.flatMap { test_ids =>
         Future.sequence {
           test_ids.toSeq.map { test_id =>
-            run(csid, CutoffTime.None, test_id, n).track
+            run_one(n)(csid, CutoffTime.None, test_id).track
           }
         }
       }
@@ -1289,7 +1223,7 @@ case class Project(course: Course, project_name: String)
       create_data(_ => false) { dir =>
         tests.value.get(test_id) match {
           case Some(info) =>
-            copy_test(info, tests.get_data_path, dir, test_extensions)
+            copy_test(info.id, tests.get_data_path, dir, test_extensions)
             info
           case None =>
             throw Exception(s"no info for $test_id")
@@ -1385,16 +1319,16 @@ case class Project(course: Course, project_name: String)
       complex_target {
         val outs = for {
           ids <- chosen_test_ids.track
-          outs <- Future.sequence {
-            ids.toSeq.map(id => run_one(csid, cutoff_time, id, n).track)
+          outs: Seq[WithData[Outcome]] <- Future.sequence {
+            ids.toSeq.map(id => run_one(n)(csid, cutoff_time, id).track)
           }
         } yield outs
         run_if_needed {
           outs.map { outs =>
             (for {
-              sp <- outs
-              d = sp.value
-              if d.outcome.contains(OutcomeStatus.pass)
+              sp: WithData[Outcome] <- outs
+              d: Outcome = sp.value
+              if d.outcomes.map(_._1).contains(OutcomeStatus.pass)
             } yield d.test_id).to(SortedSet)
           }
         }
@@ -1433,7 +1367,7 @@ object Project extends Scope(".") {
 
   private val run_locks = TrieMap[os.Path, ReentrantLock]()
 
-  private def run_lock[A](path: os.Path)(f: => A): A = {
+  def run_lock[A](path: os.Path)(f: => A): A = {
     val lock = run_locks.getOrElseUpdate(path, new ReentrantLock())
     try {
       lock.lock()

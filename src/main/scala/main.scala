@@ -1,3 +1,5 @@
+import scala.language.experimental.namedTuples
+
 import ag.common.{
   block,
   given_ReadWriter_Regex,
@@ -13,7 +15,6 @@ import ag.grader.{
   Gitolite,
   HtmlGen,
   Outcome,
-  OutcomeStatus,
   Project,
   TestId
 }
@@ -259,7 +260,7 @@ object Main {
     } yield (p, s, test, outcome)).groupMapReduce {
       case (p, s, test, outcome) => (p, test)
     } { case (p, s, test, outcome) =>
-      !outcome.outcome.contains(OutcomeStatus.pass)
+      !outcome.is_happy
     }(_ && _)
 
     r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
@@ -457,7 +458,7 @@ object Main {
                 (_, test_info) <- tests.value
               } {
                 p.copy_test(
-                  test_info,
+                  test_info.id,
                   tests.get_data_path,
                   target_path,
                   test_extensions
@@ -624,7 +625,7 @@ object Main {
   private def show_failures(out: Seq[WithData[Outcome]]): Unit = {
     out
       .map(_.value)
-      .filterNot(_.outcome.contains(OutcomeStatus.pass))
+      .filterNot(_.is_happy)
       .groupBy(_.csid)
       .to(SortedMap)
       .foreach { (csid, s) =>
@@ -636,7 +637,7 @@ object Main {
               println(s"    ${c}_$p")
               s.sortBy(_.test_id.external_name).foreach { o =>
                 println(
-                  s"        ${o.test_id.external_name} ${o.outcome} ${o.tries} ${o.time}"
+                  s"        ${o.test_id.external_name} ${o.outcomes}"
                 )
               }
             }
@@ -691,7 +692,7 @@ object Main {
         runs <- commonArgs.runs.track
         out <- Future.sequence {
           for ((p, csid, test_id) <- runs)
-            yield p.run(csid, cutoff, test_id, c).track
+            yield p.run_one(c)(csid, cutoff, test_id).track
         }
       } yield out
       val out = outcomes.block
@@ -744,7 +745,7 @@ object Main {
           runs <- commonArgs.runs.track
           out <- Future.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run_one(csid, cutoff, test_id, c).track
+              yield p.run_one(c)(csid, cutoff, test_id).track
           }
         } yield out
 
@@ -775,7 +776,7 @@ object Main {
             val test_results = outcomes
               .groupBy(_.test_id)
               .map((test_id, runs) => {
-                val passed = runs.count(_.outcome.contains(OutcomeStatus.pass))
+                val passed = runs.count(_.is_happy)
                 val total = runs.size
                 (test_id.external_name, ujson.Arr(passed, total))
               })
@@ -836,7 +837,7 @@ object Main {
           res.foreach { res =>
             val count = res.outcomes.size
             val pass =
-              res.outcomes.values.count(_.outcome.contains(OutcomeStatus.pass))
+              res.outcomes.values.count(_.is_happy)
             println(
               s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
             )

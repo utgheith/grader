@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 import scala.collection.SortedSet
 
 // Something that could produce a value (e.g. a rule)

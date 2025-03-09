@@ -1,5 +1,7 @@
 package ag.rules
 
+import language.experimental.namedTuples
+
 import ag.common.Signature
 import upickle.default.{ReadWriter, read, write}
 

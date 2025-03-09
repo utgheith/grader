@@ -1,5 +1,7 @@
 package ag.grader
 
+import language.experimental.namedTuples
+
 import upickle.default.ReadWriter
 import scala.collection.SortedMap
 
@@ -17,8 +19,8 @@ object StudentFailures {
     has_test = rsr.has_test,
     failed_tests = (for {
       (test, outcome) <- rsr.outcomes
-      if !outcome.outcome.contains(OutcomeStatus.pass)
-    } yield (test, outcome.outcome)).to(SortedMap),
+      if !outcome.is_happy
+    } yield (test, outcome.last)).to(SortedMap),
     total_tests = rsr.outcomes.size,
     prepare_info = rsr.prepare_info
   )

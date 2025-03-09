@@ -53,7 +53,7 @@ class State(val workspace: os.Path) extends Tracker {
   def run[A: ReadWriter](using
       tracker: Tracker[A]
   )(
-      f: Producer[A] ?=> OldState[A] => OldState.Current[A] | Future[Result[A]]
+      f: Producer[A] ?=> OldState[A] => OldState.Current[A] | Future[A]
   ): Future[Result[A]] = {
     val producer: Producer[A] = new Producer[A] {
       override val depth: Int = tracker.depth
@@ -107,40 +107,24 @@ class State(val workspace: os.Path) extends Tracker {
     }
 
     f(using producer)(producer.old_state) match {
-      case OldState.Current(ov)   => Future.successful(ov.result)
-      case fra: Future[Result[A]] => fra
-    }
-
-  }
-
-  def run_if_needed[A: ReadWriter](using
-      tracker: Tracker[A]
-  )(
-      f: Producer[A] ?=> Future[A]
-  ): Future[Result[A]] = {
-    run {
-      case OldState.Current(s) =>
-        Future.successful(s.result)
-      case old_state =>
-        // We either didn't find a result on disk or we found one with changed dependencies.
-        // In either case, we forget the old result and evaluate again
-
-        val producer = summon[Producer[A]]
-
-        say(s"making, old state ${old_state}")
-
+      case OldState.Current(ov) =>
+        Future.successful(ov.result)
+      case fa: Future[A] =>
         // remove the old result
+        say("removing old result")
         os.remove.all(producer.target_path)
 
         // mark it as dirty while we compute it. This allows is to recover is the program
         // terminates in the middle of the computation
+        say("marking dirty")
         os.write.over(producer.dirty_path, "", createFolders = true)
 
         // Run the computation (asynchronous)
-        f(using producer).map { new_value =>
+        fa.map { new_value =>
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
           val new_saved = Saved(new_result, tracker.dependencies)
+          say("writing new state")
           os.write.over(
             producer.saved_path,
             write(new_saved, indent = 2),
@@ -151,6 +135,23 @@ class State(val workspace: os.Path) extends Tracker {
           say("done")
           new_result
         }
+    }
+
+  }
+
+  def run_if_needed[A: ReadWriter](using
+      tracker: Tracker[A]
+  )(
+      f: Producer[A] ?=> Future[A]
+  ): Future[Result[A]] = {
+    run {
+      case old_state @ OldState.Current(s) =>
+        old_state
+      case old_state =>
+        // We either didn't find a result on disk or we found one with changed dependencies.
+        // In either case, we forget the old result and evaluate again
+
+        f
     }
   }
 

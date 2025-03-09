@@ -1,5 +1,7 @@
 package ag.grader
 
+import language.experimental.namedTuples
+
 import ag.r2.{say, Target}
 
 import java.io.FileWriter
@@ -268,7 +270,7 @@ class HtmlGen(p: Project) {
                     val o: Option[RedactedOutcome] =
                       outcome.get(t.external_name)
                     val (status_class, the_text) =
-                      o.flatMap(_.outcome) match {
+                      o.flatMap(_.outcomes.lastOption.map(_._1)) match {
                         case Some(OutcomeStatus.pass) =>
                           ("pass", ".")
                         case Some(OutcomeStatus.fail) =>
@@ -284,11 +286,10 @@ class HtmlGen(p: Project) {
                     val the_class = List(status_class) ::: chosen_class
                     val ttl = o match {
                       case Some(
-                            RedactedOutcome(_, _, _, Some(time), tries)
-                          ) =>
-                        f"$tries%s tries, last took $time%.2fs"
-                      case Some(RedactedOutcome(_, _, _, None, tries)) =>
-                        s"$tries tries"
+                            o@RedactedOutcome(_, _, outcomes)
+                          ) if outcomes.nonEmpty =>                        
+                        f"${outcomes.size} tries, ${o.min_max}"
+
                       case _ =>
                         null
                     }

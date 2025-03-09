@@ -1,5 +1,7 @@
 package ag.grader
 
+import language.experimental.namedTuples
+
 import ag.r2.say
 import upickle.default.ReadWriter
 import ag.rules.check
