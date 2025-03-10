@@ -286,8 +286,8 @@ class HtmlGen(p: Project) {
                     val the_class = List(status_class) ::: chosen_class
                     val ttl = o match {
                       case Some(
-                            o@RedactedOutcome(_, _, outcomes)
-                          ) if outcomes.nonEmpty =>                        
+                            o @ RedactedOutcome(_, _, outcomes)
+                          ) if outcomes.nonEmpty =>
                         f"${outcomes.size} tries, ${o.min_max}"
 
                       case _ =>

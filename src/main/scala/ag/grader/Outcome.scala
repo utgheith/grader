@@ -16,7 +16,7 @@ trait OutcomeApi {
   def project: Project
   def csid_opt: Option[CSID]
   def outcomes: Seq[(OutcomeStatus, Option[Double])]
-  def test_id_opt: TestId|RedactedTestId
+  def test_id_opt: TestId | RedactedTestId
   def commit_id: Option[String]
 
   lazy val min_max: Option[(Double, Double)] = {
@@ -25,7 +25,8 @@ trait OutcomeApi {
     else Some((times.min, times.max))
   }
 
-  lazy val is_happy: Boolean = (!outcomes.isEmpty) && outcomes.forall(_._1.isHappy)
+  lazy val is_happy: Boolean =
+    (!outcomes.isEmpty) && outcomes.forall(_._1.isHappy)
 
   lazy val last: Option[OutcomeStatus] = outcomes.lastOption.map(_._1)
 }
@@ -37,7 +38,7 @@ case class RedactedOutcome(
     outcomes: Seq[(OutcomeStatus, Option[Double])]
 ) extends OutcomeApi derives ReadWriter {
   def commit_id: Option[String] = None
-  def test_id_opt: RedactedTestId|TestId = test_id
+  def test_id_opt: RedactedTestId | TestId = test_id
   def csid_opt: Option[CSID] = None
 }
 
@@ -51,7 +52,7 @@ case class Outcome(
 ) extends OutcomeApi derives ReadWriter {
 
   def csid_opt: Option[CSID] = Some(csid)
-  def test_id_opt: TestId|RedactedTestId = test_id
+  def test_id_opt: TestId | RedactedTestId = test_id
 
   lazy val redacted: RedactedOutcome = RedactedOutcome(
     project = project,

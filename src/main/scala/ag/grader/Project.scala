@@ -634,56 +634,57 @@ case class Project(course: Course, project_name: String)
         val prepared_f = prepare(csid, cutoff).track
         val cores_f = cores.track
 
-        summon[Tracker[WithData[Outcome]]].state.run[WithData[Outcome]] { old_state =>
-          val (cs, history) = old_state match {
-            case cs @ OldState.Current(
-                  Saved(Result(WithData(v, _, _), _), _)
-                ) =>
-              (Some(cs), v.outcomes)
-            case _ =>
-              (None, Seq())
-          }
-          cs match {
-            case Some(cs) if history.size >= n =>
-              cs
-            case _ =>
-              for {
-                test_info <- test_info_f
-                test_extensions <- test_extensions_f
-                prepared <- prepared_f
-                cores <- cores_f
-              } yield {
-                update_data(_ => false) { dir =>
-                  if (history.size == 0) {
-                    os.remove.all(dir)
-                    os.makeDir.all(dir)
-                  }
-                  val out_dir = dir / n.toString
-                  os.remove.all(out_dir)
-                  os.makeDir.all(out_dir)
-                  
-                  val res = doit(
-                    project = this,
-                    csid = csid,
-                    cores = cores,
-                    prepared_path = prepared.get_data_path,
-                    test_id = test_info.value.id,
-                    test_path = test_info.get_data_path,
-                    test_extensions = test_extensions,
-                    n = n,
-                    out_path = dir / n.toString
-                  )
+        summon[Tracker[WithData[Outcome]]].state.run[WithData[Outcome]] {
+          old_state =>
+            val (cs, history) = old_state match {
+              case cs @ OldState.Current(
+                    Saved(Result(WithData(v, _, _), _), _)
+                  ) =>
+                (Some(cs), v.outcomes)
+              case _ =>
+                (None, Seq())
+            }
+            cs match {
+              case Some(cs) if history.size >= n =>
+                cs
+              case _ =>
+                for {
+                  test_info <- test_info_f
+                  test_extensions <- test_extensions_f
+                  prepared <- prepared_f
+                  cores <- cores_f
+                } yield {
+                  update_data(_ => false) { dir =>
+                    if (history.size == 0) {
+                      os.remove.all(dir)
+                      os.makeDir.all(dir)
+                    }
+                    val out_dir = dir / n.toString
+                    os.remove.all(out_dir)
+                    os.makeDir.all(out_dir)
 
-                  Outcome(
-                    project = this,
-                    test_id = test_id,
-                    csid = csid,
-                    commit_id = prepared.value.map(_.sha),
-                    outcomes = history :+ res
-                  )
+                    val res = doit(
+                      project = this,
+                      csid = csid,
+                      cores = cores,
+                      prepared_path = prepared.get_data_path,
+                      test_id = test_info.value.id,
+                      test_path = test_info.get_data_path,
+                      test_extensions = test_extensions,
+                      n = history.size + 1,
+                      out_path = dir / n.toString
+                    )
+
+                    Outcome(
+                      project = this,
+                      test_id = test_id,
+                      csid = csid,
+                      commit_id = prepared.value.map(_.sha),
+                      outcomes = history :+ res
+                    )
+                  }
                 }
-              }
-          }
+            }
         }
       }
   }

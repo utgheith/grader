@@ -715,7 +715,16 @@ object Main {
   ): Unit = {
     given State = State(commonArgs.workspace)
 
-    val _ = do_run(commonArgs, cutoff, minutes, false)
+    val out = for {
+      runs <- commonArgs.runs.track
+      out <- Future.sequence {
+        for ((p, csid, test_id) <- runs)
+          yield p.run_one(commonArgs.count)(csid, cutoff, test_id).track
+      }
+    } yield out
+
+    println(out.block)
+
   }
 
   @main
