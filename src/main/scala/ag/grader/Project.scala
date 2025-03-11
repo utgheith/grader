@@ -656,7 +656,7 @@ case class Project(course: Course, project_name: String)
             cs match {
               case Some(cs) if history.size >= n =>
                 cs
-              case _ =>
+              case _ => { () =>
                 for {
                   test_info <- test_info_f
                   test_extensions <- test_extensions_f
@@ -693,6 +693,7 @@ case class Project(course: Course, project_name: String)
                     )
                   }
                 }
+              }
             }
         }
       }
