@@ -150,7 +150,6 @@ class State(val workspace: os.Path) extends Tracker {
       case _ =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
-
         { () => f.apply }
     }
   }

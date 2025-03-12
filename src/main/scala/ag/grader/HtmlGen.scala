@@ -148,6 +148,7 @@ class HtmlGen(p: Project) {
       p.phase1_weight,
       p.phase2_tests,
       p.phase2_weight,
+      p.test_weights,
       p.bad_tests,
       p.test_extensions,
       p.test_cutoff,
@@ -157,304 +158,312 @@ class HtmlGen(p: Project) {
       p.course.staff,
       p.staff
     ) {
-      case (
-            Some(results),
-            Some(site_base),
-            phase1_tests,
-            phase1_weight,
-            phase2_tests,
-            phase2_weight,
-            weights,
-            bad_tests,
-            test_extensions_,
-            test_cutoff,
-            code_cutoff,
-            enrollment,
-            anti_aliases,
-            course_staff,
-            project_staff
-          ) =>
-        val test_extensions = test_extensions_.to(IndexedSeq)
+      (
+          results_,
+          site_base,
+          phase1_tests,
+          phase1_weight,
+          phase2_tests,
+          phase2_weight,
+          weights,
+          bad_tests,
+          test_extensions_,
+          test_cutoff,
+          code_cutoff,
+          enrollment,
+          anti_aliases,
+          course_staff,
+          project_staff
+      ) =>
+        site_base.foreach { site_base =>
+          val test_extensions = test_extensions_.to(IndexedSeq)
 
-        val (chosenTestNames, otherTestNames) = results.values
-          .to(List)
-          .flatMap(
-            _.outcomes.keys.filterNot(test =>
-              bad_tests.contains(test.external_name)
-            )
-          )
-          .sorted
-          .distinct
-          .groupBy(_.external_name.length)
-          .toSeq
-          .map { case (len, names) => (len, names.sorted) }
-          .sortBy(_._1)
-          .flatMap(_._2)
-          .partition(test =>
-            phase1_tests.contains(test.external_name)
-              || phase2_tests.contains(test.external_name)
-          )
+          val results =
+            results_.getOrElse(SortedMap[Alias, RedactedStudentResults]())
 
-        // All the test name properly ordered
-        val testNames: Seq[RedactedTestId] = chosenTestNames ++ otherTestNames
-
-        val submissions: List[(Alias, String)] = (for {
-          s <- results.values
-          a <- s.alias.to(Seq)
-          sha = s.prepare_info.sha
-        } yield (a, sha)).to(List).sortBy(_._1)
-
-        def testTitle(t: String, rowNum: Int)(using HtmlContext): Unit = {
-          val ch = if (rowNum >= t.length) "." else t(rowNum)
-          val ext =
-            if (rowNum >= test_extensions.size) test_extensions.last
-            else test_extensions(rowNum)
-          val fileName = s"$t.$ext"
-
-          td.attr("data-id", t) {
-            a.href(s"${p.tests_repo_name}/$t.$ext").title(fileName) {
-              text(ch.toString)
-            }
-          }
-        }
-
-        // Display the different time stamps
-        def times(using HtmlContext): Unit = table {
-          tr {
-            td { text("generated") }
-            td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
-          }
-          tr {
-            td { text("phase 1 cutoff") }
-            td { text(displayFormat.format(test_cutoff).nn) }
-          }
-          tr {
-            td { text("phase 2 cutoff") }
-            td { text(displayFormat.format(code_cutoff).nn) }
-          }
-        }
-
-        // Display the results table
-        def tbl(using HtmlContext): Unit = table.css_class("results") {
-          thead {
-            /* 3 headers */
-            for (i <- 0 to 2) {
-              tr {
-                td.css_class("alias") { text("") }
-                td { text("") }
-                testNames.foreach { t =>
-                  testTitle(t.external_name, i)
-                }
-              }
-            }
-          }
-
-          tbody {
-            /* the actual results, one row per submission */
-            submissions.foreach { case (alias, sha) =>
-              val short_name = s"${alias.toString}_$sha".take(8)
-              val result = results(alias)
-              val outcome: SortedMap[String, RedactedOutcome] =
-                result.outcomes.map { case (k, v) => (k.external_name, v) }
-
-              val is_mine = anti_aliases.get(alias) match {
-                case Some(csid) =>
-                  course_staff.contains(csid) || project_staff.contains(csid)
-                case None => false
-              }
-              val is_late = result.prepare_info.commit_time.isAfter(
-                ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+          val (chosenTestNames, otherTestNames) = results.values
+            .to(List)
+            .flatMap(
+              _.outcomes.keys.filterNot(test =>
+                bad_tests.contains(test.external_name)
               )
-              tr.css_class(if (is_mine) "mine" else null)
-                .attr("data-alias", alias.toString) {
+            )
+            .sorted
+            .distinct
+            .groupBy(_.external_name.length)
+            .toSeq
+            .map { case (len, names) => (len, names.sorted) }
+            .sortBy(_._1)
+            .flatMap(_._2)
+            .partition(test =>
+              phase1_tests.contains(test.external_name)
+                || phase2_tests.contains(test.external_name)
+            )
 
-                  td.title(sha).css_class("alias") {
-                    if (is_late) text(s"$short_name*")
-                    else text(short_name)
-                  }
-                  td {
-                    text("")
-                  }
+          // All the test name properly ordered
+          val testNames: Seq[RedactedTestId] = chosenTestNames ++ otherTestNames
+
+          val submissions: List[(Alias, String)] = (for {
+            s <- results.values
+            a <- s.alias.to(Seq)
+            sha = s.prepare_info.sha
+          } yield (a, sha)).to(List).sortBy(_._1)
+
+          def testTitle(t: String, rowNum: Int)(using HtmlContext): Unit = {
+            val ch = if (rowNum >= t.length) "." else t(rowNum)
+            val ext =
+              if (rowNum >= test_extensions.size) test_extensions.last
+              else test_extensions(rowNum)
+            val fileName = s"$t.$ext"
+
+            td.attr("data-id", t) {
+              a.href(s"${p.tests_repo_name}/$t.$ext").title(fileName) {
+                text(ch.toString)
+              }
+            }
+          }
+
+          // Display the different time stamps
+          def times(using HtmlContext): Unit = table {
+            tr {
+              td { text("generated") }
+              td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
+            }
+            tr {
+              td { text("phase 1 cutoff") }
+              td { text(displayFormat.format(test_cutoff).nn) }
+            }
+            tr {
+              td { text("phase 2 cutoff") }
+              td { text(displayFormat.format(code_cutoff).nn) }
+            }
+          }
+
+          // Display the results table
+          def tbl(using HtmlContext): Unit = table.css_class("results") {
+            thead {
+              /* 3 headers */
+              for (i <- 0 to 2) {
+                tr {
+                  td.css_class("alias") { text("") }
+                  td { text("") }
                   testNames.foreach { t =>
-                    val o: Option[RedactedOutcome] =
-                      outcome.get(t.external_name)
-                    val (status_class, the_text) =
-                      o.flatMap(_.outcomes.lastOption.map(_._1)) match {
-                        case Some(OutcomeStatus.pass) =>
-                          ("pass", ".")
-                        case Some(OutcomeStatus.fail) =>
-                          ("fail", "X")
-                        case Some(OutcomeStatus.timeout) =>
-                          ("fail", "T")
-                        case None | Some(OutcomeStatus.unknown) =>
-                          ("compilefail", "?")
-                      }
-                    val chosen_class =
-                      if (
-                        phase1_tests.contains(t.external_name)
-                        || phase2_tests.contains(t.external_name)
-                      ) List("chosen")
-                      else List.empty
-                    val the_class = List(status_class) ::: chosen_class
-                    val ttl = o match {
-                      case Some(
-                            o @ RedactedOutcome(_, _, outcomes)
-                          ) if outcomes.nonEmpty =>
-                        f"${outcomes.size} tries, ${o.min_max}"
-
-                      case _ =>
-                        null
-                    }
-                    td.css_class(the_class).title(ttl) {
-                      text(the_text)
-                    }
-                  }
-                }
-            }
-          }
-        }
-
-        def ignored(using HtmlContext): Unit = table {
-          tr { td { h3 { pre { text("Ignored tests") } } } }
-          tr {
-            td {
-              table {
-                bad_tests.foreach { test_name =>
-                  tr {
-                    td {
-                      pre {
-                        text(test_name)
-                      }
-                    }
+                    testTitle(t.external_name, i)
                   }
                 }
               }
             }
-          }
-        }
 
-        def weights_table(using HtmlContext): Unit = table {
-          // Match the sorting of test cases elsewhere (t0-4 before user test cases)
-          val selected_tests = phase1_tests ++ phase2_tests
-          val sorted_tests = selected_tests.toList.sortBy(c => (c.length, c))
+            tbody {
+              /* the actual results, one row per submission */
+              submissions.foreach { case (alias, sha) =>
+                val short_name = s"${alias.toString}_$sha".take(8)
+                val result = results(alias)
+                val outcome: SortedMap[String, RedactedOutcome] =
+                  result.outcomes.map { case (k, v) => (k.external_name, v) }
 
-          // Get the summed raw test weights for each phase
-          var phase1_raw_weight = 0
-          var phase2_raw_weight = 0
-          sorted_tests.foreach { c =>
-            val weight = weights.find { w =>
-              scala.util.matching.Regex(w.pattern).matches(c)
-            }
-            weight match {
-              case Some(w) => {
-                if (phase1_tests.contains(c)) {
-                  phase1_raw_weight += w.weight
+                val is_mine = anti_aliases.get(alias) match {
+                  case Some(csid) =>
+                    course_staff.contains(csid) || project_staff.contains(csid)
+                  case None => false
                 }
-                if (phase2_tests.contains(c)) {
-                  phase2_raw_weight += w.weight
-                }
-              }
-              case _ => {}
-            }
-          }
-          // get the lcm of the raw phase1 and phase2 summed weights
-          val factor =
-            if (phase1_raw_weight == 0) phase2_raw_weight
-            else if (phase2_raw_weight == 0) phase1_raw_weight
-            else
-              (phase1_raw_weight / BigInt(phase1_raw_weight)
-                .gcd(phase2_raw_weight)
-                .toInt) * phase2_raw_weight
-          val phase1_total_weight = phase1_weight * factor
-          val phase2_total_weight = phase2_weight * factor
-          val phase1_factor =
-            if (phase1_raw_weight != 0) phase1_total_weight / phase1_raw_weight
-            else 0
-          val phase2_factor =
-            if (phase2_raw_weight != 0) phase2_total_weight / phase2_raw_weight
-            else 0
-          val total_weight = phase1_total_weight + phase2_total_weight
-
-          tr { td { h3 { pre { text("Selected test weights") } } } }
-          tr {
-            td {
-              table.css_class("weights") {
-                thead.style("font-weight: bold;") {
-                  tr {
-                    td { text("test") }
-                    td { text("weight") }
-                    td { text(s"phase 1 weight (x$phase1_factor)") }
-                    td { text(s"phase 2 weight (x$phase2_factor)") }
-                  }
-                }
-                tbody {
-                  sorted_tests.foreach { c =>
-                    val weight = weights.find { w =>
-                      scala.util.matching.Regex(w.pattern).matches(c)
-                    }
-                    val weight_str = weight match {
-                      case Some(w) => w.weight.toString
-                      case None    => "?"
-                    }
-                    val phase1_weight_str = weight match {
-                      case Some(w) if phase1_tests.contains(c) =>
-                        (w.weight * phase1_factor).toString
-                      case _ => "0"
-                    }
-                    val phase2_weight_str = weight match {
-                      case Some(w) if phase2_tests.contains(c) =>
-                        (w.weight * phase2_factor).toString
-                      case _ => "0"
-                    }
-                    tr {
-                      td { text(c) }
-                      td { text(weight_str) }
-                      td { text(phase1_weight_str) }
-                      td { text(phase2_weight_str) }
-                    }
-                  }
-                }
-                tfoot {
-                  tr {
-                    td { text("total") }
-                    td {}
-                    td { text(phase1_total_weight.toString) }
-                    td { text(phase2_total_weight.toString) }
-                  }
-                }
-              }
-            }
-          }
-
-          tr.style("font-weight: bold;") {
-            td {
-              pre {
-                text(
-                  s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight; Phase1:Phase2 = $phase1_weight:$phase2_weight"
+                val is_late = result.prepare_info.commit_time.isAfter(
+                  ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
                 )
+                tr.css_class(if (is_mine) "mine" else null)
+                  .attr("data-alias", alias.toString) {
+
+                    td.title(sha).css_class("alias") {
+                      if (is_late) text(s"$short_name*")
+                      else text(short_name)
+                    }
+                    td {
+                      text("")
+                    }
+                    testNames.foreach { t =>
+                      val o: Option[RedactedOutcome] =
+                        outcome.get(t.external_name)
+                      val (status_class, the_text) =
+                        o.flatMap(_.outcomes.lastOption.map(_._1)) match {
+                          case Some(OutcomeStatus.pass) =>
+                            ("pass", ".")
+                          case Some(OutcomeStatus.fail) =>
+                            ("fail", "X")
+                          case Some(OutcomeStatus.timeout) =>
+                            ("fail", "T")
+                          case None | Some(OutcomeStatus.unknown) =>
+                            ("compilefail", "?")
+                        }
+                      val chosen_class =
+                        if (
+                          phase1_tests.contains(t.external_name)
+                          || phase2_tests.contains(t.external_name)
+                        ) List("chosen")
+                        else List.empty
+                      val the_class = List(status_class) ::: chosen_class
+                      val ttl = o match {
+                        case Some(
+                              o @ RedactedOutcome(_, _, outcomes)
+                            ) if outcomes.nonEmpty =>
+                          f"${outcomes.size} tries, ${o.min_max}"
+
+                        case _ =>
+                          null
+                      }
+                      td.css_class(the_class).title(ttl) {
+                        text(the_text)
+                      }
+                    }
+                  }
               }
             }
           }
-        }
 
-        val f =
-          os.Path(site_base) / s"${p.course.course_name}_${p.project_name}.html"
-        val perms = os.PermSet.fromString("rwxr--r--")
+          def ignored(using HtmlContext): Unit = table {
+            tr { td { h3 { pre { text("Ignored tests") } } } }
+            tr {
+              td {
+                table {
+                  bad_tests.foreach { test_name =>
+                    tr {
+                      td {
+                        pre {
+                          text(test_name)
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
 
-        say(s"  $f")
+          def weights_table(using HtmlContext): Unit = table {
+            // Match the sorting of test cases elsewhere (t0-4 before user test cases)
+            val selected_tests = phase1_tests ++ phase2_tests
+            val sorted_tests = selected_tests.toList.sortBy(c => (c.length, c))
 
-        os.write.over(f, "")
-        os.perms.set(f, perms)
+            // Get the summed raw test weights for each phase
+            var phase1_raw_weight = 0
+            var phase2_raw_weight = 0
+            sorted_tests.foreach { c =>
+              val weight = weights.find { w =>
+                scala.util.matching.Regex(w.pattern).matches(c)
+              }
+              weight match {
+                case Some(w) => {
+                  if (phase1_tests.contains(c)) {
+                    phase1_raw_weight += w.weight
+                  }
+                  if (phase2_tests.contains(c)) {
+                    phase2_raw_weight += w.weight
+                  }
+                }
+                case _ => {}
+              }
+            }
+            // get the lcm of the raw phase1 and phase2 summed weights
+            val factor =
+              if (phase1_raw_weight == 0) phase2_raw_weight
+              else if (phase2_raw_weight == 0) phase1_raw_weight
+              else
+                (phase1_raw_weight / BigInt(phase1_raw_weight)
+                  .gcd(phase2_raw_weight)
+                  .toInt) * phase2_raw_weight
+            val phase1_total_weight = phase1_weight * factor
+            val phase2_total_weight = phase2_weight * factor
+            val phase1_factor =
+              if (phase1_raw_weight != 0)
+                phase1_total_weight / phase1_raw_weight
+              else 0
+            val phase2_factor =
+              if (phase2_raw_weight != 0)
+                phase2_total_weight / phase2_raw_weight
+              else 0
+            val total_weight = phase1_total_weight + phase2_total_weight
 
-        val _ = scala.util.Using(FileContext(f)) { file =>
-          html(file) {
-            head {
-              meta.attr("charset", "utf8") {}
-              meta
-                .attr("name", "viewport")
-                .attr("content", "width=device-width,initial-scale=1") {}
-              title(text(s"${p.course.course_name}_${p.project_name}"))
-              style(text("""
+            tr { td { h3 { pre { text("Selected test weights") } } } }
+            tr {
+              td {
+                table.css_class("weights") {
+                  thead.style("font-weight: bold;") {
+                    tr {
+                      td { text("test") }
+                      td { text("weight") }
+                      td { text(s"phase 1 weight (x$phase1_factor)") }
+                      td { text(s"phase 2 weight (x$phase2_factor)") }
+                    }
+                  }
+                  tbody {
+                    sorted_tests.foreach { c =>
+                      val weight = weights.find { w =>
+                        scala.util.matching.Regex(w.pattern).matches(c)
+                      }
+                      val weight_str = weight match {
+                        case Some(w) => w.weight.toString
+                        case None    => "?"
+                      }
+                      val phase1_weight_str = weight match {
+                        case Some(w) if phase1_tests.contains(c) =>
+                          (w.weight * phase1_factor).toString
+                        case _ => "0"
+                      }
+                      val phase2_weight_str = weight match {
+                        case Some(w) if phase2_tests.contains(c) =>
+                          (w.weight * phase2_factor).toString
+                        case _ => "0"
+                      }
+                      tr {
+                        td { text(c) }
+                        td { text(weight_str) }
+                        td { text(phase1_weight_str) }
+                        td { text(phase2_weight_str) }
+                      }
+                    }
+                  }
+                  tfoot {
+                    tr {
+                      td { text("total") }
+                      td {}
+                      td { text(phase1_total_weight.toString) }
+                      td { text(phase2_total_weight.toString) }
+                    }
+                  }
+                }
+              }
+            }
+
+            tr.style("font-weight: bold;") {
+              td {
+                pre {
+                  text(
+                    s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight; Phase1:Phase2 = $phase1_weight:$phase2_weight"
+                  )
+                }
+              }
+            }
+          }
+
+          val f =
+            os.Path(
+              site_base
+            ) / s"${p.course.course_name}_${p.project_name}.html"
+          val perms = os.PermSet.fromString("rwxr--r--")
+
+          say(s"  $f")
+
+          os.write.over(f, "")
+          os.perms.set(f, perms)
+
+          val _ = scala.util.Using(FileContext(f)) { file =>
+            html(file) {
+              head {
+                meta.attr("charset", "utf8") {}
+                meta
+                  .attr("name", "viewport")
+                  .attr("content", "width=device-width,initial-scale=1") {}
+                title(text(s"${p.course.course_name}_${p.project_name}"))
+                style(text("""
                   |:root {
                   |  color-scheme: light dark;
                   |  --bg-page: #FFF;
@@ -543,30 +552,30 @@ class HtmlGen(p: Project) {
                   |/* More relaxed spacing: */
                   |.results td { padding: 0.15em 0.3em; }
                   |""".stripMargin))
-              // script(src = "https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" )
-            }
-            body {
-              table {
-                tr(td(h1(text(s"${p.course.course_name}_${p.project_name}"))))
-                tr(td(times))
-                tr(td(tbl))
-                tr(td(text("")))
-                tr(td(text(s"${enrollment.keySet.size} enrollments")))
-                tr(td(text(s"${submissions.size} submissions")))
-                tr(td(text(s"${testNames.size} tests")))
-                tr {
-                  td.colspan("3") {
-                    ignored
-                  }
-                }
-                tr {
-                  td.colspan("3") {
-                    weights_table
-                  }
-                }
+                // script(src = "https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" )
               }
-              // script.src("highlight_on_click.js")
-              script(text("""
+              body {
+                table {
+                  tr(td(h1(text(s"${p.course.course_name}_${p.project_name}"))))
+                  tr(td(times))
+                  tr(td(tbl))
+                  tr(td(text("")))
+                  tr(td(text(s"${enrollment.keySet.size} enrollments")))
+                  tr(td(text(s"${submissions.size} submissions")))
+                  tr(td(text(s"${testNames.size} tests")))
+                  tr {
+                    td.colspan("3") {
+                      ignored
+                    }
+                  }
+                  tr {
+                    td.colspan("3") {
+                      weights_table
+                    }
+                  }
+                }
+                // script.src("highlight_on_click.js")
+                script(text("""
                   |// Highlight row when its alias/hash is clicked
                   |document.querySelectorAll(".results td[title]")
                   |  .forEach((e) => {
@@ -576,14 +585,14 @@ class HtmlGen(p: Project) {
                   |  });
                   |""".stripMargin))
 
-              // Script to allow pinning certain cases to the left side of the matrix
-              style(text("""
+                // Script to allow pinning certain cases to the left side of the matrix
+                style(text("""
                   |.selectors td { padding: 0; text-align: center; }
                   |.selectors input { margin: 0; }
                   |.row-pin { padding: 0; }
                   |.row-pin input { margin: 0; }
                   """.stripMargin))
-              script(text("""
+                script(text("""
                   |let assignment = document.querySelector("h1").textContent;
                   |let config_key = `~gheith/${assignment}.html#config`;
                   |let config = JSON.parse(window.localStorage.getItem(config_key) || "{}");
@@ -697,17 +706,14 @@ class HtmlGen(p: Project) {
                   |base_col_idx = 3;
                   |sortRows(head);
                   |""".stripMargin))
+              }
             }
           }
-        }
 
         // sorted submissions
 
-        ()
-      case _ =>
-        say(
-          s"---> not generating results for ${p.course.course_name}:${p.project_name}"
-        )
+        }
+
     }
 
 }

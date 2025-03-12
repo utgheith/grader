@@ -373,7 +373,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     }
   }
 
-  // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk) => ... }
+  // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk, tl) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl) => ... }
   def target[A, B, C, D, E, F, G, H, I, J, K, L, Out: {ClassTag, ReadWriter}](
       ta: Target[A],
       tb: Target[B],
@@ -420,6 +420,246 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
         vk <- fk
         vl <- fl
         out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl))
+      } yield out
+    }
+  }
+
+  // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk, tl, tm) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vk, vm) => ... }
+  def target[
+      A,
+      B,
+      C,
+      D,
+      E,
+      F,
+      G,
+      H,
+      I,
+      J,
+      K,
+      L,
+      M,
+      Out: {ClassTag, ReadWriter}
+  ](
+      ta: Target[A],
+      tb: Target[B],
+      tc: Target[C],
+      td: Target[D],
+      te: Target[E],
+      tf: Target[F],
+      tg: Target[G],
+      th: Target[H],
+      ti: Target[I],
+      tj: Target[J],
+      tk: Target[K],
+      tl: Target[L],
+      tm: Target[M]
+  )(
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L, M) => Out |
+        Future[Out]
+  )(using fn: sourcecode.FullName): Target[Out] = Target(
+    ToRelPath(fn) / base
+  ) {
+    val fa = ta.track
+    val fb = tb.track
+    val fc = tc.track
+    val fd = td.track
+    val fe = te.track
+    val ff = tf.track
+    val fg = tg.track
+    val fh = th.track
+    val fi = ti.track
+    val fj = tj.track
+    val fk = tk.track
+    val fl = tl.track
+    val fm = tm.track
+    run_if_needed {
+      for {
+        va <- fa
+        vb <- fb
+        vc <- fc
+        vd <- fd
+        ve <- fe
+        vf <- ff
+        vg <- fg
+        vh <- fh
+        vi <- fi
+        vj <- fj
+        vk <- fk
+        vl <- fl
+        vm <- fm
+        out <- force_future(
+          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm)
+        )
+      } yield out
+    }
+  }
+
+  // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk, tl, tm, tn) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vk, vm, vn) => ... }
+  def target[
+      A,
+      B,
+      C,
+      D,
+      E,
+      F,
+      G,
+      H,
+      I,
+      J,
+      K,
+      L,
+      M,
+      N,
+      Out: {ClassTag, ReadWriter}
+  ](
+      ta: Target[A],
+      tb: Target[B],
+      tc: Target[C],
+      td: Target[D],
+      te: Target[E],
+      tf: Target[F],
+      tg: Target[G],
+      th: Target[H],
+      ti: Target[I],
+      tj: Target[J],
+      tk: Target[K],
+      tl: Target[L],
+      tm: Target[M],
+      tn: Target[N]
+  )(
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L, M, N) => Out |
+        Future[Out]
+  )(using fn: sourcecode.FullName): Target[Out] = Target(
+    ToRelPath(fn) / base
+  ) {
+    val fa = ta.track
+    val fb = tb.track
+    val fc = tc.track
+    val fd = td.track
+    val fe = te.track
+    val ff = tf.track
+    val fg = tg.track
+    val fh = th.track
+    val fi = ti.track
+    val fj = tj.track
+    val fk = tk.track
+    val fl = tl.track
+    val fm = tm.track
+    val fn = tn.track
+    run_if_needed {
+      for {
+        va <- fa
+        vb <- fb
+        vc <- fc
+        vd <- fd
+        ve <- fe
+        vf <- ff
+        vg <- fg
+        vh <- fh
+        vi <- fi
+        vj <- fj
+        vk <- fk
+        vl <- fl
+        vm <- fm
+        vn <- fn
+        out <- force_future(
+          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm, vn)
+        )
+      } yield out
+    }
+  }
+
+  // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk, tl, tm, tn) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vk, vm, vn) => ... }
+  def target[
+      A,
+      B,
+      C,
+      D,
+      E,
+      F,
+      G,
+      H,
+      I,
+      J,
+      K,
+      L,
+      M,
+      N,
+      O,
+      Out: {ClassTag, ReadWriter}
+  ](
+      ta: Target[A],
+      tb: Target[B],
+      tc: Target[C],
+      td: Target[D],
+      te: Target[E],
+      tf: Target[F],
+      tg: Target[G],
+      th: Target[H],
+      ti: Target[I],
+      tj: Target[J],
+      tk: Target[K],
+      tl: Target[L],
+      tm: Target[M],
+      tn: Target[N],
+      to: Target[O]
+  )(
+      f: Producer[Out] ?=> (
+          A,
+          B,
+          C,
+          D,
+          E,
+          F,
+          G,
+          H,
+          I,
+          J,
+          K,
+          L,
+          M,
+          N,
+          O
+      ) => Out | Future[Out]
+  )(using fn: sourcecode.FullName): Target[Out] = Target(
+    ToRelPath(fn) / base
+  ) {
+    val fa = ta.track
+    val fb = tb.track
+    val fc = tc.track
+    val fd = td.track
+    val fe = te.track
+    val ff = tf.track
+    val fg = tg.track
+    val fh = th.track
+    val fi = ti.track
+    val fj = tj.track
+    val fk = tk.track
+    val fl = tl.track
+    val fm = tm.track
+    val fn = tn.track
+    val fo = to.track
+    run_if_needed {
+      for {
+        va <- fa
+        vb <- fb
+        vc <- fc
+        vd <- fd
+        ve <- fe
+        vf <- ff
+        vg <- fg
+        vh <- fh
+        vi <- fi
+        vj <- fj
+        vk <- fk
+        vl <- fl
+        vm <- fm
+        vn <- fn
+        vo <- fo
+        out <- force_future(
+          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm, vn, vo)
+        )
       } yield out
     }
   }

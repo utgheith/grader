@@ -108,7 +108,7 @@ case class CommonArgs(
     @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
     @arg(short = 'o', doc = "restrict to chosen tests for a given phase")
-    chosen_phase: Int = 0,
+    chosen_phase_ : Option[Int] = None,
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     @arg(doc =
@@ -130,12 +130,12 @@ case class CommonArgs(
     students_
   }
 
-  lazy val only_chosen: Target[Boolean] = (this / only_chosen_.value).target() {
-    only_chosen_.value
-  }
-
   lazy val tests: Target[Regex] = (this / tests_).target() {
     tests_
+  }
+
+  lazy val chosen_phase: Target[Option[Int]] = (this / chosen_phase_).target() {
+    chosen_phase_
   }
 
   // TODO: warn when no courses matched
@@ -183,11 +183,11 @@ case class CommonArgs(
 
     val per_project_test_ids: Future[Seq[SortedSet[TestId]]] = for {
       projects: Seq[Project] <- ps
-      c <- only_chosen.track
+      c <- chosen_phase.track
       per_project_test_ids: Seq[SortedSet[TestId]] <- Future.sequence {
         for {
           p <- projects
-        } yield if (c) p.chosen_test_ids.track else p.test_ids.track
+        } yield p.test_ids.track
       }
     } yield per_project_test_ids
 
@@ -210,14 +210,12 @@ case class CommonArgs(
     val per_project_ids: Future[Seq[(SortedSet[CSID], SortedSet[TestId])]] =
       for {
         projects: Seq[Project] <- ps
-        ch <- only_chosen.track
         per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] <- Future
           .sequence {
             for {
               p: Project <- projects
             } yield p.students_with_submission.track.zip(
-              if (ch) p.chosen_test_ids.track
-              else p.test_ids.track
+              p.test_ids.track
             )
           }
       } yield per_project_ids
@@ -439,7 +437,7 @@ object Main {
           (csid, _) <- enrollment
           if commonArgs.students.track.block.matches(csid.value)
         } {
-          val prep = p.prepare(csid, cutoff, commonArgs.commit_if_file).guilty
+          val prep = p.prepare(csid, cutoff, commonArgs.commit_id_file).guilty
           val target_name = s"${c.course_name}_${pn}_$csid"
           val target_path = base / target_name
 
@@ -679,33 +677,6 @@ object Main {
     (c, acc)
   }
 
-  // Run up to "commonArgs.count" iterations.
-  // Stop early if total time exceeds "minutes"
-  // Stop running a specific submission/test combination once it fails
-  // Returns: number of iterations
-  private def do_run(
-      commonArgs: CommonArgs,
-      cutoff: CutoffTime,
-      minutes: Int,
-      loud: Boolean,
-      commit_id_file: String
-  )(using
-      State
-  ): Int = {
-    loop(1 to commonArgs.count, minutes, 1) { (c, _) =>
-      val outcomes = for {
-        runs <- commonArgs.runs.track
-        out <- Future.sequence {
-          for ((p, csid, test_id) <- runs)
-            yield p.run_one(csid, cutoff, test_id, c, commit_id_file).track
-        }
-      } yield out
-      val out = outcomes.block
-      if (loud) show_failures(out)
-      c
-    }._1
-  }
-
   @main
   def run(
       commonArgs: CommonArgs,
@@ -724,7 +695,14 @@ object Main {
       runs <- commonArgs.runs.track
       out <- Future.sequence {
         for ((p, csid, test_id) <- runs)
-          yield p.run_one(csid, cutoff, test_id, commonArgs.count, commonArgs.commit_id_file).track
+          yield p
+            .run_one(commonArgs.count)(
+              csid,
+              cutoff,
+              test_id,
+              commonArgs.commit_id_file
+            )
+            .track
       }
     } yield out
 
@@ -759,13 +737,14 @@ object Main {
           runs <- commonArgs.runs.track
           out <- Future.sequence {
             for ((p, csid, test_id) <- runs)
-              yield p.run_one(
-                csid,
-                cutoff,
-                test_id,
-                c,
-                commonArgs.commit_id_file
-              ).track
+              yield p
+                .run_one(c)(
+                  csid,
+                  cutoff,
+                  test_id,
+                  commonArgs.commit_id_file
+                )
+                .track
           }
         } yield out
 
@@ -831,11 +810,9 @@ object Main {
   ): Unit = {
     given State = State(commonArgs.workspace)
 
-    val c =
-      do_run(commonArgs, cutoff, minutes, false, commonArgs.commit_id_file)
-
-    for (p <- commonArgs.selected_projects.value) {
-      val _ = p.publish_results(c, commonArgs.commit_id_file).guilty
+    for (p <- commonArgs.selected_projects.guilty) {
+      val _ =
+        p.publish_results(commonArgs.count, commonArgs.commit_id_file).guilty
       // println(upickle.default.write(results, indent=2))
     }
   }
@@ -913,8 +890,8 @@ object Main {
     given State = State(commonArgs.workspace)
 
     for (p <- commonArgs.selected_projects.guilty) {
-      val chosen = p.chosen_test_ids.guilty
-      val weights = p.weights.guilty
+      val chosen = p.test_ids.guilty
+      val weights = p.test_weights.guilty
       val test_weights = (for {
         c <- chosen
         external_name = c.external_name
@@ -931,8 +908,7 @@ object Main {
             .compute_scores(
               cutoff_time,
               c,
-              commonArgs.commit_id_file,
-              commonArgs.chosen_phase
+              commonArgs.commit_id_file
             )
             .guilty
             .toSeq
