@@ -634,6 +634,7 @@ case class Project(course: Course, project_name: String)
 
   // Run a submission/test combination once and report the outcome
   def run_one(
+      keep_going: Boolean,
       n: Int
   ): (CSID, CutoffTime, TestId, String) => Target[WithData[Outcome]] = fun {
     (csid, cutoff, test_id, commit_id_file) =>
@@ -654,7 +655,10 @@ case class Project(course: Course, project_name: String)
                 (None, Seq())
             }
             cs match {
-              case Some(cs) if history.size >= n =>
+              case Some(cs)
+                  if history.size >= n || !(keep_going || history.forall(
+                    _._1 == OutcomeStatus.pass
+                  )) =>
                 cs
               case _ => { () =>
                 for {
@@ -716,7 +720,12 @@ case class Project(course: Course, project_name: String)
         val outcomes = test_ids.track.flatMap { test_ids =>
           Future.sequence {
             test_ids.toSeq.map { test_id =>
-              run_one(n)(csid, CutoffTime.None, test_id, commit_id_file).track
+              run_one(false, n)(
+                csid,
+                CutoffTime.None,
+                test_id,
+                commit_id_file
+              ).track
             }
           }
         }
@@ -1350,7 +1359,7 @@ case class Project(course: Course, project_name: String)
           ids <- phase2_test_ids.track
           outs: Seq[WithData[Outcome]] <- Future.sequence {
             ids.toSeq.map(id =>
-              run_one(n)(csid, cutoff_time, id, commit_id_file).track
+              run_one(true, n)(csid, cutoff_time, id, commit_id_file).track
             )
           }
         } yield outs

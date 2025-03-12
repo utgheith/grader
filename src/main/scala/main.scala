@@ -34,7 +34,6 @@ import scala.util.matching.Regex
 import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import scala.annotation.tailrec
 
 import scala.concurrent.Future
 
@@ -624,29 +623,6 @@ object Main {
 
   }
 
-  private def show_failures(out: Seq[WithData[Outcome]]): Unit = {
-    out
-      .map(_.value)
-      .filterNot(_.is_happy)
-      .groupBy(_.csid)
-      .to(SortedMap)
-      .foreach { (csid, s) =>
-        println(csid)
-        s.groupBy(_.project.course.course_name).to(SortedMap).foreach {
-          (c, s) =>
-            println(s"  $c")
-            s.groupBy(_.project.project_name).to(SortedMap).foreach { (p, s) =>
-              println(s"    ${c}_$p")
-              s.sortBy(_.test_id.external_name).foreach { o =>
-                println(
-                  s"        ${o.test_id.external_name} ${o.outcomes}"
-                )
-              }
-            }
-        }
-      }
-  }
-
   // Call "f" the number of times implied by "range"
   // Stop early if total time exceeds "minutes"
   // Returns: (last index value, last returned value from "f")
@@ -686,8 +662,13 @@ object Main {
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
       cutoff: CutoffTime,
-      @arg(doc = "maximum number of minutes per iteration")
-      minutes: Int = 10
+      @arg(short = 'k', doc = "keep going after failure")
+      keep_going: Flag = Flag(false),
+      @arg(
+        name = "result-file",
+        doc = "The json file to write the results summary out to"
+      )
+      result_file: Option[String]
   ): Unit = {
     given State = State(commonArgs.workspace)
 
@@ -696,7 +677,7 @@ object Main {
       out <- Future.sequence {
         for ((p, csid, test_id) <- runs)
           yield p
-            .run_one(commonArgs.count)(
+            .run_one(keep_going.value, commonArgs.count)(
               csid,
               cutoff,
               test_id,
@@ -706,65 +687,7 @@ object Main {
       }
     } yield out
 
-    println(out.block)
-
-  }
-
-  @main
-  def run_all(
-      commonArgs: CommonArgs,
-      @arg(
-        name = "code-cutoff",
-        doc =
-          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
-      )
-      cutoff: CutoffTime,
-      @arg(
-        name = "result-file",
-        doc = "The json file to write the results summary out to"
-      )
-      result_file: Option[String]
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
-    val limit = System.currentTimeMillis() + 12 * 60 * 60 * 1000 // 12 hours
-
-    @tailrec
-    def loop(c: Int, in: Seq[WithData[Outcome]]): Seq[WithData[Outcome]] =
-      if (c <= commonArgs.count && System.currentTimeMillis() < limit) {
-
-        val outcomes = for {
-          runs <- commonArgs.runs.track
-          out <- Future.sequence {
-            for ((p, csid, test_id) <- runs)
-              yield p
-                .run_one(c)(
-                  csid,
-                  cutoff,
-                  test_id,
-                  commonArgs.commit_id_file
-                )
-                .track
-          }
-        } yield out
-
-        val out = outcomes.block
-
-        show_failures(out)
-
-        println(
-          s"---------------------------> finished iteration #$c/${commonArgs.count}"
-        )
-        println(s"max memory ${Runtime.getRuntime.maxMemory()}")
-        println(s"free memory ${Runtime.getRuntime.freeMemory()}")
-
-        loop(c + 1, in ++ out)
-
-      } else {
-        in
-      }
-
-    val outs = loop(1, Seq())
+    val outs = out.block
 
     result_file.foreach(file_name => {
       val results =
