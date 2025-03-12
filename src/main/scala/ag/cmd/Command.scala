@@ -8,7 +8,7 @@ trait Command {
   def my_remote: Boolean
   def cmd: os.Shellable = parent.map(_.cmd) match {
     case Some(ps) => Seq(ps, my_part)
-    case None => my_part
+    case None     => my_part
   }
   def remote: Boolean = my_remote || parent.exists(_.remote)
 
@@ -45,4 +45,3 @@ trait CallableCommand[+Out] extends Command {
     }
   }
 }
-

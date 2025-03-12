@@ -20,8 +20,8 @@ case class git(C: os.Path | Null = null) extends Command {
     override def my_part: os.Shellable =
       Seq[os.Shellable]("fetch", repository, refspec)
     override def my_remote: Boolean = repository match {
-      case u : Repository.Url => u.url.is_remote
-      case _ : Repository.Name => true // TODO: check name
+      case u: Repository.Url  => u.url.is_remote
+      case _: Repository.Name => true // TODO: check name
     }
     override def translate(res: CommandResult): Unit = ()
   }
@@ -30,10 +30,9 @@ case class git(C: os.Path | Null = null) extends Command {
 
   // git ... notes [--ref=<refspec>] ...
   case class notes(ref: String | Null = null)
-      extends CallableCommand[NotesOut]
-      {
-        
-    override def my_remote = false    
+      extends CallableCommand[NotesOut] {
+
+    override def my_remote = false
     override def parent: Option[Command] = Some(git.this)
     override def my_part: os.Shellable =
       Seq[os.Shellable]("notes", opt("--ref", ref))
@@ -49,15 +48,16 @@ case class git(C: os.Path | Null = null) extends Command {
         }
       }
     }
-    
+
     // git ... notes ... show <object>
-    case class show(obj: CommitId|Null = null) extends CallableCommand[Seq[String]]  {
+    case class show(obj: CommitId | Null = null)
+        extends CallableCommand[Seq[String]] {
       override def parent: Option[Command] = Some(notes.this)
       override def my_remote: Boolean = false
       override def my_part: os.Shellable = if (obj == null) Seq() else obj.name
-      override def translate(res: os.CommandResult): Seq[String] = res.out.lines()
+      override def translate(res: os.CommandResult): Seq[String] =
+        res.out.lines()
     }
-    
 
     // git ... notes ... list
 

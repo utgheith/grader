@@ -670,12 +670,16 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         .max(1)
         .toString
         / commit_id_file
-    ) { case (out_path, (test_info, test_extensions, prepared, cores, docker_image)) =>
-      started_runs.incrementAndGet()
-      try {
-        if (cores > limit) {
-          throw new Exception(s"need $cores cores, limit is $limit")
-        }
+    ) {
+      case (
+            out_path,
+            (test_info, test_extensions, prepared, cores, docker_image)
+          ) =>
+        started_runs.incrementAndGet()
+        try {
+          if (cores > limit) {
+            throw new Exception(s"need $cores cores, limit is $limit")
+          }
 
           // all tests for the same project/csid share the same prepared directory
           Project.run_lock(prepared.path) {
