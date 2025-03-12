@@ -77,6 +77,16 @@ case class Project(course: Course, project_name: String)
   lazy val info: Target[RawProject] =
     Gitolite.raw_project(course.course_name, project_name)
 
+  lazy val docker_file: Target[Option[String]] = target(
+    info
+  ) { info =>
+    info.docker_file
+  }
+
+  lazy val docker_image: Target[Option[String]] = target(docker_file) {
+    docker_file => docker_file.map(fn => Docker.of(os.pwd / fn))
+  }
+
   lazy val active: Target[Boolean] =
     target(course.active, info, Gitolite.repo_info(project_repo_name)) {
       case (course_is_active, info, RepoInfo(_, _, Some(_))) =>
@@ -643,6 +653,7 @@ case class Project(course: Course, project_name: String)
         val test_extensions_f = test_extensions.track
         val prepared_f = prepare(csid, cutoff, commit_id_file).track
         val cores_f = cores.track
+        val docker_image_f = docker_image.track
 
         summon[Tracker[WithData[Outcome]]].state.run[WithData[Outcome]] {
           old_state =>
@@ -666,6 +677,7 @@ case class Project(course: Course, project_name: String)
                   test_extensions <- test_extensions_f
                   prepared <- prepared_f
                   cores <- cores_f
+                  docker_image <- docker_image_f
                 } yield {
                   update_data(_ => false) { dir =>
                     if (history.size == 0) {
@@ -685,7 +697,8 @@ case class Project(course: Course, project_name: String)
                       test_path = test_info.get_data_path,
                       test_extensions = test_extensions,
                       n = history.size + 1,
-                      out_path = dir / n.toString
+                      out_path = dir / n.toString,
+                      docker_image = docker_image
                     )
 
                     Outcome(
@@ -1451,4 +1464,7 @@ object Project extends Scope(".") {
 
   private val automatic_override_names: Set[String] =
     Set("Makefile", "makefile")
+
+  lazy val uid: String = os.proc("id", "-u").call().out.lines().head
+  lazy val gid: String = os.proc("id", "-g").call().out.lines().head
 }

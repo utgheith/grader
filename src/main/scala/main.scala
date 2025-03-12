@@ -14,11 +14,10 @@ import ag.grader.{
   CutoffTime,
   Gitolite,
   HtmlGen,
-  Outcome,
   Project,
   TestId
 }
-import ag.r2.{eval, Scope, State, Target, WithData}
+import ag.r2.{eval, Scope, State, Target}
 
 import mainargs.{
   Flag,

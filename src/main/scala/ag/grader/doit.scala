@@ -20,7 +20,8 @@ def doit(
     test_path: os.Path, // where to find the test code
     test_extensions: SortedSet[String], // expected test extensions
     n: Int, // run itertion (for logging)
-    out_path: os.Path // where to deposit the detailed results
+    out_path: os.Path, // where to deposit the detailed results
+    docker_image: Option[String]
 ): (OutcomeStatus, Option[Double]) = {
 
   started_runs.incrementAndGet()
@@ -41,7 +42,7 @@ def doit(
         val tn = test_id.external_name
         val m =
           s"$tn/${test_id.internal_name} for ${project.course.course_name}_${project.project_name}_$csid"
-        say(f"running#$n $m on $cores cores")
+        say(f"running#$n $m on $cores cores (Docker: $docker_image})")
 
         val start = System.currentTimeMillis()
         var run_time: Option[Double] = None
@@ -50,8 +51,12 @@ def doit(
             val _ = os
               .proc("make", "-k", "clean")
               .run(cwd = prepared_path, check = false)
-            os.proc("make", "-k", s"$tn.test")
-              .run(cwd = prepared_path, check = false)
+            os.proc(
+              Docker.dockerCommand(prepared_path, docker_image),
+              "make",
+              "-k",
+              s"$tn.test"
+            ).run(cwd = prepared_path, check = false)
           } finally {
             val end = System.currentTimeMillis()
             run_time = Some((end - start).toDouble / 1000)
