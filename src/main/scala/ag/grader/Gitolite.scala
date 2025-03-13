@@ -116,9 +116,8 @@ object Gitolite extends Scope(".") {
       }
   }
 
-  private lazy val raw_courses: Target[SortedMap[String, RawCourse]] = {
-    val mirror_target = mirror("courses_config")
-    target(mirror_target) { mirror =>
+  private lazy val raw_courses: Target[SortedMap[String, RawCourse]] =
+    target(mirror("courses_config")) { mirror =>
       if (mirror.value) {
         val file = mirror.get_data_path / "courses.json"
         val not_sorted = read[Map[String, RawCourseNotSorted]](os.read(file))
@@ -128,7 +127,6 @@ object Gitolite extends Scope(".") {
         SortedMap[String, RawCourse]()
       }
     }
-  }
 
   lazy val course_names: Target[SortedSet[String]] = target(raw_courses) {
     courses =>

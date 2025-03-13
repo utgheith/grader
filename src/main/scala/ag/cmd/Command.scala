@@ -1,6 +1,12 @@
 package ag.cmd
 
 import scala.compiletime.summonFrom
+import java.util.concurrent.Semaphore
+import ag.common.down
+
+object Command {
+  val remote_lock = new Semaphore(config.remote_limit)
+}
 
 trait Command {
   def parent: Option[Command]
@@ -25,7 +31,13 @@ trait CallableCommand[+Out] extends Command {
 
   def call(cwd: os.Path): Either[os.CommandResult, Out] = {
     trace(os.Shellable.unapply(proc.command).value)
-    val res = proc.call(cwd = cwd, check = false)
+    val res = if (remote) {
+      proc.call(cwd = cwd, check = false)
+    } else {
+      Command.remote_lock.down {
+        proc.call(cwd = cwd, check = false)
+      }
+    }
     if (res.exitCode != 0) {
       trace(s"failed with ${res.exitCode}")
       Left(res)

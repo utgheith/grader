@@ -3,7 +3,8 @@ package ag.cmd
 import ag.cfg.load
 import upickle.default.{Reader, Writer}
 
-private case class Config(enable_tracing: Boolean) derives Reader
+private case class Config(enable_tracing: Boolean, remote_limit: Int)
+    derives Reader
 
 private lazy val config = load[Config]
 

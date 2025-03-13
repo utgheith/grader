@@ -8,15 +8,7 @@ import ag.common.{
   timed
 }
 import ag.git.git
-import ag.grader.{
-  CSID,
-  Course,
-  CutoffTime,
-  Gitolite,
-  HtmlGen,
-  Project,
-  TestId
-}
+import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
 import ag.r2.{eval, Scope, State, Target}
 
 import mainargs.{
