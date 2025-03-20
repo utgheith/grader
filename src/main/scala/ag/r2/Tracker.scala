@@ -32,7 +32,8 @@ trait Tracker[A] extends Context[A] {
   }
 
   def run(
-      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] | (() => Future[A])
+      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
+        (() => Future[A])
   )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
     val producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
@@ -130,7 +131,7 @@ trait Tracker[A] extends Context[A] {
       f: Producer[A] ?=> Future[A]
   )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
     run {
-      case sra@Some(_) =>
+      case sra @ Some(_) =>
         sra
       case _ =>
         // We either didn't find a result on disk or we found one with changed dependencies.

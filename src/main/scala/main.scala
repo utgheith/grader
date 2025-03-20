@@ -321,7 +321,7 @@ object Main {
   @main
   def projects(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
-    println(commonArgs.selected_projects.track.block)
+    pprint.pprintln(commonArgs.selected_projects.track.block)
   }
 
   @main
@@ -382,8 +382,8 @@ object Main {
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
 
         val base_name = s"${c.course_name}_$pn"
-        val longest_csid = sorted.maxBy(_.value.length)
-        val max_width = longest_csid.value.length + base_name.length + 1
+        val longest_csid = sorted.maxByOption(_.value.length)
+        val max_width = longest_csid.map(_.value.length).getOrElse(0) + base_name.length + 1
 
         println(s"\n$base_name:")
 
@@ -590,9 +590,10 @@ object Main {
   @main
   def submissions(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
-    for ((p, csid) <- commonArgs.submissions.track.block) {
-      println(s"$p $csid")
-    }
+    pprint.pprintln(commonArgs.submissions.guilty)
+    //for ((p, csid) <- commonArgs.submissions.guilty) {
+    //  println(s"$p $csid")
+    //}
   }
 
   @main
@@ -693,7 +694,7 @@ object Main {
                 val total = runs.size
                 (test_id.external_name, ujson.Arr(passed, total))
               })
-              .toMap()
+              .to(Map)
             val commit_id = outcomes.head.commit_id.getOrElse("")
             (
               csid.toString(),
@@ -703,7 +704,7 @@ object Main {
               )
             )
           })
-          .toMap()
+          .to(Map)
 
       val path =
         if (file_name.charAt(0) == '/') os.Path(file_name)
