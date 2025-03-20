@@ -372,7 +372,7 @@ case class Project(course: Course, project_name: String)
 
   lazy val prepare
       : (CSID, CutoffTime, String) => Target[WithData[Option[PrepareInfo]]] =
-    fun { (csid, cutoff, commit_id_file) =>
+    fun { (csid, cutoff, commit_id_file_name) =>
       target(
         submission(csid),
         has_student_report(
@@ -411,7 +411,8 @@ case class Project(course: Course, project_name: String)
               val default_branch = "master"
 
               // (2) what commit should we use
-              val commit_id_file = submission_repo.get_data_path / "commit_id"
+              val commit_id_file =
+                submission_repo.get_data_path / commit_id_file_name
               val cutoff_time = cutoff match
                 case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
                 case CutoffTime.Default =>
@@ -655,63 +656,62 @@ case class Project(course: Course, project_name: String)
         val cores_f = cores.track
         val docker_image_f = docker_image.track
 
-        summon[Tracker[WithData[Outcome]]].state.run[WithData[Outcome]] {
-          old_state =>
-            val (cs, history) = old_state match {
-              case cs @ OldState.Current(
-                    Saved(Result(WithData(v, _, _), _), _)
-                  ) =>
-                (Some(cs), v.outcomes)
-              case _ =>
-                (None, Seq())
-            }
-            cs match {
-              case Some(cs)
-                  if history.size >= n || !(keep_going || history.forall(
-                    _._1 == OutcomeStatus.pass
-                  )) =>
-                cs
-              case _ => { () =>
-                for {
-                  test_info <- test_info_f
-                  test_extensions <- test_extensions_f
-                  prepared <- prepared_f
-                  cores <- cores_f
-                  docker_image <- docker_image_f
-                } yield {
-                  update_data(_ => false) { dir =>
-                    if (history.size == 0) {
-                      os.remove.all(dir)
-                      os.makeDir.all(dir)
-                    }
-                    val out_dir = dir / n.toString
-                    os.remove.all(out_dir)
-                    os.makeDir.all(out_dir)
-
-                    val res = doit(
-                      project = this,
-                      csid = csid,
-                      cores = cores,
-                      prepared_path = prepared.get_data_path,
-                      test_id = test_info.value.id,
-                      test_path = test_info.get_data_path,
-                      test_extensions = test_extensions,
-                      n = history.size + 1,
-                      out_path = dir / n.toString,
-                      docker_image = docker_image
-                    )
-
-                    Outcome(
-                      project = this,
-                      test_id = test_id,
-                      csid = csid,
-                      commit_id = prepared.value.map(_.sha),
-                      outcomes = history :+ res
-                    )
+        summon[Tracker[WithData[Outcome]]].run { old_state =>
+          val (cs, history) = old_state match {
+            case cs @ OldState.Current(
+                  Saved(Result(WithData(v, _, _), _), _)
+                ) =>
+              (Some(cs), v.outcomes)
+            case _ =>
+              (None, Seq())
+          }
+          cs match {
+            case Some(cs)
+                if history.size >= n || !(keep_going || history.forall(
+                  _._1 == OutcomeStatus.pass
+                )) =>
+              cs
+            case _ => { () =>
+              for {
+                test_info <- test_info_f
+                test_extensions <- test_extensions_f
+                prepared <- prepared_f
+                cores <- cores_f
+                docker_image <- docker_image_f
+              } yield {
+                update_data(_ => false) { dir =>
+                  if (history.isEmpty) {
+                    os.remove.all(dir)
+                    os.makeDir.all(dir)
                   }
+                  val out_dir = dir / n.toString
+                  os.remove.all(out_dir)
+                  os.makeDir.all(out_dir)
+
+                  val res = doit(
+                    project = this,
+                    csid = csid,
+                    cores = cores,
+                    prepared_path = prepared.get_data_path,
+                    test_id = test_info.value.id,
+                    test_path = test_info.get_data_path,
+                    test_extensions = test_extensions,
+                    n = history.size + 1,
+                    out_path = dir / n.toString,
+                    docker_image = docker_image
+                  )
+
+                  Outcome(
+                    project = this,
+                    test_id = test_id,
+                    csid = csid,
+                    commit_id = prepared.value.map(_.sha),
+                    outcomes = history :+ res
+                  )
                 }
               }
             }
+          }
         }
       }
   }

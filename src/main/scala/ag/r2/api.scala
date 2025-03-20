@@ -37,7 +37,7 @@ inline def say(inline msg: => Any): Unit = if (Noise()) {
 def run_if_needed[A: {ClassTag, ReadWriter}](
     f: Producer[A] ?=> A | Future[A]
 )(using tracker: Tracker[A]): Future[Result[A]] =
-  tracker.state.run_if_needed(force_future(f))
+  tracker.run_if_needed(force_future(f))
 
 def eval[A, B, Out: {ClassTag, ReadWriter}](fa: Future[A], fb: Future[B])(
     f: Producer[Out] ?=> (A, B) => Out | Future[Out]
