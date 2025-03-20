@@ -15,12 +15,10 @@ import ag.r2.{
   ToRelPath,
   WithData,
   create_data,
-  OldState,
   Producer,
   Result,
   run_if_needed,
   say,
-  Saved,
   Tracker,
   update_data
 }
@@ -658,8 +656,8 @@ case class Project(course: Course, project_name: String)
 
         summon[Tracker[WithData[Outcome]]].run { old_state =>
           val (cs, history) = old_state match {
-            case cs @ OldState.Current(
-                  Saved(Result(WithData(v, _, _), _), _)
+            case cs @ Some(
+                  Result(WithData(v, _, _), _)
                 ) =>
               (Some(cs), v.outcomes)
             case _ =>

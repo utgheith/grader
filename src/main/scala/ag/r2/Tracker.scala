@@ -1,12 +1,13 @@
 package ag.r2
 
-import ag.common.{block, Signature, Signer}
-import upickle.default.{read, ReadWriter, write}
+import ag.common.{Signature, Signer, block}
+import upickle.default.{ReadWriter, read, write}
 
 import scala.annotation.implicitNotFound
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
+import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
 @implicitNotFound("no given Tracker")
@@ -31,8 +32,8 @@ trait Tracker[A] extends Context[A] {
   }
 
   def run(
-      f: Producer[A] ?=> OldState[A] => OldState.Current[A] | (() => Future[A])
-  )(using ReadWriter[A]): Future[Result[A]] = {
+      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] | (() => Future[A])
+  )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
     val producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val producing: Target[A] = Tracker.this.producing_opt.get
@@ -46,7 +47,7 @@ trait Tracker[A] extends Context[A] {
         state.reportFailure(cause)
     }
 
-    val old_state: OldState[A] = {
+    val old_state: Option[Result[A]] = {
       if (os.exists(producer.dirty_path)) {
         say("removing dirty state")
         os.remove.all(producer.target_path)
@@ -66,27 +67,27 @@ trait Tracker[A] extends Context[A] {
               .forall((p, s) => old.depends_on.get(p).contains(s))
           ) {
             say("keeping old state")
-            OldState.Current(old)
+            Some(old.result)
           } else {
             say("dependencies changed for old state")
-            OldState.Expired(old)
+            None
           }
         } catch {
           case NonFatal(e) =>
             say(s"load error $e")
             os.remove.all(producer.saved_path)
-            OldState.Missing
+            None
         }
       } else {
         say(s"no old state")
-        OldState.Missing
+        None
       }
 
     }
 
     f(using producer)(old_state) match {
-      case OldState.Current(ov) =>
-        Future.successful(ov.result)
+      case Some(ra) =>
+        Future.successful(ra)
       case ffa: (() => Future[A]) =>
         // remove the old result
         say("removing old result")
@@ -127,10 +128,10 @@ trait Tracker[A] extends Context[A] {
 
   def run_if_needed(
       f: Producer[A] ?=> Future[A]
-  )(using ReadWriter[A]): Future[Result[A]] = {
+  )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
     run {
-      case old_state @ OldState.Current(_) =>
-        old_state
+      case sra@Some(_) =>
+        sra
       case _ =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again

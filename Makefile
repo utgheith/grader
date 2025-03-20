@@ -1,6 +1,6 @@
 
 
-ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt
+ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt jvm cs java
 
 stage : ${ALL_FILES}
 	rm -f stage
