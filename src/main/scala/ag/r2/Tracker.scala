@@ -35,7 +35,7 @@ trait Tracker[A] extends Context[A] {
       f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
         (() => Future[A])
   )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
-    val producer: Producer[A] = new Producer[A] {
+    given producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val producing: Target[A] = Tracker.this.producing_opt.get
       override val state: State = Tracker.this.state
@@ -48,11 +48,14 @@ trait Tracker[A] extends Context[A] {
         state.reportFailure(cause)
     }
 
+    // check if we have a failed update
+    if (os.exists(producer.backup_path)) {
+      say(s"recovering ${producer.target_path} from backup")
+      os.remove.all(producer.target_path)
+      os.move(producer.backup_path, producer.target_path)
+    }
+
     val old_state: Option[Result[A]] = {
-      if (os.exists(producer.dirty_path)) {
-        say("removing dirty state")
-        os.remove.all(producer.target_path)
-      }
 
       // (1) let's find out if we have a saved value
       if (os.isFile(producer.saved_path)) {
@@ -86,18 +89,25 @@ trait Tracker[A] extends Context[A] {
 
     }
 
-    f(using producer)(old_state) match {
+    f(old_state) match {
       case Some(ra) =>
         Future.successful(ra)
       case ffa: (() => Future[A]) =>
         // remove the old result
-        say("removing old result")
-        os.remove.all(producer.target_path)
+        // say("removing old result")
+        // os.remove.all(producer.target_path)
 
-        // mark it as dirty while we compute it. This allows is to recover is the program
-        // terminates in the middle of the computation
-        say("marking dirty")
-        os.write.over(producer.dirty_path, "", createFolders = true)
+        // Make a backup copy of the old result. This is useful if the computation fails
+        // and we want to restore the old result
+        if (os.exists(producer.target_path)) {
+          say(s"backing up ${producer.producing.path}")
+          os.copy(
+            from = producer.target_path,
+            to = producer.backup_path,
+            createFolders = true,
+            followLinks = false
+          )
+        }
 
         // Run the computation (asynchronous)
         ffa().map { new_value =>
@@ -111,8 +121,8 @@ trait Tracker[A] extends Context[A] {
             createFolders = true
           )
 
-          os.remove.all(producer.dirty_path)
-          say("done")
+          os.remove.all(producer.backup_path)
+          say(s"${producer.producing.path} done")
           new_result
         }(using producer.state)
     }

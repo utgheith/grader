@@ -7,7 +7,6 @@ import ag.common.{
   human,
   timed
 }
-import ag.git.git
 import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
 import ag.r2.{eval, Scope, State, Target}
 
@@ -383,7 +382,8 @@ object Main {
 
         val base_name = s"${c.course_name}_$pn"
         val longest_csid = sorted.maxByOption(_.value.length)
-        val max_width = longest_csid.map(_.value.length).getOrElse(0) + base_name.length + 1
+        val max_width =
+          longest_csid.map(_.value.length).getOrElse(0) + base_name.length + 1
 
         println(s"\n$base_name:")
 
@@ -591,9 +591,9 @@ object Main {
   def submissions(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     pprint.pprintln(commonArgs.submissions.guilty)
-    //for ((p, csid) <- commonArgs.submissions.guilty) {
+    // for ((p, csid) <- commonArgs.submissions.guilty) {
     //  println(s"$p $csid")
-    //}
+    // }
   }
 
   @main
@@ -860,7 +860,8 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit = {
-    pprint.pprintln(git().notes().check())
+    given State = State(commonArgs.workspace)
+    pprint.pprintln(Gitolite.mirror("courses_config").guilty)
   }
 
   def main(args: Array[String]): Unit = {
