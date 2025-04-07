@@ -467,7 +467,6 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
         )
 
         // push time
-
         val push_time = (for {
           line <- os.proc("git", "show", "-s", "--format=%N").lines(cwd = dir)
           parts = line.split(' ')
@@ -475,6 +474,21 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
           if parts(0) == "PushTime:"
           v <- Try(parts(1).toLong).toOption
         } yield v).maxOption.map(s => Instant.ofEpochSecond(s, 0))
+
+        // git log
+        val commit_log = os
+          .proc(
+            "git",
+            "log",
+            "--graph",
+            "--pretty=format:%Cred%h%Creset -%C(yellow)%d%Creset %s %C(bold blue)<%an>%Creset",
+            "--abbrev-commit"
+          )
+          .lines(cwd = dir)
+        os.write.over(
+          dir / "git_log",
+          commit_log.mkString("", "\n", "\n")
+        )
 
         // (4) override
         os.copy(
