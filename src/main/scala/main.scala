@@ -396,12 +396,17 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime
+      cutoff: CutoffTime,
+      @arg(
+        name = "destination",
+        doc = "The directory to copy prepared files to"
+      )
+      destination: Option[String]
   ): Unit = {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val base = os.pwd / "prepared"
+    val base = os.pwd / destination.getOrElse("prepared")
 
     for (c <- commonArgs.selected_courses.value) {
 
