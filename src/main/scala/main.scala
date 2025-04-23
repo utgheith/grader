@@ -406,7 +406,12 @@ object Main {
     val m = MyMonitor(commonArgs)
     given State = State.of(commonArgs.workspace, m)
 
-    val base = os.pwd / destination.getOrElse("prepared")
+    val dest = destination.getOrElse("prepared")
+    val base = if (dest(0) == '/') {
+      os.Path(dest)
+    } else {
+      os.pwd / os.RelPath(dest)
+    }
 
     for (c <- commonArgs.selected_courses.value) {
 
