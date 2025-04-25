@@ -642,6 +642,7 @@ case class Project(course: Course, project_name: String) derives ReadWriter {
     one("err")
     one("result")
     one("time")
+    one("cycles")
   }
 
   private def dockerCommand(
