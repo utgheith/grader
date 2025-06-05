@@ -29,6 +29,8 @@ import scala.concurrent.Future
 
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
+
+  /** */
   override def read(strings: Seq[String]): Either[String, os.Path] = if (
     strings.isEmpty
   ) {
@@ -49,6 +51,7 @@ given TokensReader.Simple[Regex] with {
 
   override def alwaysRepeatable: Boolean = true
 
+  /** */
   override def read(strings: Seq[String]): Either[String, Regex] = if (
     strings.isEmpty
   ) {
@@ -63,6 +66,7 @@ given TokensReader.Simple[CutoffTime] with {
   override def allowEmpty: Boolean = true
   override def alwaysRepeatable: Boolean = false
 
+  /** */
   override def read(strings: Seq[String]): Either[String, CutoffTime] =
     Right(CutoffTime.fromString(strings.headOption))
 }
@@ -76,6 +80,7 @@ given TokensReader.Simple[AliasSortMode] with {
   override def allowEmpty: Boolean = false
   override def alwaysRepeatable: Boolean = false
 
+  /** */
   override def read(strings: Seq[String]): Either[String, AliasSortMode] =
     strings.head match
       case "alias" => Right(AliasSortMode.Alias)
