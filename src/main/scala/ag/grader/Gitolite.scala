@@ -3,7 +3,6 @@ package ag.grader
 import ag.git.{Sha, git}
 import ag.r2.{Scope, Target, WithData, periodic, update_data, say}
 
-import language.experimental.namedTuples
 import upickle.default.read
 
 import scala.collection.{SortedMap, SortedSet}
@@ -20,7 +19,8 @@ object Gitolite extends Scope(".") {
       if (rc != 0) {
         println(
           s"getting history failed, reverting to expensive check [details ${stderr
-              .map(_.relativeTo(os.pwd))}]"
+              .map(_.relativeTo(os.pwd))
+              .toString}]"
         )
         SortedMap()
       } else {

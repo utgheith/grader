@@ -23,7 +23,7 @@ object GitUrl {
     override lazy val toString: String = {
       val u = user.map(x => s"$x@").getOrElse("")
       val p = port.map(x => s":$x").getOrElse("")
-      s"ssh://$u$host$p/$path"
+      s"ssh://$u$host$p/${path.toString}"
     }
   }
   def ssh(
@@ -44,7 +44,7 @@ object GitUrl {
     override val is_remote: Boolean = true
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
-      s"git://$host$p/$path"
+      s"git://$host$p/${path.toString}"
     }
   }
 
@@ -58,7 +58,7 @@ object GitUrl {
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
       val s = if (secure) "s" else ""
-      s"http$s://$host$p/$path"
+      s"http$s://$host$p/${path.toString}"
     }
   }
 
@@ -72,7 +72,7 @@ object GitUrl {
     override lazy val toString: String = {
       val p = port.map(x => s":$x").getOrElse("")
       val s = if (secure) "s" else ""
-      s"ftp$s://$host$p/$path"
+      s"ftp$s://$host$p/${path.toString}"
     }
   }
 

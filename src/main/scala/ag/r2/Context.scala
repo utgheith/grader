@@ -39,7 +39,7 @@ object Context {
       for {
         ctx <- ctx
         prod <- ctx.producing_opt
-      } System.err.print(s"[${prod.path}] ")
+      } System.err.print(s"[${prod.path.toString}] ")
       System.err.print(t)
       System.err.println()
     }

@@ -1,7 +1,5 @@
 package ag.grader
 
-import language.experimental.namedTuples
-
 import ag.r2.say
 import upickle.default.ReadWriter
 import ag.rules.check
@@ -24,7 +22,9 @@ case class NotificationConfig(
       can_send: Boolean
   ): Unit = {
     if (can_send) {
-      println(s"----- sending $send_to_student $to $cc $subject")
+      println(
+        s"----- sending $send_to_student ${to.toString} ${cc.toString} $subject"
+      )
       os.proc(
         "mail",
         cc match {
@@ -36,7 +36,9 @@ case class NotificationConfig(
         to.value
       ).check(stdin = contents)
     } else {
-      println(s"----- not sending $send_to_student $to $cc $subject")
+      println(
+        s"----- not sending $send_to_student ${to.toString} ${cc.toString} $subject"
+      )
     }
   }
 
@@ -54,7 +56,7 @@ case class NotificationConfig(
       case (false, Some(cc)) =>
         doit(cc, None, subject, contents, can_send)
       case (false, None) =>
-        say(s"not sending '$subject to $csid'")
+        say(s"not sending '$subject to ${csid.toString}'")
     }
   }
 
@@ -67,7 +69,7 @@ case class NotificationConfig(
     if (key_update) {
       send(
         csid,
-        s"key updated for ${course.course_name}::$csid",
+        s"key updated for ${course.course_name}::${csid.toString}",
         s"""
       |To check your connection:
       |    ssh ${server.ssh_uri} info
@@ -76,7 +78,7 @@ case class NotificationConfig(
       )
     } else {
       say(
-        s"    key update notification disabled for ${course.course_name}::$csid"
+        s"    key update notification disabled for ${course.course_name}::${csid.toString}"
       )
     }
 
@@ -102,7 +104,7 @@ case class NotificationConfig(
     )
   } else {
     say(
-      s"    repo creation notification is disabled for ${project.course.course_name}::${project.project_name}::$csid"
+      s"    repo creation notification is disabled for ${project.course.course_name}::${project.project_name}::${csid.toString}"
     )
 
   }
@@ -126,7 +128,7 @@ case class NotificationConfig(
     val has_test = if (student_failures.has_test) "+" else "-"
 
     val subject =
-      s"[$n_pass/$n_tests:${has_test}T:${has_report}R] ${course_name}_${project_name}_$csid [$short_sha]"
+      s"[$n_pass/$n_tests:${has_test}T:${has_report}R] ${course_name}_${project_name}_${csid.toString} [$short_sha]"
 
     val not_passing = (for {
       (test, outcome) <- student_failures.failed_tests
@@ -142,7 +144,7 @@ case class NotificationConfig(
 
     val contents = s"""
       |more information at: $web_page
-      |your alias: ${alias.getOrElse("?")}
+      |your alias: ${alias.getOrElse("?").toString}
       |your details: git clone ${server.git_uri(
                        project.student_results_repo_name(csid)
                      )}
@@ -163,7 +165,7 @@ case class NotificationConfig(
 
   } else {
     say(
-      s"    result update notification is disabled for ${project.course.course_name}::${project.project_name}::$csid"
+      s"    result update notification is disabled for ${project.course.course_name}::${project.project_name}::${csid.toString}"
     )
   }
 }

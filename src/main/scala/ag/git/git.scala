@@ -3,7 +3,6 @@ package ag.git
 import ag.cmd.{CallableCommand, Command}
 import os.{CommandResult, Shellable}
 
-import scala.language.experimental.namedTuples
 import scala.language.implicitConversions
 
 // git [-C <dir>] ...
@@ -44,7 +43,7 @@ case class git(C: os.Path | Null = null) extends Command {
         line.split(' ') match {
           case Array(note_sha, commit_sha) =>
             (note_sha = Sha.Note(note_sha), commit_sha = Sha.Commit(commit_sha))
-          case x => throw Exception(s"bad line from 'git notes list': $line")
+          case _ => throw Exception(s"bad line from 'git notes list': $line")
         }
       }
     }

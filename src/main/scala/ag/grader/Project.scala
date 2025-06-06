@@ -1,7 +1,5 @@
 package ag.grader
 
-import language.experimental.namedTuples
-
 import ag.common.{
   block,
   given_ReadWriter_LocalDateTime,
@@ -15,7 +13,6 @@ import ag.r2.{
   ToRelPath,
   WithData,
   create_data,
-  Producer,
   Result,
   run_if_needed,
   say,
@@ -525,7 +522,7 @@ case class Project(course: Course, project_name: String)
                 case _                                             => "onTime"
               os.write.over(
                 dir / "prepared_commit",
-                s"$git_sha\n$zdt\n$late_message\n"
+                s"$git_sha\n${zdt.toString}\n$late_message\n"
               )
 
               PrepareInfo(
@@ -850,7 +847,9 @@ case class Project(course: Course, project_name: String)
         if (has_spamon) {
           n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
-          say(s"no spamon for ${course.course_name}:$project_name:$csid")
+          say(
+            s"no spamon for ${course.course_name}:$project_name:${csid.toString}"
+          )
         }
       case (None, _, _, _, _) =>
     }
@@ -970,7 +969,7 @@ case class Project(course: Course, project_name: String)
               .lines(cwd = dir)
               .to(SortedSet)
 
-            val looking_for = test_extensions.map(e => s"$csid.$e")
+            val looking_for = test_extensions.map(e => s"${csid.toString}.$e")
             val out = if (looking_for.subsetOf(file_names)) {
               looking_for.foreach { name =>
                 val _ = os.proc("git", "checkout", rev, name).run(cwd = dir)
@@ -1202,7 +1201,7 @@ case class Project(course: Course, project_name: String)
                 val test_info = TestInfo(test_id, test_sp.copy(value = ()))
                 info.update(test_id, test_info)
                 val src = test_sp.get_data_path / s"${csid.value}.$ext"
-                val dest = dir / s"$alias.$ext"
+                val dest = dir / s"${alias.toString}.$ext"
                 os.copy(
                   from = src,
                   to = dest,
@@ -1275,7 +1274,7 @@ case class Project(course: Course, project_name: String)
             copy_test(info.id, tests.get_data_path, dir, test_extensions)
             info
           case None =>
-            throw Exception(s"no info for $test_id")
+            throw Exception(s"no info for ${test_id.toString}")
         }
       }
     }
@@ -1341,7 +1340,7 @@ case class Project(course: Course, project_name: String)
                 val test_info = TestInfo(test_id, test_sp.copy(value = ()))
                 info.update(test_id, test_info)
                 val src = test_sp.get_data_path / s"${csid.value}.$ext"
-                val dest = dir / s"$alias.$ext"
+                val dest = dir / s"${alias.toString}.${ext.toString}"
                 os.copy(
                   from = src,
                   to = dest,

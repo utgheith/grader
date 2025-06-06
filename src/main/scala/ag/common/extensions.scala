@@ -105,7 +105,7 @@ extension (md: MessageDigest) {
             p <- os.list(path, sort = true)
           } one(base, p)
         } else if (os.exists(path)) {
-          throw Exception(s"$path")
+          throw Exception(path.toString)
         }
       }
     }

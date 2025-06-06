@@ -37,7 +37,7 @@ case class ProcException(
     rc: Int
 ) extends Exception {
   override def getMessage: String =
-    s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[$std_out_err]"
+    s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[${std_out_err.toString}]"
 }
 
 val default_timeout: Int = 5 * 60 * 1000

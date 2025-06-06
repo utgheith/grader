@@ -1,6 +1,5 @@
 package ag.cmd
 
-import scala.compiletime.summonFrom
 import java.util.concurrent.Semaphore
 import ag.common.down
 

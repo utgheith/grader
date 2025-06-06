@@ -13,7 +13,7 @@ object Things extends Scope(".") {
 
   val b: (String, Int) => Target[Int] = fun { (s, i) =>
     target(a) { a =>
-      println(s"running $s $i, a:$a")
+      println(s"running $s $i, a:${a.toString}")
       a.value + i
     }
   }

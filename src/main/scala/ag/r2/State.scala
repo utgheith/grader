@@ -1,7 +1,6 @@
 package ag.r2
 
 import os.Path
-import upickle.default.ReadWriter
 
 import java.lang.Thread.Builder
 import scala.collection.concurrent.TrieMap
@@ -43,12 +42,12 @@ class State(val workspace: os.Path) extends Tracker {
 
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
 
-  def track[A: ReadWriter](
+  def track[A](
       target: Target[A]
   )(using tracker: Tracker[?]): Future[A] = {
     val result: Future[Result[?]] = cache.getOrElseUpdate(
       target.path, {
-        Context.say(Some(tracker), s"miss for ${target.path}")
+        Context.say(Some(tracker), s"miss for ${target.path.toString}")
         target.make(using
           new Tracker {
             override val depth: Int = tracker.depth + 1

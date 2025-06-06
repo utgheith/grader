@@ -665,15 +665,15 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
   }
 
   // fun { (a: A) => target { ... } } same as target { ... } but appends "/a" to the target path
-  def fun[A: ToRelPath, Out: {ClassTag, ReadWriter}](
+  def fun[A: ToRelPath, Out](
       f: A => Target[Out]
   ): A => Target[Out] = { (a: A) => f(a).append(ToRelPath(a)) }
-  def fun[A: ToRelPath, B: ToRelPath, Out: ReadWriter](
+  def fun[A: ToRelPath, B: ToRelPath, Out](
       f: (A, B) => Target[Out]
   ): (A, B) => Target[Out] = { (a: A, b: B) =>
     f(a, b).append(ToRelPath(a) / ToRelPath(b))
   }
-  def fun[A: ToRelPath, B: ToRelPath, C: ToRelPath, Out: ReadWriter](
+  def fun[A: ToRelPath, B: ToRelPath, C: ToRelPath, Out](
       f: (A, B, C) => Target[Out]
   ): (A, B, C) => Target[Out] = { (a: A, b: B, c: C) =>
     f(a, b, c).append(ToRelPath(a) / ToRelPath(b) / ToRelPath(c))
@@ -683,7 +683,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       B: ToRelPath,
       C: ToRelPath,
       D: ToRelPath,
-      Out: ReadWriter
+      Out
   ](f: (A, B, C, D) => Target[Out]): (A, B, C, D) => Target[Out] = {
     (a: A, b: B, c: C, d: D) =>
       f(a, b, c, d).append(

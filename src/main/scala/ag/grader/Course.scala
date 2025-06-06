@@ -1,7 +1,5 @@
 package ag.grader
 
-import scala.language.experimental.namedTuples
-
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
   eval,
@@ -119,7 +117,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
           for {
             // all keys in dropbox
             (csid, new_key) <- dropbox.toSeq
-            key_file_name = s"$csid.pub"
+            key_file_name = s"${csid.toString}.pub"
             key_file_path = dir / "keydir" / key_file_name
             // if the key doesn't exist or is different
             if !os
@@ -129,7 +127,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
               .nn != new_key
           } {
             // If we make it here then the key needs to be added or updated
-            println(s"adding $csid to gitolite-admin")
+            println(s"adding ${csid.toString} to gitolite-admin")
             os.write.over(key_file_path, new_key)
             added.add(csid)
           }
@@ -159,7 +157,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
             os.read(enrollment_file(sp.get_data_path))
           )
         } else {
-          say(s"enrollment file $f doesn't exist")
+          say(s"enrollment file ${f.toString} doesn't exist")
           SortedMap()
         }
       } else {

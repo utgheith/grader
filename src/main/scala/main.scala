@@ -1,5 +1,3 @@
-import scala.language.experimental.namedTuples
-
 import ag.common.{
   block,
   given_ReadWriter_Regex,
@@ -177,7 +175,6 @@ case class CommonArgs(
 
     val per_project_test_ids: Future[Seq[SortedSet[TestId]]] = for {
       projects: Seq[Project] <- ps
-      c <- chosen_phase.track
       per_project_test_ids: Seq[SortedSet[TestId]] <- Future.sequence {
         for {
           p <- projects
@@ -253,9 +250,9 @@ object Main {
       if commonArgs.students.guilty.matches(s.value)
       r <- p.get_student_results(s).track.block.toSeq
       (test, outcome) <- r.outcomes.toSeq
-    } yield (p, s, test, outcome)).groupMapReduce {
-      case (p, s, test, outcome) => (p, test)
-    } { case (p, s, test, outcome) =>
+    } yield (p, s, test, outcome)).groupMapReduce { case (p, _, test, _) =>
+      (p, test)
+    } { case (_, _, _, outcome) =>
       !outcome.is_happy
     }(_ && _)
 
@@ -393,9 +390,9 @@ object Main {
         println(s"\n$base_name:")
 
         for (csid <- sorted) {
-          val target_name = s"${base_name}_$csid"
+          val target_name = s"${base_name}_${csid.toString}"
           val padded_name = String.format(s"%-${max_width}s", target_name)
-          println(s"$padded_name  ${aliases.getOrElse(csid, "?")}")
+          println(s"$padded_name  ${aliases.getOrElse(csid, "?").toString}")
         }
       }
     }
@@ -433,15 +430,17 @@ object Main {
           if commonArgs.students.track.block.matches(csid.value)
         } {
           val prep = p.prepare(csid, cutoff, commonArgs.commit_id_file).guilty
-          val target_name = s"${c.course_name}_${pn}_$csid"
+          val target_name = s"${c.course_name}_${pn}_${csid.toString}"
           val target_path = base / target_name
 
           prep.value match {
             case Some(data) =>
               println(
-                s"${aliases.getOrElse(csid, "?")} $target_name ${data.commit_time
-                    .withZoneSameInstant(ZoneId.systemDefault)} ${data.sha} ${data.push_time
-                    .map(ins => ins.atZone(ZoneId.systemDefault()))}"
+                s"${aliases.getOrElse(csid, "?").toString} $target_name ${data.commit_time
+                    .withZoneSameInstant(ZoneId.systemDefault)
+                    .toString} ${data.sha} ${data.push_time
+                    .map(ins => ins.atZone(ZoneId.systemDefault()))
+                    .toString}"
               )
               os.copy.over(
                 from = prep.get_data_path,
@@ -467,7 +466,7 @@ object Main {
       }
     }
 
-    println(s"copied to $base")
+    println(s"copied to ${base.toString}")
   }
 
   @main
@@ -556,7 +555,7 @@ object Main {
 
           for (((csid, late_commits), i) <- repos.zipWithIndex) {
             val target_name =
-              if show_details then s"${c.course_name}_${pn}_$csid"
+              if show_details then s"${c.course_name}_${pn}_${csid.toString}"
               else s"Submission $i"
 
             println(target_name)
@@ -605,7 +604,7 @@ object Main {
   def test_ids(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for ((p, test_id) <- commonArgs.test_ids.track.block) {
-      println(s"$p $test_id")
+      println(s"${p.toString} ${test_id.toString}")
     }
 
   }
@@ -724,9 +723,7 @@ object Main {
 
   @main
   def publish_results(
-      commonArgs: CommonArgs,
-      cutoff: CutoffTime,
-      minutes: Int = 10
+      commonArgs: CommonArgs
   ): Unit = {
     given State = State(commonArgs.workspace)
 
@@ -757,7 +754,7 @@ object Main {
             val pass =
               res.outcomes.values.count(_.is_happy)
             println(
-              s"${c.course_name}:$pn:$csid:${res.alias.getOrElse("")}:$pass/$count"
+              s"${c.course_name}:$pn:${csid.toString}:${res.alias.map(_.toString).getOrElse("")}:$pass/$count"
             )
           }
         }
@@ -814,7 +811,6 @@ object Main {
       val weights = p.test_weights.guilty
       val test_weights = (for {
         c <- chosen
-        external_name = c.external_name
         w <- weights
         p = Regex(w.pattern)
         if p.matches(c.external_name)
@@ -855,9 +851,10 @@ object Main {
         val score =
           if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(
-          f"    $csid $score ${100.0 * (score / total.toDouble)}%.02f ${
-              if (is_late) "late" else "ontime"
-            }"
+          f"    ${csid.toString} ${score.toString} ${100.0 * (score / total.toDouble)}%0.2f ${(if (
+                                                                                                 is_late
+                                                                                               ) "late"
+                                                                                               else "ontime").toString}"
         )
       }
     }

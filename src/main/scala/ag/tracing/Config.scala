@@ -26,10 +26,10 @@ def trace[A](msg: => A): Unit = {
       s"[${Thread.currentThread.getName}] "
     } else ""
     val time_part = if (config.timestamp) {
-      s"[${LocalDateTime.now()}] "
+      s"[${LocalDateTime.now().toString}] "
     } else ""
 
-    val line = s"$thread_part$time_part$msg\n"
+    val line = s"$thread_part$time_part${msg.toString}\n"
 
     Config.trace_lock.lockInterruptibly()
     try {

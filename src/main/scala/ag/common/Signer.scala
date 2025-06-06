@@ -54,7 +54,7 @@ object Signer {
               p <- os.list(path, sort = true)
             } one(p)
           } else if (os.exists(path)) {
-            throw Exception(s"$path")
+            throw Exception(path.toString)
           }
         }
       }

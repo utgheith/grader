@@ -8,7 +8,7 @@ case class RefSpec(
   private def show_part(p: Option[os.RelPath]): String =
     p.map(_.toString).getOrElse("")
   override def toString: String =
-    s"${if (force) "+" else ""}${show_part(src)}:${show_part(dest)}"
+    s"${(if (force) "+" else "").toString}${show_part(src)}:${show_part(dest)}"
 }
 
 object RefSpec {

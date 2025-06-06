@@ -1,8 +1,6 @@
 package ag.grader
 
-import language.experimental.namedTuples
-
-import ag.common.{down}
+import ag.common.down
 import ag.r2.say
 import ag.rules.{Optional, run}
 import scala.collection.SortedSet
@@ -41,8 +39,8 @@ def doit(
         )
         val tn = test_id.external_name
         val m =
-          s"$tn/${test_id.internal_name} for ${project.course.course_name}_${project.project_name}_$csid"
-        say(f"running#$n $m on $cores cores (Docker: $docker_image})")
+          s"$tn/${test_id.internal_name} for ${project.course.course_name}_${project.project_name}_${csid.toString}"
+        say(f"running#$n $m on $cores cores (Docker: ${docker_image.toString})")
 
         val start = System.currentTimeMillis()
         var run_time: Option[Double] = None
@@ -99,8 +97,10 @@ def doit(
         val out = (if (outcome.isHappy) fansi.Color.Green
                    else fansi.Color.Red) (outcome.toString)
 
-        say(s"    [${finished_runs.get()}/${started_runs
-            .get()}] finished [$out] $m in $how_long seconds")
+        say(
+          s"    [${finished_runs.get()}/${started_runs
+              .get()}] finished [${out.toString}] $m in ${how_long.toString} seconds"
+        )
 
         stderr.foreach { stderr =>
           os.copy(

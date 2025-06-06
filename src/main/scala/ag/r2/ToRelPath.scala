@@ -1,6 +1,7 @@
 package ag.r2
 
-import scala.compiletime.{summonAll, summonFrom, summonInline}
+import scala.annotation.unused
+import scala.compiletime.summonFrom
 import scala.util.matching.Regex
 
 trait ToRelPath[A] {
@@ -8,11 +9,11 @@ trait ToRelPath[A] {
 }
 
 object ToRelPath {
-  def apply[A: ToRelPath](a: A): os.RelPath = summon[ToRelPath[A]](a)
+  def apply[A](a: A)(using ev: ToRelPath[A]): os.RelPath = ev(a)
 
   inline def opt[A](a: A): os.RelPath = summonFrom {
-    case given ToRelPath[A] => summonInline[ToRelPath[A]](a)
-    case _                  => ???
+    case ev: ToRelPath[A] => ev(a)
+    case _                => ???
   }
 
   given ToRelPath[Boolean] = b => os.RelPath(if (b) "yes" else "no")
@@ -35,6 +36,7 @@ object ToRelPath {
 
   given ToRelPath[String] = s => os.RelPath(s)
 
+  @unused
   given [N: Numeric] => ToRelPath[N] = n => ToRelPath(n.toString)
 
   given [A: ToRelPath, B: ToRelPath] => ToRelPath[(A, B)] = { case (a, b) =>

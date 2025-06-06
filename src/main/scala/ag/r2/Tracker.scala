@@ -7,7 +7,6 @@ import scala.annotation.implicitNotFound
 import scala.collection.SortedMap
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
-import scala.reflect.ClassTag
 import scala.util.control.NonFatal
 
 @implicitNotFound("no given Tracker")
@@ -17,9 +16,9 @@ trait Tracker[A] extends Context[A] {
 
   def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
     if (d.is_peek) {
-      Context.say(Some(this), s"does not depend on ${d.path}")
+      Context.say(Some(this), s"does not depend on ${d.path.toString}")
     } else {
-      Context.say(Some(this), s"depends on ${d.path}")
+      Context.say(Some(this), s"depends on ${d.path.toString}")
       added_dependencies.update(d.path, fr)
     }
   }
@@ -34,7 +33,7 @@ trait Tracker[A] extends Context[A] {
   def run(
       f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
         (() => Future[A])
-  )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
+  )(using ReadWriter[A]): Future[Result[A]] = {
     given producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val producing: Target[A] = Tracker.this.producing_opt.get
@@ -50,7 +49,7 @@ trait Tracker[A] extends Context[A] {
 
     // check if we have a failed update
     if (os.exists(producer.backup_path)) {
-      say(s"recovering ${producer.target_path} from backup")
+      say(s"recovering ${producer.target_path.toString} from backup")
       os.remove.all(producer.target_path)
       os.move(producer.backup_path, producer.target_path)
     }
@@ -78,7 +77,7 @@ trait Tracker[A] extends Context[A] {
           }
         } catch {
           case NonFatal(e) =>
-            say(s"load error $e")
+            say(s"load error ${e.toString}")
             os.remove.all(producer.saved_path)
             None
         }
@@ -100,7 +99,7 @@ trait Tracker[A] extends Context[A] {
         // Make a backup copy of the old result. This is useful if the computation fails
         // and we want to restore the old result
         if (os.exists(producer.target_path)) {
-          say(s"backing up ${producer.producing.path}")
+          say(s"backing up ${producer.producing.path.toString}")
           os.copy(
             from = producer.target_path,
             to = producer.backup_path,
@@ -122,7 +121,7 @@ trait Tracker[A] extends Context[A] {
           )
 
           os.remove.all(producer.backup_path)
-          say(s"${producer.producing.path} done")
+          say(s"${producer.producing.path.toString} done")
           new_result
         }(using producer.state)
     }
@@ -139,7 +138,7 @@ trait Tracker[A] extends Context[A] {
 
   def run_if_needed(
       f: Producer[A] ?=> Future[A]
-  )(using ReadWriter[A], ClassTag[A]): Future[Result[A]] = {
+  )(using ReadWriter[A]): Future[Result[A]] = {
     run {
       case sra @ Some(_) =>
         sra

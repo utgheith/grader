@@ -18,13 +18,13 @@ case class Config(
 ) derives ReadWriter {
   def trace_dirty(target: Target[?]): Unit = {
     if (trace_flags.dirty) {
-      trace(s"[DIRTY] ${target.path}")
+      trace(s"[DIRTY] ${target.path.toString}")
     }
   }
   def trace_miss(ctx: Context[?], target: TargetBase): Unit = {
     if (trace_flags.miss) {
       trace(
-        s"[MISS] ${ctx.producing_opt.map(_.path)} looking for ${target.path}"
+        s"[MISS] ${ctx.producing_opt.map(_.path).toString} looking for ${target.path.toString}"
       )
     }
   }
@@ -35,14 +35,14 @@ case class Config(
   ): Unit = {
     if (trace_flags.read_error) {
       trace(
-        s"[READ ERROR] ${ctx.producing_opt.map(_.path)} looking for ${target.path}: ${e.getMessage}"
+        s"[READ ERROR] ${ctx.producing_opt.map(_.path).toString} looking for ${target.path.toString}: ${e.getMessage}"
       )
     }
   }
-  def trace_make(ctx: Context[?], target: TargetBase): Unit = {
+  def trace_make(target: TargetBase): Unit = {
     if (trace_flags.make) {
       trace(
-        s"[MAKE] ${target.path}"
+        s"[MAKE] ${target.path.toString}"
       )
     }
   }

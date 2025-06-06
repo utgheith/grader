@@ -11,7 +11,7 @@ object Docker {
     cache.getOrElseUpdate(
       docker_file, {
         if (!os.exists(docker_file)) {
-          println(s"$docker_file does not exist")
+          println(s"${docker_file.toString} does not exist")
         }
 
         val sha = MessageDigest

@@ -1,7 +1,5 @@
 package ag.grader
 
-import language.experimental.namedTuples
-
 import ag.r2.{say, Target}
 
 import java.io.FileWriter
@@ -305,7 +303,7 @@ class HtmlGen(p: Project) {
                         case Some(
                               o @ RedactedOutcome(_, _, outcomes)
                             ) if outcomes.nonEmpty =>
-                          f"${outcomes.size} tries, ${o.min_max}"
+                          f"${outcomes.size} tries, ${o.min_max.toString}"
 
                         case _ =>
                           null
@@ -450,7 +448,7 @@ class HtmlGen(p: Project) {
             ) / s"${p.course.course_name}_${p.project_name}.html"
           val perms = os.PermSet.fromString("rwxr--r--")
 
-          say(s"  $f")
+          say(s"  ${f.toString}")
 
           os.write.over(f, "")
           os.perms.set(f, perms)
