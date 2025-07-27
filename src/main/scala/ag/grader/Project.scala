@@ -56,7 +56,7 @@ object CutoffTime:
   def fromString(s: Option[String]): CutoffTime = s match
     case Some("default") | Some("deadline") => CutoffTime.Default
     case Some("none") | scala.None          => CutoffTime.None
-    case Some(t) =>
+    case Some(t)                            =>
       CutoffTime.Manual(
         ZonedDateTime.of(LocalDateTime.parse(t), ZoneId.systemDefault)
       )
@@ -410,7 +410,7 @@ case class Project(course: Course, project_name: String)
                 submission_repo.get_data_path / commit_id_file_name
               val cutoff_time = cutoff match
                 case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-                case CutoffTime.Default =>
+                case CutoffTime.Default             =>
                   Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
                 case CutoffTime.None => None
               val commit_id =
@@ -571,7 +571,7 @@ case class Project(course: Course, project_name: String)
 
             val cutoff_time = cutoff match
               case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-              case CutoffTime.Default =>
+              case CutoffTime.Default             =>
                 Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
               case CutoffTime.None => None
 

@@ -83,7 +83,7 @@ given TokensReader.Simple[AliasSortMode] with {
     strings.head match
       case "alias" => Right(AliasSortMode.Alias)
       case "csid"  => Right(AliasSortMode.CSID)
-      case s =>
+      case s       =>
         Left(s"Invalid sort mode '$s'; possible modes are 'alias' or 'csid'")
 }
 

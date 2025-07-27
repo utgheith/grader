@@ -4,6 +4,7 @@ import ag.cmd.{CallableCommand, Command}
 import os.{CommandResult, Shellable}
 
 import scala.language.implicitConversions
+import scala.language.experimental.namedTuples
 
 // git [-C <dir>] ...
 case class git(C: os.Path | Null = null) extends Command {
@@ -25,7 +26,7 @@ case class git(C: os.Path | Null = null) extends Command {
     override def translate(res: CommandResult): Unit = ()
   }
 
-  private type NotesOut = Seq[(note_sha: Sha.Note, commit_sha: Sha.Commit)]
+  type NotesOut = Seq[(note_sha: Sha.Note, commit_sha: Sha.Commit)]
 
   // git ... notes [--ref=<refspec>] ...
   case class notes(ref: String | Null = null)

@@ -8,6 +8,8 @@ import upickle.default.read
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.control.NonFatal
 
+import scala.language.experimental.namedTuples
+
 object Gitolite extends Scope(".") {
 
   // private val sem = Semaphore(4)
