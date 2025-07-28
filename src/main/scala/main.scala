@@ -366,18 +366,16 @@ object Main {
       case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
 
-    for (c <- commonArgs.selected_courses.track.block) {
+    for (c <- commonArgs.selected_courses.guilty) {
       val enrollment = c.enrollment.guilty
 
       for {
         (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.track.block.matches(pn)
+        if commonArgs.projects.guilty.matches(pn)
       } {
         val aliases = p.get_aliases.guilty
         val csids = enrollment.keys
-          .filter((id: CSID) =>
-            commonArgs.students.track.block.matches(id.value)
-          )
+          .filter((id: CSID) => commonArgs.students.guilty.matches(id.value))
           .toIndexedSeq
         val sorted =
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids

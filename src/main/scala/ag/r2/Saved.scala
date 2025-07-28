@@ -5,7 +5,7 @@ import ag.common.{
   given_ReadWriter_RelPath,
   given_ReadWriter_SortedMap
 }
-import upickle.default.{macroRW, ReadWriter}
+import upickle.default.ReadWriter
 
 import scala.collection.SortedMap
 
@@ -13,7 +13,4 @@ import scala.collection.SortedMap
 case class Saved[+A](
     result: Result[A],
     depends_on: SortedMap[os.RelPath, Signature]
-)
-object Saved {
-  given [A: ReadWriter] => ReadWriter[Saved[A]] = macroRW
-}
+) derives ReadWriter
