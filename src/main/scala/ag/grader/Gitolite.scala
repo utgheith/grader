@@ -28,7 +28,7 @@ object Gitolite extends Scope(".") {
       } else {
         (for {
           l <- os.read.lines(stdout)
-          parts = l.split(' ').nn
+          parts = l.split(' ')
           if parts.length == 2
           Array(name, sha) = parts
         } yield (name, sha)).to(SortedMap)
@@ -44,7 +44,7 @@ object Gitolite extends Scope(".") {
         line <- lines
         if line.nonEmpty
         if !line.startsWith("hello")
-        repo = line.split("""\s""").nn.toSeq.last.nn
+        repo = line.split("""\s""").toSeq.last
       } yield repo
 
       SortedSet(repos*)

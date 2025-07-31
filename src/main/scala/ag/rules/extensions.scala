@@ -26,8 +26,8 @@ lazy val std_dir: os.Path = {
 }
 
 def trace(msg: Any): Unit = {
-  val file = std_dir / s"${Thread.currentThread().nn.getName.nn}.trace"
-  os.write.append(file, s"${String.valueOf(msg).nn}\n", createFolders = true)
+  val file = std_dir / s"${Thread.currentThread().getName}.trace"
+  os.write.append(file, s"${String.valueOf(msg)}\n", createFolders = true)
 }
 
 case class ProcException(
@@ -61,7 +61,7 @@ extension (p: os.proc) {
 
     // say(s"---> $id:${p.commandChunks.mkString("[", ",", "]")} @ ${cwd.relativeTo(os.pwd)}")
 
-    val thread_id = Thread.currentThread().nn.getName.nn
+    val thread_id = Thread.currentThread().getName
 
     os.write(thread, thread_id)
     os.write(cmd, p.commandChunks.toString)

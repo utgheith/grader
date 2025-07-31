@@ -19,7 +19,7 @@ trait HtmlContext {
 
 class FileContext(path: os.Path) extends HtmlContext with AutoCloseable {
 
-  private val w = new FileWriter(path.toIO).nn
+  private val w = new FileWriter(path.toIO)
 
   def doctype(): Unit = {
     w.write("<!DOCTYPE html>")
@@ -136,7 +136,7 @@ def text(s: String)(using c: HtmlContext): Unit = {
 class HtmlGen(p: Project) {
 
   private val displayFormat: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)")
 
   val gen_html: Target[Unit] =
     p.target(
@@ -225,15 +225,15 @@ class HtmlGen(p: Project) {
           def times(using HtmlContext): Unit = table {
             tr {
               td { text("generated") }
-              td { text(displayFormat.format(LocalDateTime.now().nn).nn) }
+              td { text(displayFormat.format(LocalDateTime.now())) }
             }
             tr {
               td { text("phase 1 cutoff") }
-              td { text(displayFormat.format(test_cutoff).nn) }
+              td { text(displayFormat.format(test_cutoff)) }
             }
             tr {
               td { text("phase 2 cutoff") }
-              td { text(displayFormat.format(code_cutoff).nn) }
+              td { text(displayFormat.format(code_cutoff)) }
             }
           }
 
