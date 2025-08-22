@@ -864,6 +864,12 @@ object Main {
     pprint.pprintln(Gitolite.mirror("courses_config").guilty)
   }
 
+  @main
+  def pl(commonArgs: CommonArgs): Unit = {
+    given State = State(commonArgs.workspace)
+    pprint.pprintln(PlTools.z3.guilty)
+  }
+
   def main(args: Array[String]): Unit = {
     val _ = ParserForMethods(this).runOrExit(args.toIndexedSeq)
   }
