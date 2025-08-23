@@ -1,4 +1,5 @@
 import ag.r2.{periodic, Scope, Target, ToRelPath, update_data, WithData}
+import java.util.concurrent.Semaphore
 
 class ProcessHandler(p: os.proc) {
   def apply[Out](
@@ -7,7 +8,10 @@ class ProcessHandler(p: os.proc) {
       check: Boolean = true,
       show: Boolean = true
   ): Out = {
-    pprint.pprintln((p.command, cwd))
+
+    ProcessHandler.lock {
+      pprint.pprintln((p.command, cwd))
+    }
     val stdout = if (show) os.Inherit else os.Pipe
     val stderr = if (show) os.Inherit else os.Pipe
     out(p.call(cwd = cwd, check = check, stdout = stdout, stderr = stderr))
@@ -15,16 +19,61 @@ class ProcessHandler(p: os.proc) {
 
 }
 
+object ProcessHandler {
+  val lock = new Semaphore(1)
+}
+
+extension (s: Semaphore) {
+  def apply[T](f: => T): T = {
+    s.acquire()
+    try f
+    finally s.release()
+  }
+}
+
 extension (sc: StringContext) {
 
   def sh(args: Any*): ProcessHandler = {
-    val clean_parts = sc.parts.map(_.trim.split("  *").toIndexedSeq)
+    assert(args.length >= 0)
+    assert(sc.parts.length == args.length + 1)
 
-    val s = clean_parts.head ++ clean_parts.tail.zip(args).flatMap {
-      case (part, arg) => arg.toString +: part
+    val strings = if (args.length == 0) {
+      sc.parts.head.split("  *").to(Seq).filterNot(_.isEmpty)
+    } else {
+      // Normal Scala:
+      //    split(" x ") ==> ["", "x"]
+      // What we want:
+      //    split(" x ") ==> ["", "x", ""]
+
+      def consistent_split(s: String): Seq[String] = {
+        val out =
+          (" " + s).split("  *").to(Seq) ++ (if (s.endsWith(" ")) Seq("")
+                                             else Seq())
+        println(s"consistent_split('$s') = ${out.toString}")
+        if (out.isEmpty) Seq("") else out
+      }
+
+      println("------------------")
+
+      pprint.pprintln((sc.parts, args))
+
+      (for {
+        (Seq(part, next_part), arg) <- sc.parts
+          .map(consistent_split)
+          .sliding(2)
+          .zip(args)
+        x <- part.tail.dropRight(
+          1
+        ) :+ (part.last + arg.toString + next_part.head)
+        _ = println(s"x = ___${x}___")
+      } yield x).toSeq
     }
 
-    ProcessHandler(os.proc(s))
+    println(s"********************** output has ${strings.length} elements")
+
+    pprint.pprintln(strings.toSeq)
+
+    ProcessHandler(os.proc(strings.toSeq))
   }
 }
 
@@ -38,11 +87,11 @@ object Github extends Scope(".") {
         println(s"updating mirror for ${repo.toString}")
         update_data(_ => true) { d =>
           val dir = d / "repo"
-          val _ = if (os.exists(dir)) {
+          if (os.exists(dir)) {
             sh"git pull" (dir)
           } else {
             os.makeDir.all(dir)
-            sh"git clone --local --depth=1 ${repo} ." (dir)
+            sh"git clone --mirror https://github.com/${repo.toString} $dir" ()
           }
           sh"git rev-parse HEAD" (cwd = dir, out = _.out.text().trim)
         }
