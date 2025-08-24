@@ -183,45 +183,81 @@ class ProcessHandler(p: os.proc) {
 
 object ProcessHandler {
   val lock = new Semaphore(1)
+
+  case class Part(
+      startsWithSpace: Boolean,
+      s: Seq[String],
+      endsWithSpace: Boolean
+  ) {
+    def replace_head(f: String => String): Seq[String] = s match {
+      case Seq()         => Seq(f(""))
+      case Seq(h, tail*) => f(h) +: tail
+    }
+    def replace_last(f: String => String): Seq[String] = s match {
+      case Seq()        => Seq(f(""))
+      case init :+ last => init :+ f(last)
+    }
+  }
+
+  object Part {
+    def apply(str: String): Part = Part(
+      str.startsWith(" "),
+      str.trim.split("  *").to(Seq),
+      str.endsWith(" ")
+    )
+  }
 }
 
 extension (sc: StringContext) {
 
   def sh(args: Any*): ProcessHandler = {
+    import ProcessHandler.Part
     assert(args.length >= 0)
     assert(sc.parts.length == args.length + 1)
 
-    val strings = if (args.length == 0) {
-      sc.parts.head.split("  *").to(Seq).filterNot(_.isEmpty)
-    } else {
-      // Normal Scala:
-      //    split(" x ") ==> ["", "x"]
-      // What we want:
-      //    split(" x ") ==> ["", "x", ""]
+    def loop(parts: Seq[Part], args: Seq[Any]): Seq[String] =
+      (parts, args) match {
+        case (
+              Seq(left, right, rest_parts*),
+              Seq(arg_, rest_args*)
+            ) => /* last part */
+          val arg = if (arg_ == null) "" else arg_.toString
+          val arg_seq = if (arg == "") Seq() else Seq(arg)
 
-      def consistent_split(s: String): Seq[String] = {
-        val out =
-          (" " + s).split("  *").to(Seq) ++ (if (s.endsWith(" ")) Seq("")
-                                             else Seq())
-        println(s"consistent_split('$s') = ${out.toString}")
-        if (out.isEmpty) Seq("") else out
+          if (left.endsWithSpace) {
+            // get to consume the arg
+            if (right.startsWithSpace) {
+              // by itself
+              left.s ++ arg_seq ++ loop(right +: rest_parts, rest_args)
+            } else {
+              // need to prepend to right
+              left.s ++ loop(
+                right.copy(s = right.replace_head(arg + _)) +: rest_parts,
+                rest_args
+              )
+            }
+          } else {
+            if (right.startsWithSpace) {
+              // append the arg to the left part
+              left.replace_last(_ + arg) ++ loop(right +: rest_parts, rest_args)
+            } else {
+              // left, arg, right glued together
+              left.replace_last(_ + arg + right.s.head) ++ loop(
+                right.copy(s = right.s.tail) +: rest_parts,
+                rest_args
+              )
+            }
+          }
+        case (Seq(left), _) =>
+          assert(args.isEmpty)
+          left.s
+        case x =>
+          pprint.pprintln(x)
+          throw Exception("unreachable")
+
       }
 
-      println("------------------")
-
-      pprint.pprintln((sc.parts, args))
-
-      (for {
-        (Seq(part, next_part), arg) <- sc.parts
-          .map(consistent_split)
-          .sliding(2)
-          .zip(args)
-        x <- part.tail.dropRight(
-          1
-        ) :+ (part.last + arg.toString + next_part.head)
-        _ = println(s"x = ___${x}___")
-      } yield x).toSeq
-    }
+    val strings = loop(sc.parts.map(Part(_)), args.toSeq)
 
     println(s"********************** output has ${strings.length} elements")
 
