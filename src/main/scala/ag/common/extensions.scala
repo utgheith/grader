@@ -202,7 +202,7 @@ object ProcessHandler {
   object Part {
     def apply(str: String): Part = Part(
       str.startsWith(" "),
-      str.trim.split("  *").to(Seq),
+      str.trim.split("  *").to(Seq).filter(_ != ""),
       str.endsWith(" ")
     )
   }
