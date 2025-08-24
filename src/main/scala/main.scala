@@ -865,9 +865,9 @@ object Main {
   }
 
   @main
-  def pl(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    pprint.pprintln(PlTools.z3.guilty)
+  def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit = {
+    given State = State(workspace)
+    pprint.pprintln(PlTools(prefix).fstar.guilty)
   }
 
   def main(args: Array[String]): Unit = {

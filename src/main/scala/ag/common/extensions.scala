@@ -160,3 +160,73 @@ def human(ms: Long): String = {
     f"${ms / (1000.0 * 60.0)}%.03fm"
   }
 }
+
+/////////// sh ////////////////
+
+class ProcessHandler(p: os.proc) {
+  def apply[Out](
+      cwd: os.Path = os.pwd,
+      out: os.CommandResult => Out = _ => (),
+      check: Boolean = true,
+      show: Boolean = true
+  ): Out = {
+
+    ProcessHandler.lock.down {
+      pprint.pprintln((p.command, cwd))
+    }
+    val stdout = if (show) os.Inherit else os.Pipe
+    val stderr = if (show) os.Inherit else os.Pipe
+    out(p.call(cwd = cwd, check = check, stdout = stdout, stderr = stderr))
+  }
+
+}
+
+object ProcessHandler {
+  val lock = new Semaphore(1)
+}
+
+extension (sc: StringContext) {
+
+  def sh(args: Any*): ProcessHandler = {
+    assert(args.length >= 0)
+    assert(sc.parts.length == args.length + 1)
+
+    val strings = if (args.length == 0) {
+      sc.parts.head.split("  *").to(Seq).filterNot(_.isEmpty)
+    } else {
+      // Normal Scala:
+      //    split(" x ") ==> ["", "x"]
+      // What we want:
+      //    split(" x ") ==> ["", "x", ""]
+
+      def consistent_split(s: String): Seq[String] = {
+        val out =
+          (" " + s).split("  *").to(Seq) ++ (if (s.endsWith(" ")) Seq("")
+                                             else Seq())
+        println(s"consistent_split('$s') = ${out.toString}")
+        if (out.isEmpty) Seq("") else out
+      }
+
+      println("------------------")
+
+      pprint.pprintln((sc.parts, args))
+
+      (for {
+        (Seq(part, next_part), arg) <- sc.parts
+          .map(consistent_split)
+          .sliding(2)
+          .zip(args)
+        x <- part.tail.dropRight(
+          1
+        ) :+ (part.last + arg.toString + next_part.head)
+        _ = println(s"x = ___${x}___")
+      } yield x).toSeq
+    }
+
+    println(s"********************** output has ${strings.length} elements")
+
+    pprint.pprintln(strings.toSeq)
+
+    ProcessHandler(os.proc(strings.toSeq))
+  }
+}
