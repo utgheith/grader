@@ -33,6 +33,10 @@ inline def say(inline msg: => Any): Unit = if (Noise()) {
   }
 }
 
+def log(msg: => Any)(using ctx: Producer[?]): Unit = {
+  ctx.log(msg)
+}
+
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: {ClassTag, ReadWriter}](
     f: Producer[A] ?=> A | Future[A]

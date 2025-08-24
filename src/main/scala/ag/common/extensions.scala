@@ -169,11 +169,9 @@ class ProcessHandler(p: os.proc) {
       out: os.CommandResult => Out = _ => (),
       check: Boolean = true,
       show: Boolean = true
-  ): Out = {
+  )(using Logging): Out = {
 
-    ProcessHandler.lock.down {
-      pprint.pprintln((p.command, cwd))
-    }
+    log(s"running: ${p.command.mkString(" ")} in ${cwd.toString}")
     val stdout = if (show) os.Inherit else os.Pipe
     val stderr = if (show) os.Inherit else os.Pipe
     out(p.call(cwd = cwd, check = check, stdout = stdout, stderr = stderr))

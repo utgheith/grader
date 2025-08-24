@@ -39,6 +39,8 @@ class State(val workspace: os.Path) extends Tracker {
     val tp = target_path(target)
     tp / os.up / s"${tp.last}.bak"
   }
+  def log_path(target: TargetBase | os.RelPath): os.Path =
+    target_path(target) / "log.txt"
 
   private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
 

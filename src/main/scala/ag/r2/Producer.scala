@@ -1,11 +1,13 @@
 package ag.r2
 
+import ag.common.Logging
+
 import scala.annotation.implicitNotFound
 
 // A producer is a context that produces a value of type A
 
 @implicitNotFound("no given Producer")
-trait Producer[A] extends Context[A] {
+trait Producer[A] extends Context[A] with Logging {
 
   // What does it produce?
   def producing: Target[A]
@@ -22,4 +24,13 @@ trait Producer[A] extends Context[A] {
   // Where to save the backup of the state. Used in order to recover from failed attempts
   // to update the state.
   lazy val backup_path: os.Path = state.backup_path(producing)
+
+  // log messages related to this producer here
+  lazy val log_path: os.Path = state.log_path(producing)
+
+  override def log(msg: => Any): Unit = {
+    // TODO: log levels, metadata, ...
+    if (msg != null)
+      os.write.append(log_path, msg.toString + "\n", createFolders = true)
+  }
 }

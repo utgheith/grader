@@ -45,6 +45,7 @@ trait Tracker[A] extends Context[A] {
 
       override def reportFailure(cause: Throwable): Unit =
         state.reportFailure(cause)
+
     }
 
     // check if we have a failed update
@@ -107,6 +108,9 @@ trait Tracker[A] extends Context[A] {
             followLinks = false
           )
         }
+
+        // clear the log
+        os.write.over(producer.log_path, "", createFolders = true)
 
         // Run the computation (asynchronous)
         ffa().map { new_value =>
