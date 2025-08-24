@@ -9,7 +9,7 @@ import scala.compiletime.summonFrom
 import scala.reflect.ClassTag
 
 object Noise {
-  private var noise: Boolean = false
+  private var noise: Boolean = true
 
   def apply(): Boolean = noise
 
@@ -118,7 +118,8 @@ def update_data[A](skip: os.RelPath => Boolean)(
   )
 }
 
-val periodic = Scope().fun { (ms: Long) =>
+
+lazy val periodic = Scope().fun { (ms: Long) =>
   Scope().target() {
     (System.currentTimeMillis() / ms) * ms
   }

@@ -3,6 +3,7 @@ package ag.grader
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
   eval,
+  log,
   Scope,
   Target,
   ToRelPath,
@@ -10,7 +11,6 @@ import ag.r2.{
   create_data,
   periodic,
   run_if_needed,
-  say,
   update_data
 }
 
@@ -157,7 +157,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
             os.read(enrollment_file(sp.get_data_path))
           )
         } else {
-          say(s"enrollment file ${f.toString} doesn't exist")
+          log(s"enrollment file ${f.toString} doesn't exist")
           SortedMap()
         }
       } else {

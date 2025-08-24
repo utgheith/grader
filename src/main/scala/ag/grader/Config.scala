@@ -88,9 +88,8 @@ object Config extends Scope(".") {
 
   // TODO: peek
   lazy val can_send_mail: Target[Boolean] = target(config) { config =>
-    throw Exception("implement peek")
     config.can_send_mail.getOrElse(false)
-  }
+  }.peek
 
   lazy val can_push_repo: Target[Boolean] =
     target(config)(_.can_push_repo.getOrElse(false))
