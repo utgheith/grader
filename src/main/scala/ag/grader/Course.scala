@@ -191,7 +191,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
         ) { _ =>
           os.write.over(
             enrollment_file(dir),
-            upickle.default.write(keys, indent = 2)
+            upickle.default.write(keys.value, indent = 2)
           )
         }
         keys.value
