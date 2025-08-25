@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.say
+import ag.r2.shout
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -23,7 +23,7 @@ case class RepoInfo(
     var forked: Boolean = false
 
     def clone_it(): Unit = {
-      say(s"cloning $repo_name")
+      shout(s"cloning $repo_name")
       server
         .SshProc(
           "git",
@@ -64,7 +64,7 @@ case class RepoInfo(
               case Some(fork_from) =>
                 if (!can_push_repo)
                   throw Exception(s"not allowed to fork $repo_name")
-                say(s"forking $repo_name")
+                shout(s"forking $repo_name")
                 server
                   .SshProc("ssh", server.ssh_uri, "fork", fork_from, repo_name)
                   .check(cwd = os.pwd)
@@ -111,7 +111,7 @@ case class RepoInfo(
     Try(os.proc("git", "commit", "-a", "-m", msg).run(cwd = path)) match {
       case Success(_) =>
         if (!can_push_repo) throw Exception(s"not allowed to push $repo_name")
-        say(s"pushing $repo_name")
+        shout(s"pushing $repo_name")
         val _ = server.SshProc("git", "push").run(cwd = path)
       case Failure(_) =>
     }

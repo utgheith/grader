@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.say
+import ag.r2.{say, shout}
 import upickle.default.ReadWriter
 import ag.rules.check
 
@@ -22,8 +22,8 @@ case class NotificationConfig(
       can_send: Boolean
   ): Unit = {
     if (can_send) {
-      println(
-        s"----- sending $send_to_student ${to.toString} ${cc.toString} $subject"
+      shout(
+        s"sending $send_to_student ${to.toString} ${cc.toString} $subject"
       )
       os.proc(
         "mail",
@@ -36,7 +36,7 @@ case class NotificationConfig(
         to.value
       ).check(stdin = contents)
     } else {
-      println(
+      shout(
         s"----- not sending $send_to_student ${to.toString} ${cc.toString} $subject"
       )
     }

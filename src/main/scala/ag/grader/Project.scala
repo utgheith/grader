@@ -16,6 +16,7 @@ import ag.r2.{
   Result,
   run_if_needed,
   say,
+  shout,
   Tracker,
   update_data
 }
@@ -233,10 +234,9 @@ case class Project(course: Course, project_name: String)
             msg = s"create",
             can_push_repo
           ) { forked =>
-            println(s"----- forked = $forked")
             if (forked) {
-              println(
-                s"------ sending notification to ${csid.toString}, can_send_mail is $can_send_mail"
+              shout(
+                s"sending notification to ${csid.toString}, can_send_mail is $can_send_mail"
               )
               n.send_repo_created(this, repo_info, csid, can_send_mail, dir)
             }

@@ -34,6 +34,11 @@ inline def say(inline msg: => Any): Unit = {
   }
 }
 
+inline def shout(inline msg: => Any): Unit = {
+  say(msg)
+  println(msg)
+}
+
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: {ClassTag, ReadWriter}](
     f: Producer[A] ?=> A | Future[A]
