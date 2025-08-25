@@ -2,14 +2,14 @@
 
 D=$(dirname $0)
 
-echo "building ..."
-(cd $D && make)
+#echo "building ..."
+(cd $D && make -s)
 
 JVM=$($D/jvm)
-echo "setting up for $JVM ..."
+#echo "setting up for $JVM ..."
 eval "$($D/cs java --jvm "$JVM" --env)"
-java -version
+#java -version
 
-echo "running ..."
-exec $D/target/universal/stage/bin/grader "$@"
+#echo "running ..."
+exec $D/target/universal/stage/bin/grader "$@" 2> run_errors
 
