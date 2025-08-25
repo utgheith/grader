@@ -50,7 +50,7 @@ trait Tracker[A] extends Context[A] {
 
     // check if we have a failed update
     if (os.exists(producer.backup_path)) {
-      log(s"recovering ${producer.target_path.toString} from backup")
+      say(s"recovering ${producer.target_path.toString} from backup")
       os.remove.all(producer.target_path)
       os.move(producer.backup_path, producer.target_path)
     }
@@ -60,18 +60,20 @@ trait Tracker[A] extends Context[A] {
       // (1) let's find out if we have a saved value
       if (os.isFile(producer.saved_path)) {
         try {
-          log("loading old state")
+          say("loading old state")
           val old = read[Saved[A]](os.read(producer.saved_path))
           // (2) we seem to have one, check if the dependencies changed
           // ctx has the newly discovered dependencies
           // old has the dependency at the time the value was saved
 
-          log(s"depends on ${upickle.default.write(old.depends_on.toString, indent=2)}")
+          say(
+            s"depends on ${upickle.default.write(old.depends_on.toString, indent = 2)}"
+          )
 
-          log("checking dependencies")
+          say("checking dependencies")
           if (old.depends_on.isEmpty) {
             // special case: no dependenices => always recompute
-            log("no dependencies, force recompute")
+            say("no dependencies, force recompute")
             None
           } else {
             if (
@@ -79,21 +81,21 @@ trait Tracker[A] extends Context[A] {
               Tracker.this.dependencies
                 .forall((p, s) => old.depends_on.get(p).contains(s))
             ) {
-              log("keeping old state")
+              say("keeping old state")
               Some(old.result)
             } else {
-              log("dependencies changed for old state")
+              say("dependencies changed for old state")
               None
             }
           }
         } catch {
           case NonFatal(e) =>
-            log(s"load error ${e.toString}")
+            say(s"load error ${e.toString}")
             os.remove.all(producer.saved_path)
             None
         }
       } else {
-        log(s"no old state")
+        say(s"no old state")
         None
       }
 
@@ -110,7 +112,7 @@ trait Tracker[A] extends Context[A] {
         // Make a backup copy of the old result. This is useful if the computation fails
         // and we want to restore the old result
         if (os.exists(producer.target_path)) {
-          log(s"backing up ${producer.producing.path.toString}")
+          say(s"backing up ${producer.producing.path.toString}")
           os.copy(
             from = producer.target_path,
             to = producer.backup_path,
@@ -127,7 +129,7 @@ trait Tracker[A] extends Context[A] {
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
           val new_saved = Saved(new_result, Tracker.this.dependencies)
-          log("writing new state")
+          say("writing new state")
           os.write.over(
             producer.saved_path,
             write(new_saved, indent = 2),

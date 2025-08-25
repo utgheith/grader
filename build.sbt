@@ -1,5 +1,7 @@
 scalaVersion := "3.7.2"
 
+name := "grader"
+
 scalacOptions ++= Seq(
   "-Wall",
   "-Wconf:any:e",

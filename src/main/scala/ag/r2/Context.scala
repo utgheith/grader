@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.common.down
+import ag.common.{down, Logging}
 
 import java.util.concurrent.Semaphore
 import scala.concurrent.ExecutionContext
@@ -27,22 +27,45 @@ import scala.annotation.implicitNotFound
 object Context {
   private val printLock: Semaphore = new Semaphore(1)
 
-  def say(ctx: Option[Context[?]], msg: => Any): Unit = if (Noise()) {
+  lazy val say_path = {
+    val p = os.pwd / "say.txt"
+    os.remove.all(p)
+    p
+  }
+
+  def say(ctx: Option[Context[?]], msg: => Any): Unit = {
     val t = if (msg == null) {
       "<null>"
     } else {
       msg.toString
     }
-    printLock.down(1) {
-      (1 to ctx.map(_.depth).getOrElse(0)).foreach(_ => System.err.print("."))
-      System.err.print(s"[${Thread.currentThread().getName}] ")
-      for {
-        ctx <- ctx
-        prod <- ctx.producing_opt
-      } System.err.print(s"[${prod.path.toString}] ")
-      System.err.print(t)
-      System.err.println()
+
+    val dots = "." * ctx.map(_.depth).getOrElse(0)
+    val thread_name = Thread.currentThread().getName
+
+    val producing = for {
+      ctx <- ctx
+      prod <- ctx.producing_opt
+    } yield prod.path
+
+    val out =
+      s"$dots[$thread_name]${producing.map(p => s" [${p.toString}]").getOrElse("")} $t\n"
+
+    ctx.foreach {
+      case log: Logging =>
+
+        log.log(out)
+      case _ => /* not a producer */
+
     }
+
+    printLock.down(1) {
+      if (Noise()) {
+        print(out)
+      }
+      os.write.append(say_path, out)
+    }
+
   }
 }
 

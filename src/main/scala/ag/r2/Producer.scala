@@ -29,8 +29,7 @@ trait Producer[A] extends Context[A] with Logging {
   lazy val log_path: os.Path = state.log_path(producing)
 
   override def log(msg: => Any): Unit = {
-    // TODO: log levels, metadata, ...
     if (msg != null)
-      os.write.append(log_path, msg.toString + "\n", createFolders = true)
+      os.write.append(log_path, msg.toString, createFolders = true)
   }
 }

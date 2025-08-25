@@ -9,12 +9,13 @@ import scala.compiletime.summonFrom
 import scala.reflect.ClassTag
 
 object Noise {
-  private var noise: Boolean = true
+  private var noise: Boolean = false
 
   def apply(): Boolean = noise
 
   Thread.ofPlatform().daemon(true).start { () =>
     while (true) {
+      println("-- hit enter to toggle noise --")
       val _ = System.in.read()
       noise = !noise
     }
@@ -26,15 +27,11 @@ inline def force_future[A: ClassTag](v: A | Future[A]): Future[A] = v match {
   case v             => Future.successful(v).mapTo[A]
 }
 
-inline def say(inline msg: => Any): Unit = if (Noise()) {
+inline def say(inline msg: => Any): Unit = {
   summonFrom[Context[?]] {
     case ctx: Context[?] => Context.say(Some(ctx), msg)
     case _               => Context.say(None, msg)
   }
-}
-
-def log(msg: => Any)(using ctx: Producer[?]): Unit = {
-  ctx.log(msg)
 }
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
@@ -117,7 +114,6 @@ def update_data[A](skip: os.RelPath => Boolean)(
     Signer[(os.Path, os.RelPath => Boolean)].sign((data_dir, skip))
   )
 }
-
 
 lazy val periodic = Scope().fun { (ms: Long) =>
   Scope().target() {
