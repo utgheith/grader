@@ -1,7 +1,6 @@
 package ag.grader
 
 import ag.r2.{say, shout}
-import ag.common.{Logging, sh}
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -20,7 +19,7 @@ case class RepoInfo(
       readers: Seq[String],
       writers: Seq[String],
       can_push_repo: Boolean
-  )(f: Boolean => A)(using Logging): A = {
+  )(f: Boolean => A): A = {
     var forked: Boolean = false
 
     say(s"updating ${path.toString} from $repo_name")
