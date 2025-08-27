@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.common.{down, Logging}
+import ag.common.down
 
 import java.util.concurrent.Semaphore
 import scala.concurrent.ExecutionContext
@@ -51,13 +51,14 @@ object Context {
     val out =
       s"$dots[$thread_name]${producing.map(p => s" [${p.toString}]").getOrElse("")} $t\n"
 
+    /*
     ctx.foreach {
       case log: Logging =>
 
         log.log(out)
       case _ => /* not a producer */
 
-    }
+    }*/
 
     printLock.down(1) {
       if (Noise()) {
