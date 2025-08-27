@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.git.{Sha, git}
-import ag.r2.{Scope, Target, WithData, periodic, update_data, say}
+import ag.r2.{Scope, Target, WithData, periodic, update_data, say, shout}
 
 import upickle.default.read
 
@@ -75,13 +75,13 @@ object Gitolite extends Scope(".") {
               if (!os.isDir(dir / ".git")) {
                 throw Exception("force clone")
               }
-              say(s"pulling $repo")
+              shout(s"pulling $repo")
               server.SshProc("git", "pull").check(cwd = dir)
             } catch {
               case NonFatal(_) =>
                 os.remove.all(dir)
                 os.makeDir.all(dir)
-                say(s"cloning $repo because pull failed")
+                shout(s"cloning $repo because pull failed")
                 server
                   .SshProc(
                     "git",

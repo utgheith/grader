@@ -397,6 +397,17 @@ object Main {
   }
 
   @main
+  def publish_tests(
+      commonArgs: CommonArgs
+  ): Unit = {
+    given State = State(commonArgs.workspace)
+    for (p <- commonArgs.selected_projects.guilty) {
+      println(s"-- publishing tests for ${p.project_name}")
+      pprint.pprintln(p.publish_tests.guilty)
+    }
+  }
+
+  @main
   def prepare(
       commonArgs: CommonArgs,
       @arg(

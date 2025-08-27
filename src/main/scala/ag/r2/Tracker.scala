@@ -55,6 +55,10 @@ trait Tracker[A] extends Context[A] {
       os.move(producer.backup_path, producer.target_path)
     }
 
+    if (os.exists(producer.backup_path)) {
+      throw new Exception(s"Backup found at ${producer.backup_path.toString}")
+    }
+
     val old_state: Option[Result[A]] = {
 
       // (1) let's find out if we have a saved value

@@ -1,6 +1,7 @@
 package ag.grader
 
-import ag.r2.shout
+import ag.r2.{say, shout}
+import ag.common.{Logging, sh}
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -19,8 +20,10 @@ case class RepoInfo(
       readers: Seq[String],
       writers: Seq[String],
       can_push_repo: Boolean
-  )(f: Boolean => A): A = {
+  )(f: Boolean => A)(using Logging): A = {
     var forked: Boolean = false
+
+    say(s"updating ${path.toString} from $repo_name")
 
     def clone_it(): Unit = {
       shout(s"cloning $repo_name")
@@ -50,6 +53,7 @@ case class RepoInfo(
       server
         .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
         .check(cwd = path)
+      say(s"updated ${path.toString} from $repo_name")
     } catch {
       case NonFatal(_) =>
         /* Second common path: the repo exists, but we don't have a local checkout, clone it */
@@ -106,8 +110,10 @@ case class RepoInfo(
     // TODO: failures here will leave the directory in a corrupted state
     //       this is by design but maybe it can be reconsidered
     // why is it ok? because we do a reset/clean before we use it again
+    pprint.pprintln(s"*** calling update func")
     val out = f(forked)
     val _ = os.proc("git", "add", ".").run(cwd = path)
+
     Try(os.proc("git", "commit", "-a", "-m", msg).run(cwd = path)) match {
       case Success(_) =>
         if (!can_push_repo) throw Exception(s"not allowed to push $repo_name")
