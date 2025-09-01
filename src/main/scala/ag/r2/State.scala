@@ -3,8 +3,8 @@ package ag.r2
 import os.Path
 
 import java.lang.Thread.Builder
-import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
+import scala.collection.mutable
 
 object State {
   val builder: Builder.OfVirtual = Thread.ofVirtual().name("v", 0)
@@ -42,30 +42,35 @@ class State(val workspace: os.Path) extends Tracker {
   def log_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "log.txt"
 
-  private val cache = TrieMap[os.RelPath, Future[Result[?]]]()
+  private val cache = mutable.Map[os.RelPath, Future[Result[?]]]()
 
   def track[A](
       target: Target[A]
   )(using tracker: Tracker[?]): Future[A] = {
-    val result: Future[Result[?]] = cache.getOrElseUpdate(
-      target.path, {
-        Context.say(Some(tracker), s"miss for ${target.path.toString}")
-        target.make(using
-          new Tracker {
-            override val depth: Int = tracker.depth + 1
-            override val state: State = tracker.state
+    val result: Future[Result[?]] = cache.synchronized {
+      cache.getOrElseUpdate(
+        target.path, {
+          Context.say(
+            Some(tracker),
+            s"miss for ${target.path.toString} in ${this.toString}"
+          )
+          target.make(using
+            new Tracker {
+              override val depth: Int = tracker.depth + 1
+              override val state: State = tracker.state
 
-            override def producing_opt: Option[Target[A]] = Some(target)
+              override def producing_opt: Option[Target[A]] = Some(target)
 
-            override def execute(runnable: Runnable): Unit =
-              tracker.state.execute(runnable)
+              override def execute(runnable: Runnable): Unit =
+                tracker.state.execute(runnable)
 
-            override def reportFailure(cause: Throwable): Unit =
-              tracker.state.reportFailure(cause)
-          }
-        )
-      }
-    )
+              override def reportFailure(cause: Throwable): Unit =
+                tracker.state.reportFailure(cause)
+            }
+          )
+        }
+      )
+    }
 
     tracker.add_dependency(target, result)
 
