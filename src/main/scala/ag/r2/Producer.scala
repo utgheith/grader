@@ -21,9 +21,9 @@ trait Producer[A] extends Context[A] with Logging {
   // Where to save associated data (e.g. a subdirectory with a bunch of files)
   lazy val data_path: os.Path = state.data_path(producing)
 
-  // Where to save the backup of the state. Used in order to recover from failed attempts
+  // The dirty flag. Used in order to recover from failed attempts
   // to update the state.
-  lazy val backup_path: os.Path = state.backup_path(producing)
+  lazy val dirty_path: os.Path = state.dirty_path(producing)
 
   // log messages related to this producer here
   lazy val log_path: os.Path = state.log_path(producing)

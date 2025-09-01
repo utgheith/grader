@@ -49,14 +49,9 @@ trait Tracker[A] extends Context[A] {
     }
 
     // check if we have a failed update
-    if (os.exists(producer.backup_path)) {
-      say(s"recovering ${producer.target_path.toString} from backup")
+    if (os.exists(producer.dirty_path)) {
+      say(s"removing dirty ${producer.target_path.toString}")
       os.remove.all(producer.target_path)
-      os.move(producer.backup_path, producer.target_path)
-    }
-
-    if (os.exists(producer.backup_path)) {
-      throw new Exception(s"Backup found at ${producer.backup_path.toString}")
     }
 
     val old_state: Option[Result[A]] = {
@@ -116,13 +111,8 @@ trait Tracker[A] extends Context[A] {
         // Make a backup copy of the old result. This is useful if the computation fails
         // and we want to restore the old result
         if (os.exists(producer.target_path)) {
-          say(s"backing up ${producer.producing.path.toString}")
-          os.copy(
-            from = producer.target_path,
-            to = producer.backup_path,
-            createFolders = true,
-            followLinks = false
-          )
+          say(s"marking ${producer.producing.path.toString} as dirty")
+          os.write(producer.dirty_path, "", createFolders = true)
         }
 
         // clear the log
@@ -140,7 +130,7 @@ trait Tracker[A] extends Context[A] {
             createFolders = true
           )
 
-          os.remove.all(producer.backup_path)
+          os.remove.all(producer.dirty_path)
           say(s"${producer.producing.path.toString} done")
           new_result
         }(using producer.state)

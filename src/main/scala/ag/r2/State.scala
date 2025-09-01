@@ -35,10 +35,8 @@ class State(val workspace: os.Path) extends Tracker {
     target_path(target) / "data"
   def saved_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "saved.json"
-  def backup_path(target: TargetBase | os.RelPath): os.Path = {
-    val tp = target_path(target)
-    tp / os.up / s"${tp.last}.bak"
-  }
+  def dirty_path(target: TargetBase | os.RelPath): os.Path =
+    target_path(target) / "dirty"
   def log_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "log.txt"
 
