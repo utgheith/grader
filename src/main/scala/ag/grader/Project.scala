@@ -990,8 +990,7 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  private lazy val student_tests_by_csid
-      : Target[SortedMap[CSID, WithData[String]]] =
+  lazy val student_tests_by_csid: Target[SortedMap[CSID, WithData[String]]] =
     complex_target {
 
       val possible_tests = for {

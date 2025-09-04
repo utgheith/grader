@@ -744,6 +744,20 @@ object Main {
   }
 
   @main
+  def student_tests(
+      commonArgs: CommonArgs
+  ): Unit = {
+    given State = State(commonArgs.workspace)
+
+    for (p <- commonArgs.selected_projects.guilty) {
+      val _ =
+        val out = p.student_tests_by_csid.guilty
+        pprint.pprintln(out)
+      // println(upickle.default.write(results, indent=2))
+    }
+  }
+
+  @main
   def get_results(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.block) {

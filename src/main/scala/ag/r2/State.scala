@@ -17,6 +17,8 @@ class State(val workspace: os.Path) extends Tracker {
   override val state: State = this
   override def producing_opt: Option[Target[Nothing]] = None
 
+  override val route = Seq()
+
   // ExecutionContext methods
   override def execute(runnable: Runnable): Unit = {
     val _ = State.builder.start(runnable)
@@ -45,6 +47,11 @@ class State(val workspace: os.Path) extends Tracker {
   def track[A](
       target: Target[A]
   )(using tracker: Tracker[?]): Future[A] = {
+    if (tracker.route.map(_.path).contains(target.path)) {
+      throw new Exception(
+        s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"
+      )
+    }
     val result: Future[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
         target.path, {
@@ -55,6 +62,8 @@ class State(val workspace: os.Path) extends Tracker {
           target.make(using
             new Tracker {
               override val depth: Int = tracker.depth + 1
+
+              override val route = tracker.route :+ target
               override val state: State = tracker.state
 
               override def producing_opt: Option[Target[A]] = Some(target)

@@ -36,6 +36,7 @@ trait Tracker[A] extends Context[A] {
   )(using ReadWriter[A]): Future[Result[A]] = {
     given producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
+      override val route = Tracker.this.route
       override val producing: Target[A] = Tracker.this.producing_opt.get
       override val state: State = Tracker.this.state
 

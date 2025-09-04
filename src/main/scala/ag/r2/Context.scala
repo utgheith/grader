@@ -72,6 +72,7 @@ object Context {
 
 @implicitNotFound("no given Context")
 trait Context[A] extends ExecutionContext {
+  val route: Seq[Target[?]]
   val depth: Int
   val state: State
   def producing_opt: Option[Target[A]]

@@ -109,7 +109,7 @@ case class RepoInfo(
     // TODO: failures here will leave the directory in a corrupted state
     //       this is by design but maybe it can be reconsidered
     // why is it ok? because we do a reset/clean before we use it again
-    pprint.pprintln(s"*** calling update func")
+    pprint.pprintln(s"*** calling update func for $repo_name")
     val out = f(forked)
     val _ = os.proc("git", "add", ".").run(cwd = path)
 
