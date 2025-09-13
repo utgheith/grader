@@ -59,7 +59,7 @@ class State(val workspace: os.Path) extends Tracker {
             Some(tracker),
             s"miss for ${target.path.toString} in ${this.toString}"
           )
-          target.make(using
+          val made = target.make(using
             new Tracker {
               override val depth: Int = tracker.depth + 1
 
@@ -75,6 +75,7 @@ class State(val workspace: os.Path) extends Tracker {
                 tracker.state.reportFailure(cause)
             }
           )
+          made
         }
       )
     }

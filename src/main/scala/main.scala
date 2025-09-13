@@ -6,8 +6,7 @@ import ag.common.{
   timed
 }
 import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
-import ag.r2.{eval, Scope, State, Target}
-
+import ag.r2.{Scope, State, Target, eval, run_if_needed}
 import mainargs.{
   Flag,
   ParserForClass,
@@ -22,7 +21,6 @@ import scala.util.matching.Regex
 import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-
 import scala.concurrent.Future
 
 given TokensReader.Simple[os.Path] with {
@@ -150,20 +148,18 @@ case class CommonArgs(
     }
 
   lazy val submissions: Target[Seq[(Project, CSID)]] = complex_target {
-    val ps: Future[Seq[Project]] = selected_projects.track
-    val csids_seq: Future[Seq[SortedSet[CSID]]] = ps.flatMap { ps =>
-      Future.sequence {
-        for { p <- ps } yield p.students_with_submission.track
-      }
+    val ps: Seq[Project] = selected_projects.guilty
+    val csids_seq: Seq[SortedSet[CSID]] = {
+      for { p <- ps } yield p.students_with_submission.guilty
     }
+    val s = students.guilty
 
-    eval(students.track, ps, csids_seq) {
-      (students: Regex, ps: Seq[Project], csids_seq: Seq[SortedSet[CSID]]) =>
-        for {
-          (p, csids) <- ps.zip(csids_seq)
-          csid <- csids
-          if students.matches(csid.value)
-        } yield (p, csid)
+    run_if_needed {
+      for {
+        (p, csids) <- ps.zip(csids_seq)
+        csid <- csids
+        if s.matches(csid.value)
+      } yield (p, csid)
 
     }
 
