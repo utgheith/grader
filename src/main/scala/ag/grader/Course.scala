@@ -2,7 +2,6 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
-  eval,
   Scope,
   Target,
   ToRelPath,
@@ -45,13 +44,12 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val active_projects: Target[SortedMap[String, Project]] =
     complex_target {
-      val ps = projects.track
+      val ps = projects.guilty
       val active_flags = for {
-        projects <- ps
-        active_flags <- Future.sequence(projects.values.map(_.active.track))
+        active_flags <- ps.values.map(_.active.guilty)
       } yield active_flags
-      eval(ps, active_flags) { (projects, active_flags) =>
-        projects.values
+      run_if_needed {
+        ps.values
           .zip(active_flags)
           .filter(_._2)
           .map(p => (p._1.project_name, p._1))

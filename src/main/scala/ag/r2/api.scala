@@ -7,7 +7,6 @@ import upickle.default.ReadWriter
 
 import scala.compiletime.summonFrom
 import scala.reflect.ClassTag
-import ag.common.block
 
 object Noise {
   private var noise: Boolean = false
@@ -45,47 +44,6 @@ def run_if_needed[A: {ClassTag, ReadWriter}](
     f: Producer[A] ?=> A | Future[A]
 )(using tracker: Tracker[A]): Future[Result[A]] =
   tracker.run_if_needed(force_future(f))
-
-def eval[A, B, Out: {ClassTag, ReadWriter}](fa: Future[A], fb: Future[B])(
-    f: Producer[Out] ?=> (A, B) => Out | Future[Out]
-)(using Tracker[Out]): Future[Result[Out]] =
-  // force evlaution of dependencies before calling run_if_needed
-  // TODO: this is too flaky, need to adjust API to be more reliable
-  val a = fa.block
-  val b = fb.block
-  run_if_needed {
-    force_future(f(a, b))
-  }
-
-def eval[A, B, C, Out: {ClassTag, ReadWriter}](
-    fa: Future[A],
-    fb: Future[B],
-    fc: Future[C]
-)(
-    f: Producer[Out] ?=> (A, B, C) => Out | Future[Out]
-)(using Tracker[Out]): Future[Result[Out]] =
-  val a = fa.block
-  val b = fb.block
-  val c = fc.block
-  run_if_needed {
-    force_future(f(a, b, c))
-  }
-
-def eval[A, B, C, D, Out: {ClassTag, ReadWriter}](
-    fa: Future[A],
-    fb: Future[B],
-    fc: Future[C],
-    fd: Future[D]
-)(
-    f: Producer[Out] ?=> (A, B, C, D) => Out | Future[Out]
-)(using Tracker[Out]): Future[Result[Out]] =
-  val a = fa.block
-  val b = fb.block
-  val c = fc.block
-  val d = fd.block
-  run_if_needed {
-    force_future(f(a, b, c, d))
-  }
 
 def create_data[A](skip: os.RelPath => Boolean)(
     f: Producer[WithData[A]] ?=> os.Path => A

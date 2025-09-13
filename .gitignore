@@ -16,4 +16,5 @@ target/
 /cs_*
 metals.sbt
 say.txt
+run_errors
 sbt_errors

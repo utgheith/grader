@@ -6,7 +6,7 @@ import ag.common.{
   timed
 }
 import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
-import ag.r2.{Scope, State, Target, eval, run_if_needed}
+import ag.r2.{Scope, State, Target, run_if_needed}
 import mainargs.{
   Flag,
   ParserForClass,
@@ -166,59 +166,51 @@ case class CommonArgs(
   }
 
   lazy val test_ids: Target[Seq[(Project, TestId)]] = complex_target {
-    // determine dependencies as quickly as possible
-    val ps: Future[Seq[Project]] = selected_projects.track
+    val ps: Seq[Project] = selected_projects.guilty
 
-    val per_project_test_ids: Future[Seq[SortedSet[TestId]]] = for {
-      projects: Seq[Project] <- ps
-      per_project_test_ids: Seq[SortedSet[TestId]] <- Future.sequence {
-        for {
-          p <- projects
-        } yield p.test_ids.track
-      }
-    } yield per_project_test_ids
+    val per_project_test_ids: Seq[SortedSet[TestId]] = for {
+      p <- ps
+    } yield p.test_ids.guilty
 
-    eval(tests.track, ps, per_project_test_ids) {
-      (tests, projects, per_project_test_ids) =>
-        // run less often, we can afford to work harder here
-        for {
-          (p, test_ids) <- projects.zip(per_project_test_ids)
-          test_id <- test_ids
-          if tests.matches(test_id.external_name) || tests.matches(
-            test_id.internal_name
-          )
-        } yield (p, test_id)
+    val ts = tests.guilty
+
+    run_if_needed {
+
+      // run less often, we can afford to work harder here
+      for {
+        (p, test_ids) <- ps.zip(per_project_test_ids)
+        test_id <- test_ids
+        if ts.matches(test_id.external_name) || ts.matches(
+          test_id.internal_name
+        )
+      } yield (p, test_id)
     }
   }
 
   lazy val runs: Target[Seq[(Project, CSID, TestId)]] = complex_target {
-    val ps: Future[Seq[Project]] = selected_projects.track
+    val ps: Seq[Project] = selected_projects.guilty
 
-    val per_project_ids: Future[Seq[(SortedSet[CSID], SortedSet[TestId])]] =
+    val per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] =
       for {
-        projects: Seq[Project] <- ps
-        per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] <- Future
-          .sequence {
-            for {
-              p: Project <- projects
-            } yield p.students_with_submission.track.zip(
-              p.test_ids.track
-            )
-          }
-      } yield per_project_ids
+        p: Project <- ps
+      } yield (p.students_with_submission.guilty, p.test_ids.guilty)
 
-    eval(students.track, tests.track, ps, per_project_ids) {
-      (students, tests, ps, per_project_ids) =>
-        for {
-          (p, (csids, test_ids)) <- ps.zip(per_project_ids)
-          the_test_ids = test_ids.filter(id =>
-            tests.matches(id.external_name) || tests.matches(id.internal_name)
+    val the_students = students.guilty
+    val the_tests = tests.guilty
+
+    run_if_needed {
+      for {
+        (p, (csids, test_ids)) <- ps.zip(per_project_ids)
+        the_test_ids = test_ids.filter(id =>
+          the_tests.matches(id.external_name) || the_tests.matches(
+            id.internal_name
           )
-          if the_test_ids.nonEmpty
-          csid <- csids.toSeq
-          if students.matches(csid.value)
-          test_id <- the_test_ids
-        } yield (p, csid, test_id)
+        )
+        if the_test_ids.nonEmpty
+        csid <- csids.toSeq
+        if the_students.matches(csid.value)
+        test_id <- the_test_ids
+      } yield (p, csid, test_id)
     }
   }
 }
