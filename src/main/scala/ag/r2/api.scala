@@ -7,6 +7,7 @@ import upickle.default.ReadWriter
 
 import scala.compiletime.summonFrom
 import scala.reflect.ClassTag
+import ag.common.block
 
 object Noise {
   private var noise: Boolean = false
@@ -48,28 +49,26 @@ def run_if_needed[A: {ClassTag, ReadWriter}](
 def eval[A, B, Out: {ClassTag, ReadWriter}](fa: Future[A], fb: Future[B])(
     f: Producer[Out] ?=> (A, B) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
+  // force evlaution of dependencies before calling run_if_needed
+  // TODO: this is too flaky, need to adjust API to be more reliable
+  val a = fa.block
+  val b = fb.block
   run_if_needed {
-    for {
-      a <- fa
-      b <- fb
-      out <- force_future(f(a, b))
-    } yield out
+    force_future(f(a, b))
   }
 
-inline def eval[A, B, C, Out: {ClassTag, ReadWriter}](
+def eval[A, B, C, Out: {ClassTag, ReadWriter}](
     fa: Future[A],
     fb: Future[B],
     fc: Future[C]
 )(
     f: Producer[Out] ?=> (A, B, C) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
+  val a = fa.block
+  val b = fb.block
+  val c = fc.block
   run_if_needed {
-    for {
-      a <- fa
-      b <- fb
-      c <- fc
-      out <- force_future(f(a, b, c))
-    } yield out
+    force_future(f(a, b, c))
   }
 
 def eval[A, B, C, D, Out: {ClassTag, ReadWriter}](
@@ -80,14 +79,12 @@ def eval[A, B, C, D, Out: {ClassTag, ReadWriter}](
 )(
     f: Producer[Out] ?=> (A, B, C, D) => Out | Future[Out]
 )(using Tracker[Out]): Future[Result[Out]] =
+  val a = fa.block
+  val b = fb.block
+  val c = fc.block
+  val d = fd.block
   run_if_needed {
-    for {
-      a <- fa
-      b <- fb
-      c <- fc
-      d <- fd
-      out <- force_future(f(a, b, c, d))
-    } yield out
+    force_future(f(a, b, c, d))
   }
 
 def create_data[A](skip: os.RelPath => Boolean)(
