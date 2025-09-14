@@ -4,7 +4,7 @@ import ag.common.{Signature, Signer, block}
 import upickle.default.{ReadWriter, read, write}
 
 import scala.annotation.implicitNotFound
-import scala.collection.SortedMap
+import scala.collection.{mutable, SortedMap}
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 import scala.util.control.NonFatal
@@ -13,6 +13,7 @@ import scala.util.control.NonFatal
 trait Tracker[A] extends Context[A] {
 
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
+  private val done = mutable.Set[os.RelPath]()
 
   def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
     if (d.is_peek) {
@@ -25,6 +26,19 @@ trait Tracker[A] extends Context[A] {
 
   // Returns the known dependencies
   private lazy val dependencies: SortedMap[os.RelPath, Signature] = {
+    /* compute transitive closure of all tracked dependencies */
+    while (done != added_dependencies.keySet) {
+      for {
+        (p, r) <- added_dependencies.toSeq
+      } {
+        if (!done.contains(p)) {
+          val _ = done.add(p)
+          val _ = r.block
+        }
+      }
+    }
+
+    /* now we have everything */
     (for {
       (p, result) <- added_dependencies.toSeq
     } yield (p, result.block.signature)).to(SortedMap)
