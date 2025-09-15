@@ -54,7 +54,8 @@ class State(val workspace: os.Path) extends Tracker {
     }
     val result: Future[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
-        target.path, {
+        target.path,
+        (Future {
           Context.say(
             Some(tracker),
             s"miss for ${target.path.toString} in ${this.toString}"
@@ -76,7 +77,7 @@ class State(val workspace: os.Path) extends Tracker {
             }
           )
           made
-        }
+        }).flatten
       )
     }
 

@@ -12,10 +12,28 @@ import scala.util.control.NonFatal
 @implicitNotFound("no given Tracker")
 trait Tracker[A] extends Context[A] {
 
+  enum Phase {
+    case Open
+    case Closing
+    case Closed
+
+    def check(desired: Phase*): Unit = {
+      val s = this;
+      if (!desired.contains(s)) {
+        throw new IllegalStateException(
+          s"[${producing_opt.map(_.path).toString}] Invalid phase: ${s.toString}"
+        )
+      }
+    }
+  }
+
   private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
   private val done = mutable.Set[os.RelPath]()
+  @volatile
+  private var phase: Phase = Phase.Open
 
   def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
+    phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
       Context.say(Some(this), s"does not depend on ${d.path.toString}")
     } else {
@@ -26,6 +44,8 @@ trait Tracker[A] extends Context[A] {
 
   // Returns the known dependencies
   private lazy val dependencies: SortedMap[os.RelPath, Signature] = {
+    phase.check(Phase.Open)
+    phase = Phase.Closing
     /* compute transitive closure of all tracked dependencies */
     while (done != added_dependencies.keySet) {
       for {
@@ -37,6 +57,8 @@ trait Tracker[A] extends Context[A] {
         }
       }
     }
+
+    phase = Phase.Closed
 
     /* now we have everything */
     (for {

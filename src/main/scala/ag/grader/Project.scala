@@ -726,25 +726,25 @@ case class Project(course: Course, project_name: String)
         val has_test = csid_has_test(csid).track
         val can_push_repo = Config.can_push_repo.track
 
-        val outcomes = test_ids.track.flatMap { test_ids =>
-          Future.sequence {
-            test_ids.toSeq.map { test_id =>
-              run_one(false, n)(
-                csid,
-                CutoffTime.None,
-                test_id,
-                commit_id_file
-              ).track
-            }
+        val outcomes = // test_ids.track.flatMap { test_ids =>
+          // Future.sequence {
+          test_ids.guilty.toSeq.map { test_id =>
+            run_one(false, n)(
+              csid,
+              CutoffTime.None,
+              test_id,
+              commit_id_file
+            ).track
           }
-        }
+        // }
+        // }
 
         run_if_needed {
 
           for {
             prepared <- prepared
             student_results_repo <- repo_info
-            outcomes <- outcomes
+            outcomes <- Future.sequence(outcomes)
             alias <- alias
             has_test <- has_test
             can_push_repo <- can_push_repo
@@ -865,15 +865,15 @@ case class Project(course: Course, project_name: String)
     fun { (n, commit_id_file) =>
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
-        val results = students_with_submission.track.flatMap { csids =>
-          Future.sequence {
-            csids.toSeq.map { csid =>
-              publish_student_results(csid, n, commit_id_file).track.map(r =>
-                (csid, r)
-              )
-            }
+        val results = // students_with_submission.track.flatMap { csids =>
+          // Future.sequence {
+          students_with_submission.guilty.toSeq.map { csid =>
+            publish_student_results(csid, n, commit_id_file).track.map(r =>
+              (csid, r)
+            )
           }
-        }
+        // }
+        // }
 
         val aliases = publish_aliases.track
         val can_push_repo = Config.can_push_repo.track
@@ -890,7 +890,7 @@ case class Project(course: Course, project_name: String)
                 can_push_repo.block
               ) { _ =>
                 val data = (for {
-                  (csid, student_results) <- results.block
+                  (csid, student_results) <- Future.sequence(results).block
                   alias <- aliases.block.value.get(csid).toSeq
                 } yield (alias, student_results.value.redacted)).to(SortedMap)
                 os.write.over(
