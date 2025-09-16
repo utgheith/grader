@@ -871,6 +871,33 @@ object Main {
     }
   }
 
+  class Export(commonArgs: CommonArgs) {
+    given State = State(commonArgs.workspace)
+    def courses: Array[Course] = commonArgs.selected_courses.guilty.toArray
+    def projects: Array[Project] = commonArgs.selected_projects.guilty.toArray
+  }
+
+  @main
+  def python(
+      @arg(positional = true, doc = "script file name")
+      script: String,
+      commonArgs: CommonArgs
+  ): Unit = {
+    import org.graalvm.polyglot.Context
+    val code = os.read(os.pwd / script)
+    val ctx = Context
+      .newBuilder("python")
+      .option("python.PythonPath", ".")
+      .allowAllAccess(true)
+      .build()
+    try {
+      ctx.getBindings("python").putMember("from_scala", Export(commonArgs))
+      val _ = ctx.eval("python", code)
+    } finally {
+      ctx.close()
+    }
+  }
+
   @main
   def play(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
