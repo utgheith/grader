@@ -22,7 +22,7 @@ libraryDependencies ++= Seq(
   "com.lihaoyi" %% "pprint" % "0.9.4" ,
   "com.lihaoyi" %% "sourcecode" % "0.4.4" ,
   "com.lihaoyi" %% "upickle" % "4.4.1",
-  "org.graalvm.polyglot" % "python" % "25.0.0"
+  "org.graalvm.polyglot" % "python" % "25.0.1"
 )
 
 libraryDependencies ++= Seq(
