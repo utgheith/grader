@@ -11,4 +11,12 @@ class ExtensionsTests extends munit.FunSuite {
     val v = read[Instant](s)
     assert(clue(v) == clue(now))
   }
+  test("runWhere") {
+    val sv = ScopedValue.newInstance[String]()
+    assert(sv.orElse("x") == "x")
+    sv.runWhere("foo") {
+      assert(sv.orElse("z") == "foo")
+    }
+    assert(sv.orElse("y") == "y")
+  }
 }
