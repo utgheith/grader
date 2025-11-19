@@ -264,3 +264,9 @@ extension (sc: StringContext) {
     ProcessHandler(os.proc(strings.toSeq))
   }
 }
+
+extension [A](sv: ScopedValue[A]) {
+  def runWhere(value: A)(f: => Unit): Unit = {
+    ScopedValue.where(sv, value).run(() => f)
+  }
+}

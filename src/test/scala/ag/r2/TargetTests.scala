@@ -5,10 +5,10 @@ import scala.concurrent.Future
 
 object Things extends Scope(".") {
   val a: Target[WithData[Int]] = target() {
-        create_data(_ => false) { path =>
-          os.write(path / "xyz", "hello\n")
-          10
-        }
+    create_data(_ => false) { path =>
+      os.write(path / "xyz", "hello\n")
+      10
+    }
   }
 
   val b: (String, Int) => Target[Int] = fun { (s, i) =>
