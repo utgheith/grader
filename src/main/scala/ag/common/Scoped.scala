@@ -1,4 +1,3 @@
-//noinspection Since15
 package ag.common
 
 class Scoped[A](factory: () => A) {
@@ -14,4 +13,3 @@ class Scoped[A](factory: () => A) {
 object Scoped {
   def apply[A](f: => A): Scoped[A] = new Scoped(() => f)
 }
-

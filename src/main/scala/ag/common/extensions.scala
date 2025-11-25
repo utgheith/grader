@@ -264,5 +264,3 @@ extension (sc: StringContext) {
     ProcessHandler(os.proc(strings.toSeq))
   }
 }
-
-

@@ -35,7 +35,6 @@ case class Config(
     }
   }
 
-
 }
 
 val tracingConfig = Scoped(load[Config])
@@ -43,8 +42,3 @@ val tracingConfig = Scoped(load[Config])
 inline def trace(msg: => Any): Unit = {
   tracingConfig.get.trace(msg)
 }
-
-
-
-
-
