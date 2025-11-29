@@ -1,15 +1,15 @@
 import ag.github.Github
-import ag.r2.{Scope, Target, update_data, WithData}
-
+import ag.r2.{Scope, Target, WithData, update_data}
 import ag.common.sh
+import upack.Msg
 
 class Z3(release: String) extends Scope(release) {
 
-  lazy val checkout: Target[WithData[String]] =
+  lazy val checkout: Target[Nothing, WithData[String]] =
     Github.checkout(os.RelPath("Z3Prover/Z3"), s"z3-$release")
 
-  def install(prefix: os.Path) = target(checkout) { co =>
-    update_data(skip = _ => false) { d =>
+  def install(prefix: os.Path): Target[Nothing, WithData[String]] = target(checkout) { co =>
+    update_data[Nothing, String](skip = _ => false) { d =>
       val src = co.get_data_path / "repo"
       val build = src / "build"
       sh"python scripts/mk_make.py --staticbin --prefix $d" (src)
@@ -28,7 +28,7 @@ class Z3(release: String) extends Scope(release) {
 }
 
 class FStar(release: String) extends Scope(release) {
-  lazy val checkout: Target[WithData[String]] =
+  lazy val checkout: Target[Nothing, WithData[String]] =
     Github.checkout(os.RelPath("FStarLang/FStar"), s"v$release")
 
   lazy val opam_deps = target(checkout) { co =>
@@ -36,7 +36,7 @@ class FStar(release: String) extends Scope(release) {
     release
   }
 
-  def build(prefix: os.Path) = target(
+  def build(prefix: os.Path): Target[Nothing, String] = target(
     opam_deps,
     checkout,
     Z3("4.8.7").install(prefix),
@@ -46,7 +46,7 @@ class FStar(release: String) extends Scope(release) {
     release
   }
 
-  def install(prefix: os.Path) = target(checkout, build(prefix)) {
+  def install(prefix: os.Path): Target[Nothing, String] = target(checkout, build(prefix)) {
     (checkout, build) =>
       val src = checkout.get_data_path / "repo"
       sh"env PREFIX=$prefix make install" (src)
@@ -56,5 +56,5 @@ class FStar(release: String) extends Scope(release) {
 
 class PlTools(prefix: os.Path) extends Scope("pl_tools") {
 
-  lazy val fstar = FStar("2025.08.07").install(prefix)
+  lazy val fstar: Target[Nothing, String] = FStar("2025.08.07").install(prefix)
 }

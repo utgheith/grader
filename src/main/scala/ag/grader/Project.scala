@@ -2,6 +2,7 @@ package ag.grader
 
 import ag.common.{
   block,
+  Fork,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
@@ -69,62 +70,62 @@ private val finished_runs = AtomicLong(0)
 case class Project(course: Course, project_name: String)
     extends Scope(course / project_name) derives ReadWriter {
 
-  lazy val info: Target[RawProject] =
+  lazy val info: Target[Nothing, RawProject] =
     Gitolite.raw_project(course.course_name, project_name)
 
-  lazy val docker_file: Target[Option[String]] = target(
+  lazy val docker_file: Target[Nothing, Option[String]] = target(
     info
   ) { info =>
     info.docker_file
   }
 
-  lazy val docker_image: Target[Option[String]] = target(docker_file) {
+  lazy val docker_image: Target[Nothing, Option[String]] = target(docker_file) {
     docker_file => docker_file.map(fn => Docker.of(os.pwd / fn))
   }
 
-  lazy val active: Target[Boolean] =
+  lazy val active: Target[Nothing, Boolean] =
     target(course.active, info, Gitolite.repo_info(project_repo_name)) {
-      case (course_is_active, info, RepoInfo(_, _, Some(_))) =>
+      case (course_is_active: Boolean, info, RepoInfo(_, _, Some(_))) =>
         course_is_active && info.active
       case (_, _, RepoInfo(_, _, None)) =>
         false
     }
 
-  lazy val phase1_tests: Target[SortedSet[String]] =
+  lazy val phase1_tests: Target[Nothing, SortedSet[String]] =
     target(info)(p => p.phase1_tests.to(SortedSet))
 
-  lazy val phase1_weight: Target[Int] =
+  lazy val phase1_weight: Target[Nothing, Int] =
     target(info)(p => p.phase1_weight)
 
-  lazy val phase2_tests: Target[SortedSet[String]] =
+  lazy val phase2_tests: Target[Nothing, SortedSet[String]] =
     target(info)(p => p.phase2_tests.to(SortedSet))
 
-  lazy val phase2_weight: Target[Int] =
+  lazy val phase2_weight: Target[Nothing, Int] =
     target(info)(p => p.phase2_weight)
 
-  lazy val test_weights: Target[Seq[Weight]] =
+  lazy val test_weights: Target[Nothing, Seq[Weight]] =
     target(info)(p => p.test_weights)
 
-  lazy val bad_tests: Target[SortedSet[String]] =
+  lazy val bad_tests: Target[Nothing, SortedSet[String]] =
     target(info)(p => SortedSet(p.bad_tests*))
 
-  private lazy val cores: Target[Int] =
+  private lazy val cores: Target[Nothing, Int] =
     target(info)(p => p.cores)
 
-  lazy val test_cutoff: Target[LocalDateTime] =
+  lazy val test_cutoff: Target[Nothing, LocalDateTime] =
     target(info)(p => p.test_cutoff)
-  lazy val code_cutoff: Target[LocalDateTime] =
+  lazy val code_cutoff: Target[Nothing, LocalDateTime] =
     target(info)(p => p.code_cutoff)
-  lazy val test_extensions: Target[SortedSet[String]] =
+  lazy val test_extensions: Target[Nothing, SortedSet[String]] =
     target(info)(p => SortedSet(p.test_extensions*))
 
   private lazy val project_repo_name: String =
     s"${course.course_name}_$project_name"
 
-  private lazy val project_repo: Target[WithData[Boolean]] =
+  private lazy val project_repo: Target[Nothing, WithData[Boolean]] =
     Gitolite.mirror(project_repo_name)
 
-  lazy val staff: Target[SortedSet[CSID]] =
+  lazy val staff: Target[Nothing, SortedSet[CSID]] =
     target(info) { p =>
       SortedSet(p.staff*)
     }
@@ -135,7 +136,7 @@ case class Project(course: Course, project_name: String)
 
   private lazy val override_repo_name = s"${project_repo_name}__override"
 
-  lazy val publish_override_repo: Target[WithData[Unit]] =
+  lazy val publish_override_repo: Target[Nothing, WithData[Unit]] =
     target(
       Gitolite.repo_info(
         override_repo_name
@@ -144,7 +145,7 @@ case class Project(course: Course, project_name: String)
       project_repo,
       Config.can_push_repo
     ) { (override_repo_info, test_extensions, project_repo, can_push_repo) =>
-      update_data(_.lastOpt.contains(".git")) { dir =>
+      update_data[Nothing, Unit](_.lastOpt.contains(".git")) { dir =>
         override_repo_info.update(
           path = dir,
           fork_from = Some("empty"),
@@ -211,10 +212,10 @@ case class Project(course: Course, project_name: String)
 
   def work_repo_name(csid: CSID): String = s"${project_repo_name}_${csid.value}"
 
-  def work_repo(csid: CSID): Target[WithData[Boolean]] =
+  def work_repo(csid: CSID): Target[Nothing, WithData[Boolean]] =
     Gitolite.mirror(work_repo_name(csid))
 
-  lazy val publish_work_repo: CSID => Target[WithData[Unit]] = fun {
+  lazy val publish_work_repo: CSID => Target[Nothing, WithData[Unit]] = fun {
     (csid: CSID) =>
       target(
         Gitolite.repo_info(
@@ -224,7 +225,7 @@ case class Project(course: Course, project_name: String)
         Config.can_send_mail,
         Config.can_push_repo
       ) { (repo_info, n, can_send_mail, can_push_repo) =>
-        update_data(_.lastOpt.contains(".git")) { dir =>
+        update_data[Nothing, Unit](_.lastOpt.contains(".git")) { dir =>
           repo_info.update(
             path = dir,
             fork_from = Some(project_repo_name),
@@ -245,8 +246,8 @@ case class Project(course: Course, project_name: String)
       }
   }
 
-  private lazy val submission: CSID => Target[Option[WithData[Unit]]] = fun {
-    (csid: CSID) =>
+  private lazy val submission: CSID => Target[Nothing, Option[WithData[Unit]]] =
+    fun { (csid: CSID) =>
       target(work_repo(csid), project_repo) { (work_repo, project_repo) =>
         if (
           (!work_repo.value) || (work_repo.data_signature == project_repo.data_signature)
@@ -256,10 +257,10 @@ case class Project(course: Course, project_name: String)
           Some(work_repo.copy(value = ()))
         }
       }
-  }
+    }
 
-  lazy val submissions: Target[SortedMap[CSID, WithData[Unit]]] =
-    complex_target {
+  lazy val submissions: Target[Nothing, SortedMap[CSID, WithData[Unit]]] =
+    target() {
       val csids: Seq[CSID] = course.enrolled_csids.guilty.toSeq
       val submissions: Seq[Option[WithData[Unit]]] = for {
         csid <- csids
@@ -276,15 +277,15 @@ case class Project(course: Course, project_name: String)
 
     }
 
-  lazy val students_with_submission: Target[SortedSet[CSID]] =
+  lazy val students_with_submission: Target[Nothing, SortedSet[CSID]] =
     target(submissions)(_.keySet)
 
   private val report_name: String = "REPORT.txt"
 
-  private val initial_report: Target[WithData[Unit]] = target(
+  private val initial_report: Target[Nothing, WithData[Unit]] = target(
     project_repo
   ) { project_repo =>
-    create_data(skip = _ => false) { dir =>
+    create_data[Nothing, Unit](skip = _ => false) { dir =>
       val src = project_repo.get_data_path / report_name
       val dest = dir / report_name
       if (project_repo.value && os.isFile(src)) {
@@ -301,12 +302,12 @@ case class Project(course: Course, project_name: String)
     }
   }
 
-  private lazy val student_report: CSID => Target[WithData[Unit]] = fun {
-    csid =>
+  private lazy val student_report: CSID => Target[Nothing, WithData[Unit]] =
+    fun { csid =>
       target(
         submission(csid)
       ) { submission =>
-        create_data(_ => false) { dir =>
+        create_data[Nothing, Unit](_ => false) { dir =>
           val dest = dir / report_name
           os.remove.all(dest)
           submission.foreach { submission =>
@@ -323,13 +324,14 @@ case class Project(course: Course, project_name: String)
           }
         }
       }
-  }
-
-  private lazy val has_student_report: CSID => Target[Boolean] = fun { csid =>
-    target(initial_report, student_report(csid)) {
-      (initial_report, student_report) =>
-        initial_report.data_signature != student_report.data_signature
     }
+
+  private lazy val has_student_report: CSID => Target[Nothing, Boolean] = fun {
+    csid =>
+      target(initial_report, student_report(csid)) {
+        (initial_report, student_report) =>
+          initial_report.data_signature != student_report.data_signature
+      }
   }
 
   def copy_test(
@@ -366,8 +368,9 @@ case class Project(course: Course, project_name: String)
     }
   }
 
-  lazy val prepare
-      : (CSID, CutoffTime, String) => Target[WithData[Option[PrepareInfo]]] =
+  lazy val prepare: (CSID, CutoffTime, String) => Target[Nothing, WithData[
+    Option[PrepareInfo]
+  ]] =
     fun { (csid, cutoff, commit_id_file_name) =>
       target(
         submission(csid),
@@ -385,7 +388,7 @@ case class Project(course: Course, project_name: String)
             test_extensions,
             code_cutoff
         ) =>
-          create_data(_ => false) { dir =>
+          create_data[Nothing, Option[PrepareInfo]](_ => false) { dir =>
             submission_repo.map { submission_repo =>
               // (1) prepare code, no checkout
               val _ = os
@@ -538,8 +541,8 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  lazy val is_late: (CSID, CutoffTime, String) => Target[Boolean] = fun {
-    (csid, cutoff_time, commit_id_file) =>
+  lazy val is_late: (CSID, CutoffTime, String) => Target[Nothing, Boolean] =
+    fun { (csid, cutoff_time, commit_id_file) =>
       target(prepare(csid, cutoff_time, commit_id_file), code_cutoff) {
         (prepare, code_cutoff) =>
           prepare.value.forall { info =>
@@ -548,68 +551,69 @@ case class Project(course: Course, project_name: String)
             )
           }
       }
-  }
+    }
 
   lazy val late_commits
-      : (CSID, CutoffTime) => Target[WithData[Seq[LateCommit]]] = fun {
+      : (CSID, CutoffTime) => Target[Nothing, WithData[Seq[LateCommit]]] = fun {
     (csid, cutoff) =>
       target(submission(csid), code_cutoff) { (submission_repo, code_cutoff) =>
-        create_data(_.lastOpt.contains(".git")) { dir =>
-          submission_repo.toSeq.flatMap { submission_repo =>
-            val _ = os
-              .proc(
-                "git",
-                "clone",
-                "--shared",
-                "--template=",
-                "--no-checkout",
-                submission_repo.get_data_path,
-                dir
-              )
-              .run()
+        create_data[Nothing, Seq[LateCommit]](_.lastOpt.contains(".git")) {
+          dir =>
+            submission_repo.toSeq.flatMap { submission_repo =>
+              val _ = os
+                .proc(
+                  "git",
+                  "clone",
+                  "--shared",
+                  "--template=",
+                  "--no-checkout",
+                  submission_repo.get_data_path,
+                  dir
+                )
+                .run()
 
-            val default_branch = "master"
+              val default_branch = "master"
 
-            val cutoff_time = cutoff match
-              case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-              case CutoffTime.Default             =>
-                Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
-              case CutoffTime.None => None
+              val cutoff_time = cutoff match
+                case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
+                case CutoffTime.Default             =>
+                  Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
+                case CutoffTime.None => None
 
-            cutoff_time match
-              case Some(cutoff_time) =>
-                val cutoff_string =
-                  cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                val lines = os
-                  .proc(
-                    "git",
-                    "log",
-                    default_branch,
-                    "--since",
-                    cutoff_string,
-                    "--first-parent",
-                    "--reverse",
-                    "--pretty=format:%H%x00%ct%x00%s"
-                  )
-                  .lines(cwd = dir)
+              cutoff_time match
+                case Some(cutoff_time) =>
+                  val cutoff_string =
+                    cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                  val lines = os
+                    .proc(
+                      "git",
+                      "log",
+                      default_branch,
+                      "--since",
+                      cutoff_string,
+                      "--first-parent",
+                      "--reverse",
+                      "--pretty=format:%H%x00%ct%x00%s"
+                    )
+                    .lines(cwd = dir)
 
-                lines.map(line => {
-                  val (hash, commit_timestamp, message) =
-                    line.split("\u0000") match
-                      case Array(hash, timestamp, message) =>
-                        (hash, timestamp, message)
-                      case Array(hash, timestamp) => (hash, timestamp, "")
+                  lines.map(line => {
+                    val (hash, commit_timestamp, message) =
+                      line.split("\u0000") match
+                        case Array(hash, timestamp, message) =>
+                          (hash, timestamp, message)
+                        case Array(hash, timestamp) => (hash, timestamp, "")
 
-                  val commit_time = ZonedDateTime.ofInstant(
-                    Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
-                    ZoneOffset.UTC
-                  )
-                  val delay = Duration.between(cutoff_time, commit_time)
-                  LateCommit(hash, commit_time, delay, message)
-                })
+                    val commit_time = ZonedDateTime.ofInstant(
+                      Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
+                      ZoneOffset.UTC
+                    )
+                    val delay = Duration.between(cutoff_time, commit_time)
+                    LateCommit(hash, commit_time, delay, message)
+                  })
 
-              case None => Seq()
-          }
+                case None => Seq()
+            }
         }
       }
   }
@@ -643,16 +647,16 @@ case class Project(course: Course, project_name: String)
   def run_one(
       keep_going: Boolean,
       n: Int
-  ): (CSID, CutoffTime, TestId, String) => Target[WithData[Outcome]] = fun {
-    (csid, cutoff, test_id, commit_id_file) =>
-      complex_target {
+  ): (CSID, CutoffTime, TestId, String) => Target[Nothing, WithData[Outcome]] =
+    fun { (csid, cutoff, test_id, commit_id_file) =>
+      target() {
         val test_info_f = test_info(test_id).track
         val test_extensions_f = test_extensions.track
         val prepared_f = prepare(csid, cutoff, commit_id_file).track
         val cores_f = cores.track
         val docker_image_f = docker_image.track
 
-        summon[Tracker[WithData[Outcome]]].run { old_state =>
+        summon[Tracker[Nothing, WithData[Outcome]]].run { old_state =>
           val (cs, history) = old_state match {
             case cs @ Some(
                   Result(WithData(v, _, _), _)
@@ -667,68 +671,65 @@ case class Project(course: Course, project_name: String)
                   _._1 == OutcomeStatus.pass
                 )) =>
               cs
-            case _ => { () =>
-              for {
-                test_info <- test_info_f
-                test_extensions <- test_extensions_f
-                prepared <- prepared_f
-                cores <- cores_f
-                docker_image <- docker_image_f
-              } yield {
-                update_data(_ => false) { dir =>
-                  if (history.isEmpty) {
-                    os.remove.all(dir)
-                    os.makeDir.all(dir)
-                  }
-                  val out_dir = dir / n.toString
-                  os.remove.all(out_dir)
-                  os.makeDir.all(out_dir)
-
-                  val res = doit(
-                    project = this,
-                    csid = csid,
-                    cores = cores,
-                    prepared_path = prepared.get_data_path,
-                    test_id = test_info.value.id,
-                    test_path = test_info.get_data_path,
-                    test_extensions = test_extensions,
-                    n = history.size + 1,
-                    out_path = dir / n.toString,
-                    docker_image = docker_image
-                  )
-
-                  Outcome(
-                    project = this,
-                    test_id = test_id,
-                    csid = csid,
-                    commit_id = prepared.value.map(_.sha),
-                    outcomes = history :+ res
-                  )
+            case _ => () =>
+              val test_info = test_info_f.join
+              val test_extensions = test_extensions_f.join
+              val prepared = prepared_f.join
+              val cores = cores_f.join
+              val docker_image = docker_image_f.join
+              // } yield {
+              update_data(_ => false) { dir =>
+                if (history.isEmpty) {
+                  os.remove.all(dir)
+                  os.makeDir.all(dir)
                 }
+                val out_dir = dir / n.toString
+                os.remove.all(out_dir)
+                os.makeDir.all(out_dir)
+
+                val res = doit(
+                  project = this,
+                  csid = csid,
+                  cores = cores,
+                  prepared_path = prepared.get_data_path,
+                  test_id = test_info.value.id,
+                  test_path = test_info.get_data_path,
+                  test_extensions = test_extensions,
+                  n = history.size + 1,
+                  out_path = dir / n.toString,
+                  docker_image = docker_image
+                )
+
+                Outcome(
+                  project = this,
+                  test_id = test_id,
+                  csid = csid,
+                  commit_id = prepared.value.map(_.sha),
+                  outcomes = history :+ res
+                )
               }
-            }
+            
           }
         }
       }
-  }
+    }
 
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
   private lazy val publish_student_results
-      : (CSID, Int, String) => Target[WithData[StudentResults]] = fun {
+      : (CSID, Int, String) => Target[Nothing, WithData[StudentResults]] = fun {
     (csid, n, commit_id_file) =>
-      complex_target {
-        val prepared = prepare(csid, CutoffTime.None, commit_id_file).track
-        val repo_info =
+      target() {
+        val prepared_f = prepare(csid, CutoffTime.None, commit_id_file).track
+        val repo_info_f =
           Gitolite.repo_info(student_results_repo_name(csid)).track
-        val alias = csid_to_alias(csid).track
-        val has_test = csid_has_test(csid).track
-        val can_push_repo = Config.can_push_repo.track
+        val alias_f = csid_to_alias(csid).track
+        val has_test_f = csid_has_test(csid).track
+        val can_push_repo_f = Config.can_push_repo.track
 
-        val outcomes = // test_ids.track.flatMap { test_ids =>
-          // Future.sequence {
-          test_ids.guilty.toSeq.map { test_id =>
+        val outcomes_f: Seq[Fork[Nothing, WithData[Outcome]]] =
+          test_ids.track.join.toSeq.map { test_id =>
             run_one(false, n)(
               csid,
               CutoffTime.None,
@@ -736,67 +737,66 @@ case class Project(course: Course, project_name: String)
               commit_id_file
             ).track
           }
-        // }
-        // }
 
         run_if_needed {
 
-          for {
-            prepared <- prepared
-            student_results_repo <- repo_info
-            outcomes <- Future.sequence(outcomes)
-            alias <- alias
-            has_test <- has_test
-            can_push_repo <- can_push_repo
-          } yield {
-            update_data(_.lastOpt.contains(".git")) { dir =>
-              student_results_repo.update(
-                path = dir,
-                fork_from = Some("empty"),
-                msg = "updated results",
-                readers = Seq(csid.value, course.staff_group_name),
-                writers = Seq(),
-                can_push_repo
-              ) { _ =>
+          // for {
+          val prepared = prepared_f.join
+          val student_results_repo = repo_info_f.join
+          val outcomes = outcomes_f.map(_.join)
+          val alias = alias_f.join
+          val has_test = has_test_f.join
+          val can_push_repo = can_push_repo_f.join
+          // } yield {
+          update_data(_.lastOpt.contains(".git")) { dir =>
+            student_results_repo.update(
+              path = dir,
+              fork_from = Some("empty"),
+              msg = "updated results",
+              readers = Seq(csid.value, course.staff_group_name),
+              writers = Seq(),
+              can_push_repo
+            ) { _ =>
 
-                for {
-                  f <- os.list(dir)
-                  if !f.last.startsWith(".")
-                } {
-                  os.remove.all(f)
-                }
-
-                for (outcome <- outcomes) {
-                  copy_results(
-                    outcome.get_data_path,
-                    dir,
-                    outcome.value.test_id
-                  )
-                }
-                val pairs = for {
-                  outcome <- outcomes
-                } yield (outcome.value.test_id, outcome.value)
-
-                val res = StudentResults(
-                  csid = csid,
-                  alias = alias,
-                  has_test = has_test,
-                  prepare_info = prepared.value.get,
-                  outcomes = pairs.to(SortedMap)
-                )
-                os.write.over(
-                  dir / "the_results.json",
-                  upickle.default.write(res.redacted)
-                )
-                res
+              for {
+                f <- os.list(dir)
+                if !f.last.startsWith(".")
+              } {
+                os.remove.all(f)
               }
+
+              for (outcome <- outcomes) {
+                copy_results(
+                  outcome.get_data_path,
+                  dir,
+                  outcome.value.test_id
+                )
+              }
+              val pairs = for {
+                outcome <- outcomes
+              } yield (outcome.value.test_id, outcome.value)
+
+              val res = StudentResults(
+                csid = csid,
+                alias = alias,
+                has_test = has_test,
+                prepare_info = prepared.value.get,
+                outcomes = pairs.to(SortedMap)
+              )
+              os.write.over(
+                dir / "the_results.json",
+                upickle.default.write(res.redacted)
+              )
+              res
             }
           }
+          // }
         }
       }
   }
 
-  lazy val get_student_results: CSID => Target[Option[RedactedStudentResults]] =
+  lazy val get_student_results
+      : CSID => Target[Nothing, Option[RedactedStudentResults]] =
     fun { csid =>
       target(Gitolite.mirror(student_results_repo_name(csid))) { sp =>
         if (sp.value) {
@@ -816,7 +816,7 @@ case class Project(course: Course, project_name: String)
     }
 
   private lazy val get_student_failures
-      : CSID => Target[Option[StudentFailures]] = fun { csid =>
+      : CSID => Target[Nothing, Option[StudentFailures]] = fun { csid =>
     target(
       get_student_results(csid)
     ) {
@@ -826,13 +826,13 @@ case class Project(course: Course, project_name: String)
     }
   }
 
-  private lazy val has_spamon: CSID => Target[Boolean] = fun { csid =>
+  private lazy val has_spamon: CSID => Target[Nothing, Boolean] = fun { csid =>
     target(work_repo(csid)) { work_repo =>
       os.exists(work_repo.get_data_path / "spamon")
     }
   }
 
-  lazy val notify_student_results: CSID => Target[Unit] = fun { csid =>
+  lazy val notify_student_results: CSID => Target[Nothing, Unit] = fun { csid =>
     target(
       get_student_failures(
         csid
@@ -843,8 +843,8 @@ case class Project(course: Course, project_name: String)
         csid
       ),
       Config.can_send_mail
-    ) {
-      case (Some(sr), n, g, has_spamon, can_send_mail) =>
+    ) { (student_failures, n, g, has_spamon, can_send_mail) =>
+      student_failures.foreach { sr =>
         if (has_spamon) {
           n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
@@ -852,18 +852,19 @@ case class Project(course: Course, project_name: String)
             s"no spamon for ${course.course_name}:$project_name:${csid.toString}"
           )
         }
-      case (None, _, _, _, _) =>
+      }
     }
   }
 
   lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"
 
-  lazy val publish_results: (Int, String) => Target[
-    WithData[SortedMap[Alias, RedactedStudentResults]]
-  ] =
+  lazy val publish_results: (
+      Int,
+      String
+  ) => Target[Nothing, WithData[SortedMap[Alias, RedactedStudentResults]]] =
     fun { (n, commit_id_file) =>
-      complex_target {
+      target() {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
         val results = // students_with_submission.track.flatMap { csids =>
           // Future.sequence {
@@ -879,33 +880,34 @@ case class Project(course: Course, project_name: String)
         val can_push_repo = Config.can_push_repo.track
 
         run_if_needed {
-          repo_info.map { repo_info =>
-            update_data(_.lastOpt.contains(".git")) { dir =>
-              repo_info.update(
-                path = dir,
-                fork_from = Some("empty"),
-                msg = "update results",
-                readers = Seq("@all"),
-                writers = Seq(),
-                can_push_repo.block
-              ) { _ =>
-                val data = (for {
-                  (csid, student_results) <- Future.sequence(results).block
-                  alias <- aliases.block.value.get(csid).toSeq
-                } yield (alias, student_results.value.redacted)).to(SortedMap)
-                os.write.over(
-                  dir / "results.json",
-                  upickle.default.write(data, indent = 2)
-                )
-                data
-              }
+          update_data(_.lastOpt.contains(".git")) { dir =>
+            repo_info.join.update(
+              path = dir,
+              fork_from = Some("empty"),
+              msg = "update results",
+              readers = Seq("@all"),
+              writers = Seq(),
+              can_push_repo.join
+            ) { _ =>
+              val data = (for {
+                (csid, student_results) <- results.map(
+                  _.join
+                ) // Future.sequence(results).block
+                alias <- aliases.join.value.get(csid).toSeq
+              } yield (alias, student_results.value.redacted)).to(SortedMap)
+              os.write.over(
+                dir / "results.json",
+                upickle.default.write(data, indent = 2)
+              )
+              data
             }
           }
         }
       }
     }
 
-  lazy val results: Target[Option[SortedMap[Alias, RedactedStudentResults]]] =
+  lazy val results
+      : Target[Nothing, Option[SortedMap[Alias, RedactedStudentResults]]] =
     target(
       Gitolite.mirror(project_results_repo_name)
     ) { results_repo =>
@@ -927,14 +929,15 @@ case class Project(course: Course, project_name: String)
   // student tests //
   ///////////////////
 
-  private lazy val student_test: CSID => Target[WithData[Option[String]]] =
+  private lazy val student_test
+      : CSID => Target[Nothing, WithData[Option[String]]] =
     fun { csid =>
       target(
         submission(csid),
         test_extensions,
         test_cutoff
       ) { (submission, test_extensions, test_cutoff) =>
-        create_data(_.lastOpt.contains(".git")) { dir =>
+        create_data[Nothing, Option[String]](_.lastOpt.contains(".git")) { dir =>
           submission.flatMap { submission =>
             // clone, no checkout
             val _ = os
@@ -987,26 +990,28 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  lazy val student_tests_by_csid: Target[SortedMap[CSID, WithData[String]]] =
-    complex_target {
+  lazy val student_tests_by_csid
+      : Target[Nothing, SortedMap[CSID, WithData[String]]] =
+    target() {
 
       val possible_tests = for {
-        csids <- students_with_submission.track
-        ids = csids.toSeq
-        possible_tests <- Future.sequence(ids.map(id => student_test(id).track))
-      } yield ids.zip(possible_tests)
+        csid <- students_with_submission.track.join.toSeq
+        possible_test = student_test(csid).track.join
+        // ids = csids.toSeq
+        // possible_tests <- Future.sequence(ids.map(id => student_test(id).track))
+      } yield (csid, possible_test)
 
       run_if_needed {
-        possible_tests.map { possible_tests =>
-          (for {
-            (csid, test) <- possible_tests
-            git_sha <- test.value.toSeq
-          } yield (csid, test.copy(value = git_sha))).to(SortedMap)
-        }
+        // possible_tests.map { possible_tests =>
+        (for {
+          (csid, test) <- possible_tests
+          git_sha <- test.value.toSeq
+        } yield (csid, test.copy(value = git_sha))).to(SortedMap)
+        // }
       }
     }
 
-  private lazy val csids_with_tests: Target[SortedSet[CSID]] =
+  private lazy val csids_with_tests: Target[Nothing, SortedSet[CSID]] =
     target(student_tests_by_csid) { student_tests =>
       student_tests.keySet
     }
@@ -1018,7 +1023,8 @@ case class Project(course: Course, project_name: String)
   private lazy val aliases_repo_name: String =
     s"${course.course_name}_${project_name}__aliases"
 
-  private lazy val publish_aliases: Target[WithData[SortedMap[CSID, Alias]]] =
+  private lazy val publish_aliases
+      : Target[Nothing, WithData[SortedMap[CSID, Alias]]] =
     target(
       Gitolite.repo_info(
         aliases_repo_name
@@ -1026,7 +1032,9 @@ case class Project(course: Course, project_name: String)
       students_with_submission,
       Config.can_push_repo
     ) { (repo_info, students_with_submission, can_push_repo) =>
-      update_data(skip = _.lastOpt.contains(".git")) { dir =>
+      update_data[Nothing, SortedMap[CSID, Alias]](skip =
+        _.lastOpt.contains(".git")
+      ) { dir =>
         repo_info.update(
           path = dir,
           fork_from = Some("empty"),
@@ -1062,7 +1070,7 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  lazy val get_aliases: Target[SortedMap[CSID, Alias]] =
+  lazy val get_aliases: Target[Nothing, SortedMap[CSID, Alias]] =
     target(Gitolite.mirror(aliases_repo_name)) { aliases =>
       val path = aliases.get_data_path / "aliases.json"
       if (os.isFile(path)) {
@@ -1072,7 +1080,7 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  lazy val anti_aliases: Target[SortedMap[Alias, CSID]] =
+  lazy val anti_aliases: Target[Nothing, SortedMap[Alias, CSID]] =
     target(publish_aliases) { aliases =>
       val pairs = for {
         (csid, alias) <- aliases.value.toSeq
@@ -1080,17 +1088,18 @@ case class Project(course: Course, project_name: String)
       pairs.to(SortedMap)
     }
 
-  private lazy val csid_to_alias: CSID => Target[Option[Alias]] = fun { csid =>
-    target(publish_aliases) { aliases =>
-      aliases.value.get(csid)
-    }
+  private lazy val csid_to_alias: CSID => Target[Nothing, Option[Alias]] = fun {
+    csid =>
+      target(publish_aliases) { aliases =>
+        aliases.value.get(csid)
+      }
   }
 
   ///////////
   // Tests //
   ///////////
 
-  private lazy val override_test_names: Target[SortedSet[String]] =
+  private lazy val override_test_names: Target[Nothing, SortedSet[String]] =
     target(
       publish_override_repo,
       test_extensions
@@ -1107,13 +1116,13 @@ case class Project(course: Course, project_name: String)
       complete_tests.keySet.to(SortedSet)
     }
 
-  private lazy val override_test: String => Target[WithData[String]] = fun {
-    test_name =>
+  private lazy val override_test: String => Target[Nothing, WithData[String]] =
+    fun { test_name =>
       target(
         publish_override_repo,
         test_extensions
       ) { (override_repo, test_extensions) =>
-        create_data(_ => false) { dir =>
+        create_data[Nothing, String](_ => false) { dir =>
           for (ext <- test_extensions) {
             val f = s"$test_name.$ext"
             os.copy(
@@ -1126,26 +1135,24 @@ case class Project(course: Course, project_name: String)
           ""
         }
       }
-  }
+    }
 
-  private lazy val override_tests: Target[SortedMap[String, WithData[String]]] =
-    complex_target {
+  private lazy val override_tests
+      : Target[Nothing, SortedMap[String, WithData[String]]] =
+    target() {
 
       val pairs = for {
-        test_names <- override_test_names.track.map(_.toSeq)
-        tests <- Future.sequence(
-          test_names.map(test_name => override_test(test_name).track)
-        )
-      } yield test_names.zip(tests)
+        test_name <- override_test_names.track.join.toSeq
+        test = override_test(test_name).track.join
+      } yield (test_name, test)
 
       run_if_needed {
-        pairs.map { pairs =>
-          pairs.to(SortedMap)
-        }
+        pairs.to(SortedMap)
       }
     }
 
-  lazy val publish_tests: Target[WithData[SortedMap[TestId, TestInfo]]] =
+  lazy val publish_tests
+      : Target[Nothing, WithData[SortedMap[TestId, TestInfo]]] =
     target(
       Gitolite.repo_info(tests_repo_name),
       student_tests_by_csid,
@@ -1166,7 +1173,7 @@ case class Project(course: Course, project_name: String)
           bad_tests,
           can_push_repo
       ) =>
-        update_data(_.lastOpt.contains(".git")) { dir =>
+        update_data[Nothing, SortedMap[TestId, TestInfo]](_.lastOpt.contains(".git")) { dir =>
           tests_repo_info.update(
             path = dir,
             fork_from = Some("empty"),
@@ -1238,13 +1245,13 @@ case class Project(course: Course, project_name: String)
         }
     }
 
-  lazy val test_ids: Target[SortedSet[TestId]] =
+  lazy val test_ids: Target[Nothing, SortedSet[TestId]] =
     target(publish_tests) { tests =>
       tests.value.keySet
     }
 
-  lazy val phase1_test_ids: Target[SortedSet[TestId]] =
-    target(test_ids, phase1_tests) { case (tests, chosen) =>
+  lazy val phase1_test_ids: Target[Nothing, SortedSet[TestId]] =
+    target(test_ids, phase1_tests) { (tests, chosen) =>
       for {
         test <- tests
         if chosen.contains(test.external_name) || chosen.contains(
@@ -1253,8 +1260,8 @@ case class Project(course: Course, project_name: String)
       } yield test
     }
 
-  lazy val phase2_test_ids: Target[SortedSet[TestId]] =
-    target(test_ids, phase2_tests) { case (tests, chosen) =>
+  private lazy val phase2_test_ids: Target[Nothing, SortedSet[TestId]] =
+    target(test_ids, phase2_tests) { (tests, chosen) =>
       for {
         test <- tests
         if chosen.contains(test.external_name) || chosen.contains(
@@ -1263,25 +1270,27 @@ case class Project(course: Course, project_name: String)
       } yield test
     }
 
-  lazy val test_info: TestId => Target[WithData[TestInfo]] = fun { test_id =>
-    target(
-      publish_tests,
-      test_extensions
-    ) { (tests, test_extensions) =>
-      create_data(_ => false) { dir =>
-        tests.value.get(test_id) match {
-          case Some(info) =>
-            copy_test(info.id, tests.get_data_path, dir, test_extensions)
-            info
-          case None =>
-            throw Exception(s"no info for ${test_id.toString}")
+  lazy val test_info: TestId => Target[Nothing, WithData[TestInfo]] = fun {
+    test_id =>
+      target(
+        publish_tests,
+        test_extensions
+      ) { (tests, test_extensions) =>
+        create_data[Nothing, TestInfo](_ => false) { dir =>
+          tests.value.get(test_id) match {
+            case Some(info) =>
+              copy_test(info.id, tests.get_data_path, dir, test_extensions)
+              info
+            case None =>
+              throw Exception(s"no info for ${test_id.toString}")
+          }
         }
       }
-    }
   }
 
-  private lazy val csid_has_test: CSID => Target[Boolean] = fun { csid =>
-    target(csids_with_tests)(_.contains(csid))
+  private lazy val csid_has_test: CSID => Target[Nothing, Boolean] = fun {
+    csid =>
+      target(csids_with_tests)(_.contains(csid))
   }
 
   val tests_repo_name = s"${course.course_name}_${project_name}__tests"
@@ -1291,7 +1300,7 @@ case class Project(course: Course, project_name: String)
   //////////////////////////
 
   private lazy val publish_submitted_tests
-      : Target[WithData[SortedMap[TestId, TestInfo]]] =
+      : Target[Nothing, WithData[SortedMap[TestId, TestInfo]]] =
     target(
       Gitolite.repo_info(
         submitted_tests_repo_name
@@ -1308,7 +1317,7 @@ case class Project(course: Course, project_name: String)
           test_extensions,
           can_push_repo
       ) =>
-        update_data(_.lastOpt.contains(".git")) { dir =>
+        update_data[Nothing, SortedMap[TestId, TestInfo]](_.lastOpt.contains(".git")) { dir =>
           submitted_tests_repo_info.update(
             path = dir,
             fork_from = Some("empty"),
@@ -1362,49 +1371,46 @@ case class Project(course: Course, project_name: String)
   ////////////
 
   private lazy val compute_student_scores
-      : (CSID, CutoffTime, Int, String) => Target[SortedSet[TestId]] = fun {
-    (csid, cutoff_time, n, commit_id_file) =>
-      complex_target {
+      : (CSID, CutoffTime, Int, String) => Target[Nothing, SortedSet[TestId]] =
+    fun { (csid, cutoff_time, n, commit_id_file) =>
+      target() {
         val outs = for {
-          ids <- phase2_test_ids.track
-          outs: Seq[WithData[Outcome]] <- Future.sequence {
-            ids.toSeq.map(id =>
-              run_one(true, n)(csid, cutoff_time, id, commit_id_file).track
-            )
-          }
-        } yield outs
+          id <- phase2_test_ids.track.join.toSeq
+          out: Fork[Nothing, WithData[Outcome]] = run_one(true, n)(csid, cutoff_time, id, commit_id_file).track
+        } yield out
         run_if_needed {
-          outs.map { outs =>
+          //outs.map { outs =>
             (for {
-              sp: WithData[Outcome] <- outs
-              d: Outcome = sp.value
+              out <- outs
+              d: Outcome = out.join.value
               if d.outcomes.map(_._1).contains(OutcomeStatus.pass)
             } yield d.test_id).to(SortedSet)
-          }
-        }
-      }
-  }
-
-  lazy val compute_scores: (CutoffTime, Int, String) => Target[
-    SortedMap[CSID, SortedSet[TestId]]
-  ] = fun { (cutoff_time, n, commit_id_file) =>
-    complex_target {
-      val pairs = for {
-        csids <- students_with_submission.track
-        pairs <- Future.sequence {
-          csids.toSeq.map { csid =>
-            compute_student_scores(csid, cutoff_time, n, commit_id_file).track
-              .map(g => (csid, g))
-          }
-        }
-      } yield pairs
-
-      run_if_needed {
-        pairs.map { pairs =>
-          pairs.to(SortedMap)
+          //}
         }
       }
     }
+
+  lazy val compute_scores: (
+      CutoffTime,
+      Int,
+      String
+  ) => Target[Nothing, SortedMap[CSID, SortedSet[TestId]]] = fun {
+    (cutoff_time, n, commit_id_file) =>
+      target() {
+        val pairs = for {
+          csid <- students_with_submission.track.join.toSeq
+          scores = compute_student_scores(csid, cutoff_time, n, commit_id_file).track
+        } yield (csid, scores)
+
+        run_if_needed {
+
+          (for {
+            (csid, scores) <- pairs
+          } yield (csid, scores.join)).to(SortedMap)
+
+
+        }
+      }
   }
 }
 
@@ -1426,36 +1432,29 @@ object Project extends Scope(".") {
     }
   }
 
-  private lazy val all_projects: Target[SortedSet[Project]] = complex_target {
-    val pms = for {
-      cs: Seq[Course] <- Course.all.track
-      pms: Seq[SortedMap[String, Project]] <- Future.sequence(
-        cs.map(_.projects.track)
-      )
-    } yield pms
-    run_if_needed {
-      pms.map { pms =>
-        pms.flatMap(pm => pm.values).to(SortedSet)
+  private lazy val all_projects: Target[Nothing, SortedSet[Project]] =
+    target() {
+      val cs = Course.all.track.join
+      val pms = cs.map(_.projects.track)
+      run_if_needed {
+        (for {
+          (c,pm) <- cs.zip(pms)
+          p <- pm.join.values
+        } yield p).to(SortedSet)
       }
     }
-  }
 
-  lazy val active_projects: Target[SortedSet[Project]] =
-    complex_target {
-      val pa = for {
-        all_projects <- all_projects.track
-        active <- Future.sequence {
-          all_projects.toSeq.map(_.active.track)
-        }
-      } yield all_projects.zip(active)
+  lazy val active_projects: Target[Nothing, SortedSet[Project]] =
+    target() {
+
+      val ps = all_projects.track.join.toSeq
+      val as = ps.map(_.active.track)
 
       run_if_needed {
-        pa.map { pa =>
-          for {
-            (p, a) <- pa
-            if a
-          } yield p
-        }
+        (for {
+          (p,a) <- ps.zip(as)
+          if a.join
+        } yield p).to(SortedSet)
       }
     }
 

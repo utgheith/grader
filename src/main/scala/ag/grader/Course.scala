@@ -1,17 +1,7 @@
 package ag.grader
 
-import ag.common.given_ReadWriter_SortedMap
-import ag.r2.{
-  Scope,
-  Target,
-  ToRelPath,
-  WithData,
-  create_data,
-  periodic,
-  run_if_needed,
-  say,
-  update_data
-}
+import ag.common.{Fork, given_ReadWriter_SortedMap}
+import ag.r2.{Scope, Target, ToRelPath, WithData, create_data, periodic, run_if_needed, say, update_data}
 
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
@@ -23,12 +13,13 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
-  private lazy val raw: Target[RawCourse] = Gitolite.raw_course(course_name)
+  private lazy val raw: Target[Nothing, RawCourse] =
+    Gitolite.raw_course(course_name)
 
-  lazy val notifications: Target[NotificationConfig] =
+  lazy val notifications: Target[Nothing, NotificationConfig] =
     target(raw)(_.notifications)
 
-  lazy val projects: Target[SortedMap[String, Project]] =
+  lazy val projects: Target[Nothing, SortedMap[String, Project]] =
     target(raw) { rc =>
       val s = for {
         pn <- rc.projects.keySet.toSeq
@@ -36,24 +27,25 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       SortedMap(s*)
     }
 
-  lazy val active: Target[Boolean] = target(raw) { rc =>
+  lazy val active: Target[Nothing, Boolean] = target(raw) { rc =>
     rc.active
   }
 
-  lazy val staff: Target[SortedSet[CSID]] = target(raw) { rc => rc.staff }
+  lazy val staff: Target[Nothing, SortedSet[CSID]] = target(raw) { rc =>
+    rc.staff
+  }
 
-  lazy val active_projects: Target[SortedMap[String, Project]] =
-    complex_target {
-      val ps = projects.guilty
+  lazy val active_projects: Target[Nothing, SortedMap[String, Project]] =
+    target() {
+      val ps: SortedMap[String, Project] = projects.track.join
       val active_flags = for {
-        active_flags <- ps.values.map(_.active.guilty)
+        active_flags <- ps.values.map(_.active.track)
       } yield active_flags
       run_if_needed {
-        ps.values
-          .zip(active_flags)
-          .filter(_._2)
-          .map(p => (p._1.project_name, p._1))
-          .to(SortedMap)
+        (for {
+          (p,a) <- ps.values.zip(active_flags)
+          if a.join
+        } yield (p.project_name, p)).to(SortedMap)
       }
     }
 
@@ -61,7 +53,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
     Project(this, project_name)
 
   // Get a sorted list of csids in the dropbox
-  lazy val dropbox: Target[SortedMap[CSID, String]] =
+  lazy val dropbox: Target[Nothing, SortedMap[CSID, String]] =
     target(periodic(60000), Config.dropbox_path) {
       case (_, Some(dropbox)) =>
         val base = os.home / dropbox / course_name
@@ -90,7 +82,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
    * Key deletion is manual and need to be done in both places
    */
 
-  lazy val publish_keys: Target[WithData[SortedMap[CSID, String]]] =
+  lazy val publish_keys: Target[Nothing, WithData[SortedMap[CSID, String]]] =
     target(
       Gitolite.repo_info(
         "gitolite-admin"
@@ -100,7 +92,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       Config.can_send_mail,
       Config.can_push_repo
     ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
-      create_data(skip = _.lastOpt.contains(".git")) { dir =>
+      create_data[Nothing, SortedMap[CSID, String]](skip = _.lastOpt.contains(".git")) { dir =>
         val added = g.update(
           path = dir,
           fork_from = None,
@@ -146,7 +138,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   // read the enrollment repo
 
-  lazy val enrollment: Target[SortedMap[CSID, String]] =
+  lazy val enrollment: Target[Nothing, SortedMap[CSID, String]] =
     target(Gitolite.mirror(enrollment_repo_name)) { sp =>
       if (sp.value) {
         val f = enrollment_file(sp.get_data_path)
@@ -163,12 +155,12 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       }
     }
 
-  lazy val enrolled_csids: Target[SortedSet[CSID]] = target(enrollment) {
+  lazy val enrolled_csids: Target[Nothing, SortedSet[CSID]] = target(enrollment) {
     enrollment => enrollment.keySet
   }
 
   // create/update the enrollment repo
-  lazy val publish_enrollment: Target[WithData[SortedMap[CSID, String]]] =
+  lazy val publish_enrollment: Target[Nothing, WithData[SortedMap[CSID, String]]] =
     target(
       Gitolite.repo_info(
         enrollment_repo_name
@@ -176,7 +168,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       publish_keys,
       Config.can_push_repo
     ) { (g, keys, can_push_repo) =>
-      update_data[SortedMap[CSID, String]](skip = {
+      update_data[Nothing, SortedMap[CSID, String]](skip = {
         _.lastOpt.contains(".git")
       }) { dir =>
         g.update(
@@ -198,12 +190,12 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   private lazy val grades_repo_name = s"${course_name}__grades"
 
-  lazy val create_grades_repo: Target[WithData[Unit]] =
+  lazy val create_grades_repo: Target[Nothing, WithData[Unit]] =
     target(
       Gitolite.repo_info(grades_repo_name),
       Config.can_push_repo
     ) { (g, can_push_repo) =>
-      create_data(skip = _.lastOpt.contains(".git")) { dir =>
+      create_data[Nothing, Unit](skip = _.lastOpt.contains(".git")) { dir =>
         g.update(
           path = dir,
           fork_from = Some("empty"),
@@ -233,20 +225,20 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 object Course extends Scope(os.RelPath(".")) {
   given Ordering[Course] = Ordering.by(_.course_name)
 
-  lazy val all: Target[Seq[Course]] = target(Gitolite.course_names) {
+  lazy val all: Target[Nothing, Seq[Course]] = target(Gitolite.course_names) {
     course_names =>
       course_names.toSeq.map(name => Course(name))
   }
 
-  lazy val active_courses: Target[Seq[Course]] = complex_target {
-    val all_future: Future[Seq[Course]] = all.track
-    val active_flags_future: Future[Seq[Boolean]] =
-      all_future.flatMap(all => Future.sequence(all.map(_.active.track)))
+  lazy val active_courses: Target[Nothing, Seq[Course]] = target() {
+    val cs: Seq[Course] = all.track.join
+    val as: Seq[Fork[Nothing, Boolean]] = cs.map(_.active.track)
+    
     run_if_needed {
       for {
-        all <- all_future
-        active_flags <- active_flags_future
-      } yield all.zip(active_flags).filter(_._2).map(_._1)
+        (c,a) <- cs.zip(as)
+        if a.join
+      } yield c
     }
   }
 

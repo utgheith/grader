@@ -1,16 +1,18 @@
 package ag.r2
 
-import ag.common.{Signature, Signer, block}
+import language.experimental.saferExceptions
+import ag.common.{Fork, SafeTry, Signature, Signer, block}
 import upickle.default.{ReadWriter, read, write}
 
 import scala.annotation.implicitNotFound
-import scala.collection.{mutable, SortedMap}
+import scala.collection.{SortedMap, mutable}
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
+import scala.util.Try
 import scala.util.control.NonFatal
 
 @implicitNotFound("no given Tracker")
-trait Tracker[A] extends Context[A] {
+trait Tracker[-E <: Exception, +A] extends Context[E, A] {
 
   enum Phase {
     case Open
@@ -27,12 +29,12 @@ trait Tracker[A] extends Context[A] {
     }
   }
 
-  private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
+  private val added_dependencies = TrieMap[os.RelPath, Fork[?, Result[?]]]()
   private val done = mutable.Set[os.RelPath]()
   @volatile
   private var phase: Phase = Phase.Open
 
-  def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
+  def add_dependency(d: TargetBase, fr: Fork[E, Result[?]]): Unit = {
     phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
       Context.say(Some(this), s"does not depend on ${d.path.toString}")
@@ -43,7 +45,8 @@ trait Tracker[A] extends Context[A] {
   }
 
   // Returns the known dependencies
-  private lazy val dependencies: SortedMap[os.RelPath, Signature] = {
+  private lazy val dependencies: SafeTry[E, SortedMap[os.RelPath, Signature]] = SafeTry {
+    given CanThrow[Exception]
     phase.check(Phase.Open)
     phase = Phase.Closing
     /* compute transitive closure of all tracked dependencies */
@@ -53,7 +56,7 @@ trait Tracker[A] extends Context[A] {
       } {
         if (!done.contains(p)) {
           val _ = done.add(p)
-          val _ = r.block
+          val _ = r.join
         }
       }
     }
@@ -61,22 +64,23 @@ trait Tracker[A] extends Context[A] {
     phase = Phase.Closed
 
     /* now we have everything */
-    (for {
+    val out = (for {
       (p, result) <- added_dependencies.toSeq
-    } yield (p, result.block.signature)).to(SortedMap)
+    } yield (p, result.join.signature)).to(SortedMap)
+    out
   }
 
   def run(
-      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
-        (() => Future[A])
-  )(using ReadWriter[A]): Future[Result[A]] = {
-    given producer: Producer[A] = new Producer[A] {
+      f: (Producer[E, A], CanThrow[E]) ?=> Option[Result[A]] => Some[Result[A]] | (() => A)
+  )(using ReadWriter[A], CanThrow[E]): Result[A] = {
+    given producer: Producer[E, A] = new Producer[E, A] {
       override val depth: Int = Tracker.this.depth
       override val route = Tracker.this.route
-      override val producing: Target[A] = Tracker.this.producing_opt.get
+      override val producing: Target[E, A] = Tracker.this.producing_opt.get
       override val state: State = Tracker.this.state
 
-      override def producing_opt: Option[Target[A]] = Tracker.this.producing_opt
+      override def producing_opt: Option[Target[E, A]] =
+        Tracker.this.producing_opt
 
       override def execute(runnable: Runnable): Unit = state.execute(runnable)
 
@@ -114,7 +118,7 @@ trait Tracker[A] extends Context[A] {
           } else {
             if (
               // general case: check dependencies
-              Tracker.this.dependencies
+              Tracker.this.dependencies.get
                 .forall((p, s) => old.depends_on.get(p).contains(s))
             ) {
               say("keeping old state")
@@ -139,8 +143,8 @@ trait Tracker[A] extends Context[A] {
 
     f(old_state) match {
       case Some(ra) =>
-        Future.successful(ra)
-      case ffa: (() => Future[A]) =>
+        ra
+      case ffa: (() => A throws E) =>
         // remove the old result
         // say("removing old result")
         // os.remove.all(producer.target_path)
@@ -155,22 +159,22 @@ trait Tracker[A] extends Context[A] {
         // clear the log
         os.write.over(producer.log_path, "", createFolders = true)
 
-        // Run the computation (asynchronous)
-        ffa().map { new_value =>
-          // We have a new result, store it on disk
-          val new_result = Result(new_value, Signer.sign(new_value))
-          val new_saved = Saved(new_result, Tracker.this.dependencies)
-          say("writing new state")
-          os.write.over(
-            producer.saved_path,
-            write(new_saved, indent = 2),
-            createFolders = true
-          )
+        val new_value = ffa()
 
-          os.remove.all(producer.dirty_path)
-          say(s"${producer.producing.path.toString} done")
-          new_result
-        }(using producer.state)
+        // We have a new result, store it on disk
+        val new_result = Result(new_value, Signer.sign(new_value))
+        val new_saved = Saved(new_result, Tracker.this.dependencies.get)
+        say("writing new state")
+        os.write.over(
+          producer.saved_path,
+          write(new_saved, indent = 2),
+          createFolders = true
+        )
+
+        os.remove.all(producer.dirty_path)
+        say(s"${producer.producing.path.toString} done")
+        new_result
+
     }
 
   }
@@ -184,14 +188,15 @@ trait Tracker[A] extends Context[A] {
   //
 
   def run_if_needed(
-      f: Producer[A] ?=> Future[A]
-  )(using ReadWriter[A]): Future[Result[A]] = {
+      f: Producer[E, A] ?=> CanThrow[E] ?=> A
+  )(using ReadWriter[A], CanThrow[E]): Result[A] = {
     run {
       case sra @ Some(_) =>
         sra
       case _ =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
+
         () => f.apply
     }
   }

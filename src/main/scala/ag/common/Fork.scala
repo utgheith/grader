@@ -1,13 +1,18 @@
 package ag.common
 
 import language.experimental.saferExceptions
-import scala.reflect.ClassTag
 
-trait Fork[+E <: Exception, A] {
+trait Fork[+E <: Exception, +A] { outer =>
   def result: Either[E, A]
   def join(using CanThrow[E]): A = result match {
     case Left(e)  => throw e
     case Right(a) => a
+  }
+  def map[B](f: A => B): Fork[E, B] = new Fork[E, B] {
+    override lazy val result: Either[E, B] = outer.result match {
+      case Left(e)  => Left(e)
+      case Right(a) => Right(f(a))
+    }
   }
 }
 
@@ -28,9 +33,9 @@ object Fork {
     }
   }
 
-  def apply[E <: Exception, A](
+  inline def apply[E <: Exception, A](
       body: => A throws E
-  )(using ev: ClassTag[E]): Fork[E, A] = {
+  ): Fork[E, A] = {
     val f = new Forker[E, A]
 
     builder.start { () =>
@@ -39,9 +44,7 @@ object Fork {
           try {
             Right(body(using CanThrow[E]))
           } catch {
-            case t: Throwable =>
-              if (ev.runtimeClass.isInstance(t)) Left(t.asInstanceOf[E])
-              else throw t
+            case e: E => Left(e)
           }
 
         f.synchronized {

@@ -1,8 +1,8 @@
 package ag.r2
 
-import ag.common.{block, given_ReadWriter_RelPath, Signature}
+import language.experimental.saferExceptions
+import ag.common.{Fork, Signature, given_ReadWriter_RelPath}
 
-import scala.concurrent.Future
 import upickle.default.ReadWriter
 
 case class WithData[A](
@@ -10,7 +10,7 @@ case class WithData[A](
     target_name: os.RelPath,
     data_signature: Signature
 ) {
-  def get_data_path(using p: Context[?]): os.Path =
+  def get_data_path(using p: Context[?, ?]): os.Path =
     p.state.data_path(target_name)
 }
 
@@ -43,35 +43,35 @@ object TargetBase {
   }
 }
 
-trait Target[A: ReadWriter] extends TargetBase {
+trait Target[-E <: Exception, +A: ReadWriter] extends TargetBase {
   outer =>
 
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make(using Tracker[A]): Future[Result[A]]
+  def make(using Tracker[E, A], CanThrow[E]): Result[A]
 
   // returns our current value (used by the value consumer)
-  def track(using ctx: Tracker[?]): Future[A] = {
+  def track(using ctx: Tracker[E, ?]): Fork[E, A] = {
     ctx.state.track(this)
   }
 
-  def guilty(using ctx: Tracker[?]): A = track.block
+  def guilty(using ctx: Tracker[E, ?]): A throws E = track.join
 
-  def append(p: os.RelPath): Target[A] = new Target[A] {
+  def append(p: os.RelPath): Target[E, A] = new Target[E, A] {
     override val path: os.RelPath = outer.path / p
 
-    override def make(using Tracker[A]): Future[Result[A]] = outer.make
+    override def make(using Tracker[E, A]): Result[A] throws E = outer.make
 
     override val is_peek: Boolean = outer.is_peek
   }
 
-  def peek: Target[A] = if (is_peek) this
+  def peek: Target[E, A] = if (is_peek) this
   else
-    new Target[A] {
+    new Target[E, A] {
       override val path: os.RelPath = outer.path
 
-      override def make(using Tracker[A]): Future[Result[A]] = outer.make
+      override def make(using Tracker[E, A]): Result[A] throws E = outer.make
 
       override val is_peek: Boolean = true
     }
@@ -79,11 +79,12 @@ trait Target[A: ReadWriter] extends TargetBase {
 }
 
 object Target {
-  def apply[A: ReadWriter](
+  def apply[E <: Exception, A: ReadWriter](
       p: os.RelPath
-  )(f: Tracker[A] ?=> Future[Result[A]]): Target[A] = new Target[A] { outer =>
+  )(f: Tracker[E, A] ?=> Result[A] throws E): Target[E, A] = new Target[E, A] {
+    outer =>
     override val path: os.RelPath = p
-    override def make(using Tracker[A]): Future[Result[A]] =
+    override def make(using Tracker[E, A]): Result[A] throws E =
       f
     override val is_peek: Boolean = false
   }

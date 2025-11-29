@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.{down, given_ReadWriter_RelPath}
-import ag.r2.{Scope, Target}
+import ag.r2.{run_if_needed, Scope, Target}
 import ag.rules.run
 import os.RelPath
 import upickle.default.{ReadWriter, read}
@@ -65,7 +65,7 @@ case class Config(
 
 object Config extends Scope(".") {
 
-  private lazy val config: Target[Config] = target() {
+  private lazy val config: Target[Nothing, Config] = target() {
 
     @tailrec
     def find(d: os.Path): os.Path = {
@@ -75,22 +75,25 @@ object Config extends Scope(".") {
 
     val cf = find(os.pwd)
     // logger.info(s"loading config from $cf")
-    read[Config](os.read(cf))
+    run_if_needed {
+      read[Config](os.read(cf))
+    }
 
   }
 
-  lazy val gitolite: Target[RemoteServer] = target(config)(_.gitolite)
+  lazy val gitolite: Target[Nothing, RemoteServer] = target(config)(_.gitolite)
 
-  lazy val dropbox_path: Target[Option[RelPath]] =
+  lazy val dropbox_path: Target[Nothing, Option[RelPath]] =
     target(config)(_.dropbox_path)
 
-  lazy val site_base: Target[Option[String]] = target(config)(_.site_base)
+  lazy val site_base: Target[Nothing, Option[String]] =
+    target(config)(_.site_base)
 
   // TODO: peek
-  lazy val can_send_mail: Target[Boolean] = target(config) { config =>
+  lazy val can_send_mail: Target[Nothing, Boolean] = target(config) { config =>
     config.can_send_mail.getOrElse(false)
   }.peek
 
-  lazy val can_push_repo: Target[Boolean] =
+  lazy val can_push_repo: Target[Nothing, Boolean] =
     target(config)(_.can_push_repo.getOrElse(false))
 }

@@ -3,7 +3,6 @@ package ag.r2
 import ag.common.down
 
 import java.util.concurrent.Semaphore
-import scala.concurrent.ExecutionContext
 import scala.annotation.implicitNotFound
 
 //
@@ -27,13 +26,13 @@ import scala.annotation.implicitNotFound
 object Context {
   private val printLock: Semaphore = new Semaphore(1)
 
-  lazy val say_path = {
+  private lazy val say_path = {
     val p = os.pwd / "say.txt"
     os.remove.all(p)
     p
   }
 
-  def say(ctx: Option[Context[?]], msg: => Any): Unit = {
+  def say(ctx: Option[Context[?, ?]], msg: => Any): Unit = {
     val t = if (msg == null) {
       "<null>"
     } else {
@@ -71,9 +70,9 @@ object Context {
 }
 
 @implicitNotFound("no given Context")
-trait Context[A] extends ExecutionContext {
-  val route: Seq[Target[?]]
+trait Context[-E <: Exception, +A] {
+  val route: Seq[Target[?, ?]]
   val depth: Int
   val state: State
-  def producing_opt: Option[Target[A]]
+  def producing_opt: Option[Target[E, A]]
 }

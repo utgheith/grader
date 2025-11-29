@@ -138,52 +138,34 @@ class HtmlGen(p: Project) {
   private val displayFormat: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)")
 
-  val gen_html: Target[Unit] =
-    p.target(
-      p.results,
-      Config.site_base,
-      p.phase1_tests,
-      p.phase1_weight,
-      p.phase2_tests,
-      p.phase2_weight,
-      p.test_weights,
-      p.bad_tests,
-      p.test_extensions,
-      p.test_cutoff,
-      p.code_cutoff,
-      p.course.enrollment,
-      p.anti_aliases,
-      p.course.staff,
-      p.staff
-    ) {
-      (
-          results_,
-          site_base,
-          phase1_tests,
-          phase1_weight,
-          phase2_tests,
-          phase2_weight,
-          weights,
-          bad_tests,
-          test_extensions_,
-          test_cutoff,
-          code_cutoff,
-          enrollment,
-          anti_aliases,
-          course_staff,
-          project_staff
-      ) =>
-        site_base.foreach { site_base =>
-          val test_extensions = test_extensions_.to(IndexedSeq)
+  val gen_html: Target[Nothing, Unit] = p.target() {
+      val results_ = p.results.track
+      val site_base = Config.site_base.track
+      val phase1_tests = p.phase1_tests.track
+      val phase1_weight = p.phase1_weight.track
+      val phase2_tests = p.phase2_tests.track
+      val phase2_weight = p.phase2_weight.track
+      val weights = p.test_weights.track
+      val bad_tests = p.bad_tests.track
+      val test_extensions_ = p.test_extensions.track
+      val test_cutoff = p.test_cutoff.track
+      val code_cutoff = p.code_cutoff.track
+      val enrollment = p.course.enrollment.track
+      val anti_aliases = p.anti_aliases.track
+      val course_staff = p.course.staff.track
+      val project_staff = p.staff.track
+    
+        site_base.join.foreach { site_base =>
+          val test_extensions = test_extensions_.join.to(IndexedSeq)
 
           val results =
-            results_.getOrElse(SortedMap[Alias, RedactedStudentResults]())
+            results_.join.getOrElse(SortedMap[Alias, RedactedStudentResults]())
 
           val (chosenTestNames, otherTestNames) = results.values
             .to(List)
             .flatMap(
               _.outcomes.keys.filterNot(test =>
-                bad_tests.contains(test.external_name)
+                bad_tests.join.contains(test.external_name)
               )
             )
             .sorted
@@ -194,8 +176,8 @@ class HtmlGen(p: Project) {
             .sortBy(_._1)
             .flatMap(_._2)
             .partition(test =>
-              phase1_tests.contains(test.external_name)
-                || phase2_tests.contains(test.external_name)
+              phase1_tests.join.contains(test.external_name)
+                || phase2_tests.join.contains(test.external_name)
             )
 
           // All the test name properly ordered
@@ -229,11 +211,11 @@ class HtmlGen(p: Project) {
             }
             tr {
               td { text("phase 1 cutoff") }
-              td { text(displayFormat.format(test_cutoff)) }
+              td { text(displayFormat.format(test_cutoff.join)) }
             }
             tr {
               td { text("phase 2 cutoff") }
-              td { text(displayFormat.format(code_cutoff)) }
+              td { text(displayFormat.format(code_cutoff.join)) }
             }
           }
 
@@ -260,13 +242,13 @@ class HtmlGen(p: Project) {
                 val outcome: SortedMap[String, RedactedOutcome] =
                   result.outcomes.map { case (k, v) => (k.external_name, v) }
 
-                val is_mine = anti_aliases.get(alias) match {
+                val is_mine = anti_aliases.join.get(alias) match {
                   case Some(csid) =>
-                    course_staff.contains(csid) || project_staff.contains(csid)
+                    course_staff.join.contains(csid) || project_staff.join.contains(csid)
                   case None => false
                 }
                 val is_late = result.prepare_info.commit_time.isAfter(
-                  ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+                  ZonedDateTime.of(code_cutoff.join, ZoneId.systemDefault())
                 )
                 tr.css_class(if (is_mine) "mine" else null)
                   .attr("data-alias", alias.toString) {
@@ -294,8 +276,8 @@ class HtmlGen(p: Project) {
                         }
                       val chosen_class =
                         if (
-                          phase1_tests.contains(t.external_name)
-                          || phase2_tests.contains(t.external_name)
+                          phase1_tests.join.contains(t.external_name)
+                          || phase2_tests.join.contains(t.external_name)
                         ) List("chosen")
                         else List.empty
                       val the_class = List(status_class) ::: chosen_class
@@ -322,7 +304,7 @@ class HtmlGen(p: Project) {
             tr {
               td {
                 table {
-                  bad_tests.foreach { test_name =>
+                  bad_tests.join.foreach { test_name =>
                     tr {
                       td {
                         pre {
@@ -338,26 +320,25 @@ class HtmlGen(p: Project) {
 
           def weights_table(using HtmlContext): Unit = table {
             // Match the sorting of test cases elsewhere (t0-4 before user test cases)
-            val selected_tests = phase1_tests ++ phase2_tests
+            val selected_tests = phase1_tests.join ++ phase2_tests.join
             val sorted_tests = selected_tests.toList.sortBy(c => (c.length, c))
 
             // Get the summed raw test weights for each phase
             var phase1_raw_weight = 0
             var phase2_raw_weight = 0
             sorted_tests.foreach { c =>
-              val weight = weights.find { w =>
+              val weight = weights.join.find { w =>
                 scala.util.matching.Regex(w.pattern).matches(c)
               }
               weight match {
-                case Some(w) => {
-                  if (phase1_tests.contains(c)) {
+                case Some(w) =>
+                  if (phase1_tests.join.contains(c)) {
                     phase1_raw_weight += w.weight
                   }
-                  if (phase2_tests.contains(c)) {
+                  if (phase2_tests.join.contains(c)) {
                     phase2_raw_weight += w.weight
                   }
-                }
-                case _ => {}
+                case _ =>
               }
             }
             // get the lcm of the raw phase1 and phase2 summed weights
@@ -368,8 +349,8 @@ class HtmlGen(p: Project) {
                 (phase1_raw_weight / BigInt(phase1_raw_weight)
                   .gcd(phase2_raw_weight)
                   .toInt) * phase2_raw_weight
-            val phase1_total_weight = phase1_weight * factor
-            val phase2_total_weight = phase2_weight * factor
+            val phase1_total_weight = phase1_weight.join * factor
+            val phase2_total_weight = phase2_weight.join * factor
             val phase1_factor =
               if (phase1_raw_weight != 0)
                 phase1_total_weight / phase1_raw_weight
@@ -394,7 +375,7 @@ class HtmlGen(p: Project) {
                   }
                   tbody {
                     sorted_tests.foreach { c =>
-                      val weight = weights.find { w =>
+                      val weight = weights.join.find { w =>
                         scala.util.matching.Regex(w.pattern).matches(c)
                       }
                       val weight_str = weight match {
@@ -402,12 +383,12 @@ class HtmlGen(p: Project) {
                         case None    => "?"
                       }
                       val phase1_weight_str = weight match {
-                        case Some(w) if phase1_tests.contains(c) =>
+                        case Some(w) if phase1_tests.join.contains(c) =>
                           (w.weight * phase1_factor).toString
                         case _ => "0"
                       }
                       val phase2_weight_str = weight match {
-                        case Some(w) if phase2_tests.contains(c) =>
+                        case Some(w) if phase2_tests.join.contains(c) =>
                           (w.weight * phase2_factor).toString
                         case _ => "0"
                       }
@@ -435,7 +416,7 @@ class HtmlGen(p: Project) {
               td {
                 pre {
                   text(
-                    s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight; Phase1:Phase2 = $phase1_weight:$phase2_weight"
+                    s"Overall total weight: $phase1_total_weight + $phase2_total_weight = $total_weight; Phase1:Phase2 = ${phase1_weight.join}:${phase2_weight.join}"
                   )
                 }
               }
@@ -558,7 +539,7 @@ class HtmlGen(p: Project) {
                   tr(td(times))
                   tr(td(tbl))
                   tr(td(text("")))
-                  tr(td(text(s"${enrollment.keySet.size} enrollments")))
+                  tr(td(text(s"${enrollment.join.keySet.size} enrollments")))
                   tr(td(text(s"${submissions.size} submissions")))
                   tr(td(text(s"${testNames.size} tests")))
                   tr {

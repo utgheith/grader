@@ -1,5 +1,7 @@
 package ag.r2
 
+import language.experimental.saferExceptions
+
 import ag.common.Signer
 
 import scala.concurrent.Future
@@ -28,9 +30,9 @@ inline def force_future[A: ClassTag](v: A | Future[A]): Future[A] = v match {
 }
 
 inline def say(inline msg: => Any): Unit = {
-  summonFrom[Context[?]] {
-    case ctx: Context[?] => Context.say(Some(ctx), msg)
-    case _               => Context.say(None, msg)
+  summonFrom[Context[?, ?]] {
+    case ctx: Context[?, ?] => Context.say(Some(ctx), msg)
+    case _                  => Context.say(None, msg)
   }
 }
 
@@ -40,14 +42,14 @@ inline def shout(inline msg: => Any): Unit = {
 }
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
-def run_if_needed[A: {ClassTag, ReadWriter}](
-    f: Producer[A] ?=> A | Future[A]
-)(using tracker: Tracker[A]): Future[Result[A]] =
-  tracker.run_if_needed(force_future(f))
+def run_if_needed[E <: Exception, A: ReadWriter](
+    f: Producer[E, A] ?=> A throws E
+)(using tracker: Tracker[E, A]): Result[A] throws E =
+  tracker.run_if_needed(f)
 
-def create_data[A](skip: os.RelPath => Boolean)(
-    f: Producer[WithData[A]] ?=> os.Path => A
-)(using ctx: Producer[WithData[A]]): WithData[A] = {
+def create_data[E <: Exception, A](skip: os.RelPath => Boolean)(
+    f: Producer[E, WithData[A]] ?=> os.Path => A
+)(using ctx: Producer[E, WithData[A]]): WithData[A] = {
   val data_dir: os.Path = ctx.data_path
   os.remove.all(data_dir)
   os.makeDir.all(data_dir)
@@ -59,9 +61,9 @@ def create_data[A](skip: os.RelPath => Boolean)(
   )
 }
 
-def update_data[A](skip: os.RelPath => Boolean)(
-    f: Producer[WithData[A]] ?=> os.Path => A
-)(using ctx: Producer[WithData[A]]): WithData[A] = {
+def update_data[E <: Exception, A](skip: os.RelPath => Boolean)(
+    f: Producer[E, WithData[A]] ?=> os.Path => A
+)(using ctx: Producer[E, WithData[A]]): WithData[A] = {
   val data_dir: os.Path = ctx.data_path
   if (!os.isDir(data_dir)) {
     os.remove.all(data_dir)
@@ -75,9 +77,11 @@ def update_data[A](skip: os.RelPath => Boolean)(
   )
 }
 
-lazy val periodic = Scope().fun { (ms: Long) =>
+lazy val periodic: Long => Target[Nothing, Long] = Scope().fun { (ms: Long) =>
   Scope().target() {
-    (System.currentTimeMillis() / ms) * ms
+    run_if_needed[Nothing, Long] {
+      (System.currentTimeMillis() / ms) * ms
+    }
   }
 }
 
