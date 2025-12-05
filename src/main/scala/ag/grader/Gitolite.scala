@@ -3,16 +3,7 @@ package ag.grader
 import language.experimental.saferExceptions
 
 import ag.git.{Sha, git}
-import ag.r2.{
-  run_if_needed,
-  Scope,
-  Target,
-  WithData,
-  periodic,
-  update_data,
-  say,
-  shout
-}
+import ag.r2.{Scope, Target, WithData, periodic, update_data, say, shout}
 
 import upickle.default.read
 
@@ -30,7 +21,7 @@ object Gitolite extends Scope(".") {
 
   case class Ex(msg: String, reason: Throwable) extends Exception(msg, reason)
 
-  lazy val history: Target[Nothing, SortedMap[String, String]] =
+  lazy val history: Target[SortedMap[String, String]] =
     target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
       val (rc, stdout, stderr) =
         g.ssh("history").run(cwd = os.pwd, check = false)
@@ -51,7 +42,7 @@ object Gitolite extends Scope(".") {
       }
     }
 
-  lazy val info: Target[Nothing, SortedSet[String]] =
+  lazy val info: Target[SortedSet[String]] =
     target(periodic(60 * 1000), Config.gitolite) { (_, g) =>
       val lines = {
         g.ssh("info").lines(cwd = os.pwd)
@@ -66,7 +57,7 @@ object Gitolite extends Scope(".") {
       SortedSet(repos*)
     }
 
-  lazy val latest: Target[Nothing, SortedMap[String, Option[String]]] =
+  lazy val latest: Target[SortedMap[String, Option[String]]] =
     target(history, info) { (history, info) =>
       val pairs = for {
         repo <- info.toSeq
@@ -74,75 +65,74 @@ object Gitolite extends Scope(".") {
       SortedMap(pairs*)
     }
 
-  lazy val repo_info: String => Target[Nothing, RepoInfo] = fun {
-    (repo: String) =>
-      target(Config.gitolite, latest) { (server, latest) =>
-        RepoInfo(server, repo, latest.get(repo))
-      }
+  lazy val repo_info: String => Target[RepoInfo] = fun { (repo: String) =>
+    target(Config.gitolite, latest) { (server, latest) =>
+      RepoInfo(server, repo, latest.get(repo))
+    }
   }
 
   // def repo_exists(repo: String): Maker[Boolean] = Rule(latest_for(repo), repo)(_.isDefined)
 
-  lazy val mirror: String => Target[Nothing, WithData[Boolean]] = fun {
-    (repo: String) =>
-      target(repo_info(repo)) { repo_info =>
-        update_data[Nothing, Boolean](skip = _.lastOpt.contains(".git")) {
-          dir =>
+  lazy val mirror: String => Target[WithData[Boolean]] = fun { (repo: String) =>
+    target(repo_info(repo)) { repo_info =>
+      update_data(skip = _.lastOpt.contains(".git")) { dir =>
 
-            def force_clone(server: RemoteServer): Unit = {
-              os.remove.all(dir)
-              os.makeDir.all(dir)
-              shout(s"cloning $repo because pull failed")
-              server
-                .SshProc(
-                  "git",
-                  "clone",
-                  "--template=",
-                  "-c",
-                  "remote.origin.fetch=+refs/notes/*:refs/notes/*",
-                  server.git_uri(repo),
-                  "."
-                )
-                .check(cwd = dir)
-            }
+        def force_clone(server: RemoteServer): Unit = {
+          os.remove.all(dir)
+          os.makeDir.all(dir)
+          shout(s"cloning $repo because pull failed")
+          server
+            .SshProc(
+              "git",
+              "clone",
+              "--template=",
+              "-c",
+              "remote.origin.fetch=+refs/notes/*:refs/notes/*",
+              server.git_uri(repo),
+              "."
+            )
+            .check(cwd = dir)
+        }
 
-            repo_info match {
-              case RepoInfo(server, _, Some(_)) =>
-                try {
-                  if (!os.isDir(dir / ".git")) {
-                    force_clone(server)
-                  }
-                  shout(s"pulling $repo")
-                  server.SshProc("git", "pull").check(cwd = dir)
-                } catch {
-                  case NonFatal(_) =>
-                    force_clone(server)
-                }
-                true
-              case _ =>
-                false
+        repo_info match {
+          case RepoInfo(server, _, Some(_)) =>
+            try {
+              if (!os.isDir(dir / ".git")) {
+                force_clone(server)
+              }
+              shout(s"pulling $repo")
+              server.SshProc("git", "pull").check(cwd = dir)
+            } catch {
+              case NonFatal(_) =>
+                force_clone(server)
             }
+            true
+          case _ =>
+            false
         }
       }
+    }
   }
 
   lazy val notes_for_repo
-      : (String, String) => Target[Nothing, SortedMap[Sha.Commit, Sha.Note]] =
+      : (String, String) => Target[SortedMap[Sha.Commit, Sha.Note]] =
     fun { (repo: String, notes_ref: String) =>
       val mirror_target = mirror(repo)
-      target(mirror_target) {
-        case m @ WithData(true, _, _) =>
-          git(C = m.get_data_path)
-            .notes(ref = notes_ref)
-            .check()
-            .map(p => (p.commit_sha, p.note_sha))
-            .to(SortedMap)
-        case _ =>
-          SortedMap[Sha.Commit, Sha.Note]()
+      target(mirror_target) { wd =>
+        wd.value match {
+          case true =>
+            git(C = wd.get_data_path)
+              .notes(ref = notes_ref)
+              .check()
+              .map(p => (p.commit_sha, p.note_sha))
+              .to(SortedMap)
+          case _ =>
+            SortedMap[Sha.Commit, Sha.Note]()
+        }
       }
     }
 
-  private lazy val raw_courses: Target[Nothing, SortedMap[String, RawCourse]] =
+  private lazy val raw_courses: Target[SortedMap[String, RawCourse]] =
     target(mirror("courses_config")) { mirror =>
       if (mirror.value) {
         val file = mirror.get_data_path / "courses.json"
@@ -154,19 +144,18 @@ object Gitolite extends Scope(".") {
       }
     }
 
-  lazy val course_names: Target[Nothing, SortedSet[String]] =
+  lazy val course_names: Target[SortedSet[String]] =
     target(raw_courses) { courses =>
       courses.keySet
     }
 
-  lazy val raw_course: String => Target[Nothing, RawCourse] = fun {
-    (name: String) =>
-      target(raw_courses) { courses =>
-        courses(name)
-      }
+  lazy val raw_course: String => Target[RawCourse] = fun { (name: String) =>
+    target(raw_courses) { courses =>
+      courses(name)
+    }
   }
 
-  lazy val raw_project: (String, String) => Target[Nothing, RawProject] = fun {
+  lazy val raw_project: (String, String) => Target[RawProject] = fun {
     (course_name: String, project_name: String) =>
       target(raw_course(course_name)) { course =>
         course.projects(project_name)

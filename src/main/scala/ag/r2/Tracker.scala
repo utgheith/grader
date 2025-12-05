@@ -1,18 +1,16 @@
 package ag.r2
 
-import language.experimental.saferExceptions
-import ag.common.{Fork, SafeTry, Signature, Signer, block}
+import ag.common.{Fork, Signature, Signer}
 import upickle.default.{ReadWriter, read, write}
 
 import scala.annotation.implicitNotFound
 import scala.collection.{SortedMap, mutable}
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Future
 import scala.util.Try
 import scala.util.control.NonFatal
 
 @implicitNotFound("no given Tracker")
-trait Tracker[-E <: Exception, +A] extends Context[E, A] {
+trait Tracker extends Context {
 
   enum Phase {
     case Open
@@ -29,12 +27,15 @@ trait Tracker[-E <: Exception, +A] extends Context[E, A] {
     }
   }
 
-  private val added_dependencies = TrieMap[os.RelPath, Fork[?, Result[?]]]()
+  private val added_dependencies = TrieMap[os.RelPath, Fork[Result[?]]]()
   private val done = mutable.Set[os.RelPath]()
   @volatile
   private var phase: Phase = Phase.Open
 
-  def add_dependency(d: TargetBase, fr: Fork[E, Result[?]]): Unit = {
+  def add_dependency(
+      d: TargetBase,
+      fr: Fork[Result[?]]
+  ): Unit = {
     phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
       Context.say(Some(this), s"does not depend on ${d.path.toString}")
@@ -45,48 +46,44 @@ trait Tracker[-E <: Exception, +A] extends Context[E, A] {
   }
 
   // Returns the known dependencies
-  private lazy val dependencies: SafeTry[E, SortedMap[os.RelPath, Signature]] = SafeTry {
-    given CanThrow[Exception]
-    phase.check(Phase.Open)
-    phase = Phase.Closing
-    /* compute transitive closure of all tracked dependencies */
-    while (done != added_dependencies.keySet) {
-      for {
-        (p, r) <- added_dependencies.toSeq
-      } {
-        if (!done.contains(p)) {
-          val _ = done.add(p)
-          val _ = r.join
+  private lazy val dependencies: Try[SortedMap[os.RelPath, Signature]] =
+    Try {
+      phase.check(Phase.Open)
+      phase = Phase.Closing
+      /* compute transitive closure of all tracked dependencies */
+      while (done != added_dependencies.keySet) {
+        for {
+          (p, r) <- added_dependencies.toSeq
+        } {
+          if (!done.contains(p)) {
+            val _ = done.add(p)
+            val _ = r.join
+          }
         }
       }
+
+      phase = Phase.Closed
+
+      /* now we have everything */
+      val out = (for {
+        (p, result) <- added_dependencies.toSeq
+      } yield (p, result.join.signature)).to(SortedMap)
+      out
     }
 
-    phase = Phase.Closed
-
-    /* now we have everything */
-    val out = (for {
-      (p, result) <- added_dependencies.toSeq
-    } yield (p, result.join.signature)).to(SortedMap)
-    out
-  }
-
-  def run(
-      f: (Producer[E, A], CanThrow[E]) ?=> Option[Result[A]] => Some[Result[A]] | (() => A)
-  )(using ReadWriter[A], CanThrow[E]): Result[A] = {
-    given producer: Producer[E, A] = new Producer[E, A] {
+  def run[B](
+      f: Producer[B] ?=> Option[Result[B]] => Some[
+        Result[B]
+      ] | (() => B)
+  )(using ReadWriter[B]): Result[B] = {
+    given producer: Producer[B] = new Producer[B] {
       override val depth: Int = Tracker.this.depth
-      override val route = Tracker.this.route
-      override val producing: Target[E, A] = Tracker.this.producing_opt.get
+      override val route: Seq[Target[?]] = Tracker.this.route
+      override val producing: Target[?] = Tracker.this.producing_opt.get
       override val state: State = Tracker.this.state
 
-      override def producing_opt: Option[Target[E, A]] =
+      override def producing_opt: Option[Target[?]] =
         Tracker.this.producing_opt
-
-      override def execute(runnable: Runnable): Unit = state.execute(runnable)
-
-      override def reportFailure(cause: Throwable): Unit =
-        state.reportFailure(cause)
-
     }
 
     // check if we have a failed update
@@ -95,13 +92,13 @@ trait Tracker[-E <: Exception, +A] extends Context[E, A] {
       os.remove.all(producer.target_path)
     }
 
-    val old_state: Option[Result[A]] = {
+    val old_state: Option[Result[B]] = {
 
       // (1) let's find out if we have a saved value
       if (os.isFile(producer.saved_path)) {
         try {
           say("loading old state")
-          val old = read[Saved[A]](os.read(producer.saved_path))
+          val old = read[Saved[B]](os.read(producer.saved_path))
           // (2) we seem to have one, check if the dependencies changed
           // ctx has the newly discovered dependencies
           // old has the dependency at the time the value was saved
@@ -144,7 +141,7 @@ trait Tracker[-E <: Exception, +A] extends Context[E, A] {
     f(old_state) match {
       case Some(ra) =>
         ra
-      case ffa: (() => A throws E) =>
+      case ffa: (() => B) =>
         // remove the old result
         // say("removing old result")
         // os.remove.all(producer.target_path)
@@ -187,9 +184,9 @@ trait Tracker[-E <: Exception, +A] extends Context[E, A] {
   //       run_if_needed { ... } // depends on a and b
   //
 
-  def run_if_needed(
-      f: Producer[E, A] ?=> CanThrow[E] ?=> A
-  )(using ReadWriter[A], CanThrow[E]): Result[A] = {
+  def run_if_needed[B](
+      f: (Producer[B]) ?=> B
+  )(using ReadWriter[B]): Result[B] = {
     run {
       case sra @ Some(_) =>
         sra

@@ -7,10 +7,10 @@ import scala.annotation.implicitNotFound
 // A producer is a context that produces a value of type A
 
 @implicitNotFound("no given Producer")
-trait Producer[-E <: Exception, +A] extends Context[E, A] with Logging {
+trait Producer[+A] extends Context with Logging {
 
   // What does it produce?
-  def producing: Target[E, A]
+  def producing: Target[?]
 
   // Working directory for the producer
   lazy val target_path: os.Path = state.target_path(producing)

@@ -1,24 +1,15 @@
 package ag.github
 
 import ag.common.sh
-import ag.r2.{
-  periodic,
-  Scope,
-  Target,
-  Tracker,
-  WithData,
-  run_if_needed,
-  update_data
-}
-import ag.r2.Producer
+import ag.r2.{periodic, Scope, Target, WithData, update_data}
 
 object Github extends Scope(".") {
 
-  lazy val mirror: os.RelPath => Target[Nothing, WithData[String]] = fun {
+  lazy val mirror: os.RelPath => Target[WithData[String]] = fun {
     (repo: os.RelPath) =>
       target(periodic(15 * 60 * 1000)) { _ =>
         println(s"updating mirror for ${repo.toString}")
-        update_data[Nothing, String](_ => true) { d =>
+        update_data(_ => true) { d =>
           val dir = d / "repo"
           if (os.exists(dir)) {
             sh"git pull" (dir)
@@ -31,7 +22,7 @@ object Github extends Scope(".") {
       }
   }
 
-  lazy val checkout: (os.RelPath, String) => Target[Nothing, WithData[String]] =
+  lazy val checkout: (os.RelPath, String) => Target[WithData[String]] =
     fun { (repo: os.RelPath, commit: String) =>
       target(Github.mirror(repo)) { the_repo =>
         update_data[Nothing, String](skip = _ => true) { d =>

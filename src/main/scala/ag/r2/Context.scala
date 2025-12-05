@@ -32,7 +32,7 @@ object Context {
     p
   }
 
-  def say(ctx: Option[Context[?, ?]], msg: => Any): Unit = {
+  def say(ctx: Option[Context], msg: => Any): Unit = {
     val t = if (msg == null) {
       "<null>"
     } else {
@@ -70,9 +70,9 @@ object Context {
 }
 
 @implicitNotFound("no given Context")
-trait Context[-E <: Exception, +A] {
-  val route: Seq[Target[?, ?]]
+trait Context {
+  val route: Seq[Target[?]]
   val depth: Int
   val state: State
-  def producing_opt: Option[Target[E, A]]
+  def producing_opt: Option[Target[?]]
 }

@@ -1,76 +1,52 @@
 package ag.common
 
-import language.experimental.saferExceptions
+import java.util.concurrent.Semaphore
+import scala.annotation.threadUnsafe
+import scala.util.{Failure, Success, Try}
 
-trait Fork[+E <: Exception, +A] { outer =>
-  def result: Either[E, A]
-  def join(using CanThrow[E]): A = result match {
-    case Left(e)  => throw e
-    case Right(a) => a
-  }
-  def map[B](f: A => B): Fork[E, B] = new Fork[E, B] {
-    override lazy val result: Either[E, B] = outer.result match {
-      case Left(e)  => Left(e)
-      case Right(a) => Right(f(a))
-    }
+trait Fork[+A] { outer =>
+  def result: Try[A]
+  def join: A = result.get
+  def map[B](f: A => B): Fork[B] = new Fork[B] {
+    override lazy val result: Try[B] = outer.result.map(f)
   }
 }
 
 object Fork {
   val builder: Thread.Builder = Thread.ofVirtual().name("fork", 0)
 
-  class Forker[E <: Exception, A] extends Fork[E, A] {
+  class Forker[A](f: () => A) extends Fork[A] {
+    @threadUnsafe
+    private lazy val the_result: Try[A] = Try(f())
 
-    var state: Option[Either[E, A]] = None
+    private val s = new Semaphore(1)
 
-    override def result: Either[E, A] = synchronized {
-      var t = state
-      while (t.isEmpty) {
-        wait()
-        t = state
-      }
-      t.get
+    override def result: Try[A] = s.down(1) {
+      the_result
     }
   }
 
-  inline def apply[E <: Exception, A](
-      body: => A throws E
-  ): Fork[E, A] = {
-    val f = new Forker[E, A]
-
+  inline def apply[A](
+      body: => A
+  ): Fork[A] = {
+    val f = Forker[A](() => body)
     builder.start { () =>
-      try {
-        val out =
-          try {
-            Right(body(using CanThrow[E]))
-          } catch {
-            case e: E => Left(e)
-          }
-
-        f.synchronized {
-          f.state = Some(out)
-          f.notifyAll()
-        }
-      } catch {
-        case t: Throwable =>
-          t.printStackTrace()
-          sys.exit(1)
-      }
+      val _ = f.result
     }
     f
   }
 
-  def success[A](a: A): Fork[Nothing, A] = {
-    new Fork[Nothing, A]() {
-      override def result: Either[Nothing, A] = Right(a)
-      override def join(using CanThrow[Nothing]): A = a
+  def success[A](a: A): Fork[A] = {
+    new Fork[A]() {
+      override def result: Try[A] = Success(a)
+      override def join: A = a
     }
   }
 
-  def failure[E <: Exception](e: E): Fork[E, Nothing] = {
-    new Fork[E, Nothing] {
-      override def result: Either[E, Nothing] = Left(e)
-      override def join(using CanThrow[E]): Nothing = throw e
+  def failure(e: Throwable): Fork[Nothing] = {
+    new Fork[Nothing] {
+      override def result: Try[Nothing] = Failure(e)
+      override def join: Nothing = throw e
     }
   }
 }

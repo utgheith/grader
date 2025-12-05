@@ -1,41 +1,51 @@
 package ag.r2
 
-import ag.common.block
-import scala.concurrent.Future
+import ag.common.Fork
+import org.scalatest.*
+import flatspec.*
+import matchers.*
 
 object Things extends Scope(".") {
   val a: Target[WithData[Int]] = target() {
-    create_data(_ => false) { path =>
-      os.write(path / "xyz", "hello\n")
-      10
+    run_if_needed {
+      create_data(_ => false) { path =>
+        os.write(path / "xyz", "hello\n")
+        10
+      }
     }
   }
 
   val b: (String, Int) => Target[Int] = fun { (s, i) =>
     target(a) { a =>
-      println(s"running $s $i, a:${a.toString}")
+      assert (s != "")
+      //println(s"running $s $i, a:${a.toString}")
       a.value + i
     }
   }
 }
 
-class TargetTests extends munit.FunSuite {
-  test("basic tracking") {
-    def doit(d: Int): Unit = {
-      given State = State(config.get_test_dir)
+class TargetTests extends AnyFlatSpec with should.Matchers {
 
-      val tb: Future[Int] =
-        for {
-          a <- Things.a.track
-          _ = assertEquals(a.value, 10)
-          b <- Things.b("thing", d).track
-          _ = assertEquals(b, 10 + d)
-        } yield (a.value + b)
+    "basic tracking" should "work" in {
+      def doit(d: Int): Unit = {
+        given State = State(config.get_test_dir)
 
-      assertEquals(tb.block, 20 + d)
+        Noise.noise = true
+
+        val a = Things.a.track
+        val b = Things.b("thing", d).track
+        val c = Fork {
+          val _ = a.join.value should be(10)
+          val _ = b.join should be(10 + d)
+          a.join.value + b.join
+        }
+        val _ = c.join should be(20 + d)
+
+      }
+
+      doit(6)
+      doit(4)
+      doit(6)
     }
-    doit(6)
-    doit(4)
-    doit(6)
-  }
+
 }

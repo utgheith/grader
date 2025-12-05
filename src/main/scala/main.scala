@@ -1,15 +1,37 @@
-import language.experimental.saferExceptions
-import ag.common.{Fork, block, given_ReadWriter_Regex, given_ReadWriter_SortedMap, human, timed}
-import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Outcome, Project, TestId}
-import ag.r2.{Scope, State, Target, WithData, run_if_needed}
-import mainargs.{Flag, ParserForClass, ParserForMethods, TokensReader, arg, main}
+package ag
+
+import ag.common.{
+  Fork,
+  given_ReadWriter_Regex,
+  given_ReadWriter_SortedMap,
+  human,
+  timed
+}
+import ag.grader.{
+  CSID,
+  Course,
+  CutoffTime,
+  Gitolite,
+  HtmlGen,
+  Outcome,
+  Project,
+  TestId
+}
+import ag.r2.{Scope, State, Target, WithData, create_data, run_if_needed, say}
+import mainargs.{
+  Flag,
+  ParserForClass,
+  ParserForMethods,
+  TokensReader,
+  arg,
+  main
+}
 
 import scala.collection.SortedMap
 import scala.util.matching.Regex
 import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import scala.concurrent.Future
 
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
@@ -96,28 +118,29 @@ case class CommonArgs(
     workspace: os.Path = os.pwd / "workspace"
 ) extends Scope(".") {
 
-  lazy val courses: Target[Nothing, Regex] = (this / courses_).target() {
+  lazy val courses: Target[Regex] = (this / courses_).target() {
     courses_
   }
 
-  lazy val projects: Target[Nothing, Regex] = (this / projects_).target() {
+  lazy val projects: Target[Regex] = (this / projects_).target() {
     projects_
   }
 
-  lazy val students: Target[Nothing, Regex] = (this / students_).target() {
+  lazy val students: Target[Regex] = (this / students_).target() {
     students_
   }
 
-  lazy val tests: Target[Nothing, Regex] = (this / tests_).target() {
+  lazy val tests: Target[Regex] = (this / tests_).target() {
     tests_
   }
 
-  lazy val chosen_phase: Target[Nothing, Option[Int]] = (this / chosen_phase_).target() {
-    chosen_phase_
-  }
+  lazy val chosen_phase: Target[Option[Int]] =
+    (this / chosen_phase_).target() {
+      chosen_phase_
+    }
 
   // TODO: warn when no courses matched
-  lazy val selected_courses: Target[Nothing,Seq[Course]] =
+  lazy val selected_courses: Target[Seq[Course]] =
     target(Course.active_courses, courses) { (active_courses, courses) =>
       active_courses
         .filter(course => courses.matches(course.course_name))
@@ -125,7 +148,7 @@ case class CommonArgs(
     }
 
   // TODO: warn when no projects matched
-  lazy val selected_projects: Target[Nothing, Seq[Project]] =
+  lazy val selected_projects: Target[Seq[Project]] =
     target(Project.active_projects, courses, projects) {
       (active_projects, courses, projects) =>
         for {
@@ -135,7 +158,7 @@ case class CommonArgs(
         } yield p
     }
 
-  lazy val submissions: Target[Nothing,Seq[(Project, CSID)]] = target() {
+  lazy val submissions: Target[Seq[(Project, CSID)]] = target() {
     val ps: Seq[Project] = selected_projects.track.join
     val csids_seq: Seq[SortedSet[CSID]] = {
       for { p <- ps } yield p.students_with_submission.track.join
@@ -153,7 +176,7 @@ case class CommonArgs(
 
   }
 
-  lazy val test_ids: Target[Nothing,Seq[(Project, TestId)]] = target() {
+  lazy val test_ids: Target[Seq[(Project, TestId)]] = target() {
     val ps: Seq[Project] = selected_projects.track.join
 
     val per_project_test_ids: Seq[SortedSet[TestId]] = for {
@@ -175,7 +198,7 @@ case class CommonArgs(
     }
   }
 
-  lazy val runs: Target[Nothing,Seq[(Project, CSID, TestId)]] = target() {
+  lazy val runs: Target[Seq[(Project, CSID, TestId)]] = target() {
     val ps: Seq[Project] = selected_projects.track.join
 
     val per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] =
@@ -207,9 +230,27 @@ object CommonArgs {
   given ParserForClass[CommonArgs] = ParserForClass[CommonArgs]
 }
 
+object Things extends Scope(".") {
+  val a: Target[WithData[Int]] = target() {
+    run_if_needed {
+      create_data(_ => false) { path =>
+        os.write(path / "xyz", "hello\n")
+        10
+      }
+    }
+  }
+
+  val b: (String, Int) => Target[Int] = fun { (s, i) =>
+    target(a) { a =>
+      println(s"running $s $i, a:${a.toString}")
+      a.value + i
+    }
+  }
+}
+
 object Main {
   @main
-  def dropbox(commonArgs: CommonArgs): Unit throws Nothing = {
+  def dropbox(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(s"\n------ ${c.course_name} -------")
@@ -218,7 +259,7 @@ object Main {
   }
 
   @main
-  def bad_tests(commonArgs: CommonArgs): Unit throws Nothing = {
+  def bad_tests(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     val r = (for {
       p <- commonArgs.selected_projects.track.join
@@ -238,7 +279,7 @@ object Main {
   }
 
   @main
-  def publish_keys(commonArgs: CommonArgs): Unit throws Nothing = {
+  def publish_keys(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(s"\n------ ${c.course_name} -------")
@@ -249,7 +290,7 @@ object Main {
   }
 
   @main
-  def publish_enrollment(commonArgs: CommonArgs): Unit throws Nothing = {
+  def publish_enrollment(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(s"\n------ ${c.course_name} -------")
@@ -259,7 +300,7 @@ object Main {
   }
 
   @main
-  def enrollment(commonArgs: CommonArgs): Unit throws Nothing = {
+  def enrollment(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(s"\n------ ${c.course_name} -------")
@@ -269,7 +310,7 @@ object Main {
   }
 
   @main
-  def create_grades_repos(commonArgs: CommonArgs): Unit throws Nothing = {
+  def create_grades_repos(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(s"Creating ${c.course_name}__grades")
@@ -278,31 +319,31 @@ object Main {
   }
 
   @main
-  def courses(commonArgs: CommonArgs): Unit throws Nothing = {
+  def courses(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     println(commonArgs.selected_courses.track.join)
   }
 
   @main
-  def history(commonArgs: CommonArgs): Unit throws Nothing = {
+  def history(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     Gitolite.history.track.join.foreach(println)
   }
 
   @main
-  def info(commonArgs: CommonArgs): Unit throws Nothing = {
+  def info(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     Gitolite.info.track.join.foreach(println)
   }
 
   @main
-  def projects(commonArgs: CommonArgs): Unit throws Nothing = {
+  def projects(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     pprint.pprintln(commonArgs.selected_projects.track.join)
   }
 
   @main
-  def overrides(commonArgs: CommonArgs): Unit throws Nothing = {
+  def overrides(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (p <- commonArgs.selected_projects.track.join) {
       println(p.publish_override_repo.track.join)
@@ -310,7 +351,7 @@ object Main {
   }
 
   @main
-  def work_repos(commonArgs: CommonArgs): Unit throws Nothing = {
+  def work_repos(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       for {
@@ -335,7 +376,7 @@ object Main {
         doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'."
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     val sort = sortMode match
@@ -351,7 +392,9 @@ object Main {
       } {
         val aliases = p.get_aliases.track.join
         val csids = enrollment.keys
-          .filter((id: CSID) => commonArgs.students.track.join.matches(id.value))
+          .filter((id: CSID) =>
+            commonArgs.students.track.join.matches(id.value)
+          )
           .toIndexedSeq
         val sorted =
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
@@ -375,7 +418,7 @@ object Main {
   @main
   def publish_tests(
       commonArgs: CommonArgs
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
     for (p <- commonArgs.selected_projects.track.join) {
       println(s"-- publishing tests for ${p.project_name}")
@@ -392,7 +435,7 @@ object Main {
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
       cutoff: CutoffTime
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     val base = os.pwd / "prepared"
@@ -414,7 +457,8 @@ object Main {
           (csid, _) <- enrollment
           if commonArgs.students.track.join.matches(csid.value)
         } {
-          val prep = p.prepare(csid, cutoff, commonArgs.commit_id_file).track.join
+          val prep =
+            p.prepare(csid, cutoff, commonArgs.commit_id_file).track.join
           val target_name = s"${c.course_name}_${pn}_${csid.toString}"
           val target_path = base / target_name
 
@@ -472,7 +516,7 @@ object Main {
         doc = "Sort all commits by date rather than grouping commits by repo"
       )
       sort: Flag
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
@@ -554,7 +598,7 @@ object Main {
   }
 
   @main
-  def publish_work_repos(commonArgs: CommonArgs): Unit throws Nothing = {
+  def publish_work_repos(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(c.course_name)
@@ -577,7 +621,7 @@ object Main {
   }
 
   @main
-  def submissions(commonArgs: CommonArgs): Unit throws Nothing = {
+  def submissions(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     pprint.pprintln(commonArgs.submissions.track.join)
     // for ((p, csid) <- commonArgs.submissions.track.join) {
@@ -586,7 +630,7 @@ object Main {
   }
 
   @main
-  def test_ids(commonArgs: CommonArgs): Unit throws Nothing = {
+  def test_ids(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for ((p, test_id) <- commonArgs.test_ids.track.join) {
       println(s"${p.toString} ${test_id.toString}")
@@ -597,7 +641,7 @@ object Main {
   @main
   def latest(
       commonArgs: CommonArgs
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     Gitolite.latest.track.join.foreach(println)
@@ -650,21 +694,22 @@ object Main {
         doc = "The json file to write the results summary out to"
       )
       result_file: Option[String]
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
-    //val out = for {
+    // val out = for {
     val runs = commonArgs.runs.track.join
-      
-    val outs: Seq[Fork[Nothing, WithData[Outcome]]] = for ((p, csid, test_id) <- runs)
-          yield p
-            .run_one(keep_going.value, commonArgs.count)(
-              csid,
-              cutoff,
-              test_id,
-              commonArgs.commit_id_file
-            )
-            .track
+
+    val outs: Seq[Fork[WithData[Outcome]]] =
+      for ((p, csid, test_id) <- runs)
+        yield p
+          .run_one(keep_going.value, commonArgs.count)(
+            csid,
+            cutoff,
+            test_id,
+            commonArgs.commit_id_file
+          )
+          .track
 
     result_file.foreach(file_name => {
       val results =
@@ -706,12 +751,14 @@ object Main {
   @main
   def publish_results(
       commonArgs: CommonArgs
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     for (p <- commonArgs.selected_projects.track.join) {
       val _ =
-        p.publish_results(commonArgs.count, commonArgs.commit_id_file).track.join
+        p.publish_results(commonArgs.count, commonArgs.commit_id_file)
+          .track
+          .join
       // println(upickle.default.write(results, indent=2))
     }
   }
@@ -719,7 +766,7 @@ object Main {
   @main
   def student_tests(
       commonArgs: CommonArgs
-  ): Unit throws Nothing = {
+  ): Unit = {
     given State = State(commonArgs.workspace)
 
     for (p <- commonArgs.selected_projects.track.join) {
@@ -731,7 +778,7 @@ object Main {
   }
 
   @main
-  def get_results(commonArgs: CommonArgs): Unit throws Nothing = {
+  def get_results(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       println(c.course_name)
@@ -759,7 +806,7 @@ object Main {
   }
 
   @main
-  def notify_results(commonArgs: CommonArgs): Unit throws Nothing = {
+  def notify_results(commonArgs: CommonArgs): Unit = {
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
       for {
@@ -778,7 +825,7 @@ object Main {
   }
 
   @main
-  def gen_html(commonArgs: CommonArgs): Unit throws Nothing = {
+  def gen_html(commonArgs: CommonArgs): Unit = {
 
     given State = State(commonArgs.workspace)
     for (c <- commonArgs.selected_courses.track.join) {
@@ -798,7 +845,7 @@ object Main {
       commonArgs: CommonArgs,
       cutoff_time: CutoffTime,
       minutes: Int = 1
-  ): Unit throws Nothing = {
+  ): Unit = {
 
     given State = State(commonArgs.workspace)
 
@@ -822,7 +869,8 @@ object Main {
               c,
               commonArgs.commit_id_file
             )
-            .track.join
+            .track
+            .join
             .toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum
         } yield (csid, score)).to(SortedMap)
@@ -858,8 +906,10 @@ object Main {
 
   class Export(commonArgs: CommonArgs) {
     given State = State(commonArgs.workspace)
-    def courses: Array[Course] throws Nothing = commonArgs.selected_courses.track.join.toArray
-    def projects: Array[Project] throws Nothing = commonArgs.selected_projects.track.join.toArray
+    def courses: Array[Course] =
+      commonArgs.selected_courses.track.join.toArray
+    def projects: Array[Project] =
+      commonArgs.selected_projects.track.join.toArray
   }
 
   @main
@@ -867,7 +917,7 @@ object Main {
       @arg(positional = true, doc = "script file name")
       script: String,
       commonArgs: CommonArgs
-  ): Unit throws Nothing = {
+  ): Unit = {
     import org.graalvm.polyglot.Context
     val code = os.read(os.pwd / script)
     val ctx = Context
@@ -884,18 +934,42 @@ object Main {
   }
 
   @main
-  def play(commonArgs: CommonArgs): Unit throws Nothing = {
+  def play(commonArgs: CommonArgs): Unit = {
+
     given State = State(commonArgs.workspace)
-    pprint.pprintln(Gitolite.mirror("courses_config").track.join)
+
+    def doit(d: Int): Unit = {
+
+      val a = Things.a.track
+      val b = Things.b("thing", d).track
+      say("creating c")
+      val c = Fork {
+        say("waiting for a")
+        assert(a.join.value == 10)
+        say("waiting for b")
+        assert(b.join == 10 + d)
+        a.join.value + b.join
+      }
+      assert(c.join == 20 + d)
+
+    }
+
+    doit(6)
+    doit(4)
+    doit(6)
+
   }
 
   @main
-  def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit throws Nothing = {
+  def pl(
+      workspace: os.Path = os.pwd / "workspace",
+      prefix: os.Path
+  ): Unit = {
     given State = State(workspace)
     pprint.pprintln(PlTools(prefix).fstar.track.join)
   }
 
-  def main(args: Array[String]): Unit throws Nothing = {
+  def main(args: Array[String]): Unit = {
     val _ = ParserForMethods(this).runOrExit(args.toIndexedSeq)
   }
 }

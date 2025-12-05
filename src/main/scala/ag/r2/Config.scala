@@ -13,15 +13,16 @@ case class TraceFlags(
 ) derives ReadWriter
 
 case class Config(
+    noise: Boolean,
     trace_flags: TraceFlags,
     test_dir: Option[os.RelPath]
 ) derives ReadWriter {
-  def trace_dirty(target: Target[?, ?]): Unit = {
+  def trace_dirty(target: Target[?]): Unit = {
     if (trace_flags.dirty) {
       trace(s"[DIRTY] ${target.path.toString}")
     }
   }
-  def trace_miss(ctx: Context[?, ?], target: TargetBase): Unit = {
+  def trace_miss(ctx: Context, target: TargetBase): Unit = {
     if (trace_flags.miss) {
       trace(
         s"[MISS] ${ctx.producing_opt.map(_.path).toString} looking for ${target.path.toString}"
@@ -29,7 +30,7 @@ case class Config(
     }
   }
   def trace_read_error(
-      ctx: Context[?, ?],
+      ctx: Context,
       target: TargetBase,
       e: Throwable
   ): Unit = {

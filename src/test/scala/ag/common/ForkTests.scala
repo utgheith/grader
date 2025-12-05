@@ -1,7 +1,7 @@
 package ag.common
 
 import munit.FunSuite
-import language.experimental.saferExceptions
+import scala.util.{Failure, Success}
 
 case class MyEx(msg: String) extends Exception(msg)
 
@@ -9,7 +9,7 @@ class ForkTests extends FunSuite {
 
   test("Fork.success returns the value") {
     val f = Fork.success(42)
-    assertEquals(f.result, Right(42))
+    assertEquals(f.result, Success(42))
     val res =
       try {
         f.join
@@ -22,7 +22,7 @@ class ForkTests extends FunSuite {
   test("Fork.failure returns the exception") {
     val ex = MyEx("boom")
     val f = Fork.failure(ex)
-    assertEquals(f.result, Left(ex))
+    assertEquals(f.result, Failure(ex))
 
     try {
       val _ = f.join
@@ -38,19 +38,19 @@ class ForkTests extends FunSuite {
       Thread.sleep(10)
       100
     }
-    assertEquals(f.result, Right(100))
-    assertEquals(f.join(using CanThrow[Exception]), 100)
+    assertEquals(f.result, Success(100))
+    assertEquals(f.join, 100)
   }
 
   test("Fork.apply captures exception") {
     val ex = MyEx("async boom")
 
-    val f = Fork[MyEx, Int] {
+    val f = Fork[Int] {
       Thread.sleep(10)
       throw ex
     }
 
-    assertEquals(f.result, Left(ex))
+    assertEquals(f.result, Failure(ex))
     try {
       val res = f.join
       assertEquals(res, 100)
@@ -58,5 +58,17 @@ class ForkTests extends FunSuite {
     } catch {
       case e: MyEx => assertEquals(e, ex)
     }
+  }
+
+  test("chained forks") {
+    val a = Fork {
+      Thread.sleep(10)
+      10
+    }
+    val b = Fork {
+      a.join + 1
+    }
+
+    assert (clue(b.join) == 11)
   }
 }

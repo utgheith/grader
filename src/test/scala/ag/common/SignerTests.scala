@@ -3,7 +3,6 @@ package ag.common
 import munit.FunSuite
 import upickle.default.ReadWriter
 
-
 import ag.common.Signer.{given_Signer_Path, given_Signer_Path_Function}
 
 case class SimpleData(i: Int, s: String) derives ReadWriter
@@ -69,8 +68,10 @@ class SignerTests extends FunSuite {
     // modify b.txt again
     os.write.over(tmpDir / "b.txt", "b3")
     val s4 = Signer.sign(
-      tmpDir,
-      (p: os.RelPath) => p.segments.nonEmpty && p.last == "b.txt"
+      (
+        tmpDir,
+        (p: os.RelPath) => p.segments.nonEmpty && p.last == "b.txt"
+      )
     )
 
     assert(clue(s3) == clue(s4))

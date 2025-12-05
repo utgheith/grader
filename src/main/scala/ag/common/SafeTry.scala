@@ -2,17 +2,18 @@ package ag.common
 
 import language.experimental.saferExceptions
 
-trait SafeTry[-E <: Exception, T] {
+trait SafeTry[+E <: Exception, +T] {
   def get(using CanThrow[E]): T
 }
 
 object SafeTry {
-  def success[E, T](v: T): SafeTry[E,T] = new SafeTry[E, T] {
-    def get(using CanThrow[E]): T = v
+  def success[T](v: T): SafeTry[Nothing, T] = new SafeTry[Nothing, T] {
+    override def get(using CanThrow[Nothing]): T = v
   }
-  def failure[E <: Exception, T](e: E): SafeTry[E, T] = new SafeTry[E,T] {
-    override def get(using CanThrow[E]): Nothing = throw e
-  }
+  def failure[E <: Exception](e: E): SafeTry[E, Nothing] =
+    new SafeTry[E, Nothing] {
+      override def get(using CanThrow[E]): Nothing = throw e
+    }
   inline def apply[E <: Exception, T](f: => T throws E): SafeTry[E, T] = try {
     success(f)
   } catch {
