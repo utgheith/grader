@@ -13,7 +13,7 @@ class TimeFormatTests extends munit.FunSuite {
     }
     "20:30.40" match {
       case TimeFormat(h, m, s) =>
-        println(s"***$h***")
+        assert(clue(h) == null)
         assert(clue(m) == "20")
         assert(clue(s) == "30.40")
     }

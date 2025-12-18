@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.common.down
+import ag.common.{down, Zero}
 import ag.r2.shout
 import ag.rules.{Optional, run}
 import scala.collection.SortedSet
@@ -76,12 +76,14 @@ def doit(
 
         val qemu_runtime = qemu_runtime_str match
           case Some(Project.TimeFormat(Optional(None), min, sec)) =>
-            Some(min.toDouble * 60 + sec.toDouble)
+            Some(Zero(min).toDouble * 60 + Zero(sec).toDouble)
           case Some(
                 Project.TimeFormat(Optional(Some(hours)), min, sec)
               ) =>
             Some(
-              hours.toDouble * 3600 + min.toDouble * 60 + sec.toDouble
+              Zero(hours).toDouble * 3600 + Zero(min).toDouble * 60 + Zero(
+                sec
+              ).toDouble
             )
           case Some("timeout") => None
           case _               => None
