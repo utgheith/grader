@@ -1412,7 +1412,7 @@ object Project extends Scope(".") {
   given Ordering[Project] = Ordering.by(p => (p.course, p.project_name))
 
   // The output of time's %E format, output by the Makefile build system for test runtimes
-  val TimeFormat: Regex = """(?:(\d+):)?(\d+):(\d+\.\d+)""".r
+  val TimeFormat: Regex = """(?:(\d+):)?(?:(\d+):)?(\d+\.\d+)""".r
 
   private val run_locks = TrieMap[os.Path, ReentrantLock]()
 
