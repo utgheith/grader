@@ -74,16 +74,7 @@ def doit(
             os.read.lines(time_path).headOption
           else None
 
-        val qemu_runtime = qemu_runtime_str match
-          case Some(Project.TimeFormat(hour, min, sec)) =>
-            var t: Double = 0.0
-            if (sec != null) t = t + sec.toDouble
-            if (min != null) t = t + 60 * min.toDouble
-            if (hour != null) t = t + 3600 * hour.toDouble
-            Some(t)
-          case Some("timeout") => None
-          case Some(s) => throw new Exception(s"invalid time format: $s")
-          case _       => None
+        val qemu_runtime = Project.parseTime(qemu_runtime_str)
 
         val outcome: OutcomeStatus = (
           outcome_str.map(_.toLowerCase.nn),

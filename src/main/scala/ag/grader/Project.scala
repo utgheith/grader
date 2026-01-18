@@ -1412,7 +1412,18 @@ object Project extends Scope(".") {
   given Ordering[Project] = Ordering.by(p => (p.course, p.project_name))
 
   // The output of time's %E format, output by the Makefile build system for test runtimes
-  val TimeFormat: Regex = """(?:(\d+):)?(?:(\d+):)?(\d+\.\d+)""".r
+  val Seconds: Regex = """(\d+\.\d+)""".r
+  val Minutes: Regex = """(\d+):(\d+.\d+)""".r
+  val Hours: Regex = """(\d+):(\d+):(\d+.\d+)""".r
+
+  def parseTime(s: Option[String]): Option[Double] = s match {
+    case Some(Seconds(s))     => Some(s.nn.toDouble)
+    case Some(Minutes(m, s))  => Some((m.nn.toDouble * 60) + s.nn.toDouble)
+    case Some(Hours(h, m, s)) =>
+      Some((h.nn.toDouble * 3600) + (m.nn.toDouble * 60) + s.nn.toDouble)
+    case Some(s) => throw new Exception(s"invalid time format: $s")
+    case None    => None
+  }
 
   private val run_locks = TrieMap[os.Path, ReentrantLock]()
 

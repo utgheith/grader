@@ -1,22 +1,20 @@
 package ag.grader
 
-import Project.TimeFormat
-
 class TimeFormatTests extends munit.FunSuite {
 
   test("t1") {
-    "10:20:30.40" match {
-      case TimeFormat(h, m, s) =>
-        assert(clue(h) == "10")
-        assert(clue(m) == "20")
-        assert(clue(s) == "30.40")
+    assert(Project.parseTime(Some("1:20:30.40")) == Some(3600 + 20 * 60 + 30.4))
+    assert(Project.parseTime(Some("20:30.40")) == Some(20 * 60 + 30.4))
+    assert(Project.parseTime(Some("30.40")) == Some(30.4))
+    assert(Project.parseTime(None) == None)
+    try {
+      val _ = Project.parseTime(Some("foo"))
+      fail("should have failed")
+    } catch {
+      case e: Exception =>
+        assert(e.getMessage.contains("foo"))
     }
-    "20:30.40" match {
-      case TimeFormat(h, m, s) =>
-        println(s"***$h***")
-        assert(clue(m) == "20")
-        assert(clue(s) == "30.40")
-    }
+
   }
 
 }
