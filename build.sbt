@@ -1,9 +1,10 @@
-scalaVersion := "3.8.0"
+scalaVersion := "3.8.1"
 
 name := "grader"
 
 scalacOptions ++= Seq(
   "-Wall",
+  "-Werror",
   "-Wconf:any:e",
   // "-Wunused:all",
   "-feature",
@@ -22,7 +23,7 @@ libraryDependencies ++= Seq(
   "com.lihaoyi" %% "pprint" % "0.9.6",
   "com.lihaoyi" %% "sourcecode" % "0.4.4",
   "com.lihaoyi" %% "upickle" % "4.4.2",
-  "org.graalvm.polyglot" % "python" % "25.0.1"
+  "org.graalvm.polyglot" % "python" % "25.0.2"
 )
 
 libraryDependencies ++= Seq(
