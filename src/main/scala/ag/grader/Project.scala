@@ -1421,6 +1421,7 @@ object Project extends Scope(".") {
     case Some(Minutes(m, s))  => Some((m.nn.toDouble * 60) + s.nn.toDouble)
     case Some(Hours(h, m, s)) =>
       Some((h.nn.toDouble * 3600) + (m.nn.toDouble * 60) + s.nn.toDouble)
+    case Some("timeout") => None
     case Some(s) => throw new Exception(s"invalid time format: $s")
     case None    => None
   }
