@@ -378,7 +378,7 @@ object Main {
         for (csid <- sorted) {
           val target_name = s"${base_name}_${csid.toString}"
           val padded_name = String.format(s"%-${max_width}s", target_name)
-          println(s"$padded_name  ${aliases.getOrElse(csid, "?").toString}")
+          println(s"$padded_name  ${aliases.get(csid).map(_.toString).getOrElse("?")}")
         }
       }
     }
@@ -433,7 +433,7 @@ object Main {
           prep.value match {
             case Some(data) =>
               println(
-                s"${aliases.getOrElse(csid, "?").toString} $target_name ${data.commit_time
+                s"${aliases.get(csid).map(_.toString).getOrElse("?")} $target_name ${data.commit_time
                     .withZoneSameInstant(ZoneId.systemDefault)
                     .toString} ${data.sha} ${data.push_time
                     .map(ins => ins.atZone(ZoneId.systemDefault()))

@@ -43,7 +43,7 @@ object TargetBase {
   }
 }
 
-trait Target[A: ReadWriter] extends TargetBase {
+trait Target[A] extends TargetBase {
   outer =>
 
   // our compute logic (implemented by the value producer)
@@ -79,7 +79,7 @@ trait Target[A: ReadWriter] extends TargetBase {
 }
 
 object Target {
-  def apply[A: ReadWriter](
+  def apply[A](
       p: os.RelPath
   )(f: Tracker[A] ?=> Future[Result[A]]): Target[A] = new Target[A] { outer =>
     override val path: os.RelPath = p

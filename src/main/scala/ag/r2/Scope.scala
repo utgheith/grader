@@ -691,7 +691,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       )
   }
 
-  def complex_target[Out: ReadWriter](f: Tracker[Out] ?=> Future[Result[Out]])(
+  def complex_target[Out](f: Tracker[Out] ?=> Future[Result[Out]])(
       using fn: sourcecode.FullName
   ): Target[Out] = Target(ToRelPath(fn) / base) { f }
 }

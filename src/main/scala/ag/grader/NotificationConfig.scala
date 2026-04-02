@@ -144,7 +144,7 @@ case class NotificationConfig(
 
     val contents = s"""
       |more information at: $web_page
-      |your alias: ${alias.getOrElse("?").toString}
+      |your alias: ${alias.map(_.toString).getOrElse("?")}
       |your details: git clone ${server.git_uri(
                        project.student_results_repo_name(csid)
                      )}
