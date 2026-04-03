@@ -12,6 +12,8 @@ stage : ${ALL_FILES}
 sbt_%:
 	./sbt --warn $*
 
+format : scalafmt;
+
 clean:
 	rm -rf stage target
 

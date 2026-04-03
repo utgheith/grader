@@ -378,7 +378,9 @@ object Main {
         for (csid <- sorted) {
           val target_name = s"${base_name}_${csid.toString}"
           val padded_name = String.format(s"%-${max_width}s", target_name)
-          println(s"$padded_name  ${aliases.get(csid).map(_.toString).getOrElse("?")}")
+          println(
+            s"$padded_name  ${aliases.get(csid).map(_.toString).getOrElse("?")}"
+          )
         }
       }
     }
