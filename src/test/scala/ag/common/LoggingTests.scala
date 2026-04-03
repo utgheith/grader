@@ -9,6 +9,6 @@ class LoggingTests extends FunSuite {
     given logger: Logging = logs += _
     log("test message")
     log(5)
-    assert(clue(logs.toList) == List("test message", 5))
+    assert(clue(logs.toList) == List[String | Int]("test message", 5))
   }
 }
