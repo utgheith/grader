@@ -1,11 +1,6 @@
 
 
-ALL_FILES = $(shell find src -type f -print) project/build.properties build.sbt jvm cs java
-
-stage : ${ALL_FILES}
-	rm -f stage
-	./sbt --warn stage
-	touch stage
+all : compile;
 
 % : sbt_%;
 
@@ -15,5 +10,5 @@ sbt_%:
 format : scalafmt;
 
 clean:
-	rm -rf stage target
+	rm -rf target
 

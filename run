@@ -2,15 +2,8 @@
 
 D=$(dirname $0)
 
-#echo "building ..."
-(cd $D && make -s)
+arg="$@"
 
-JVM=$($D/jvm)
-#echo "setting up for $JVM ..."
-eval "$($D/cs java --jvm "$JVM" --env)"
-#java -version
 
-#echo "running ..."
-export JAVA_OPTS="$JAVA_OPTS --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
-exec $D/target/universal/stage/bin/grader "$@"
+$D/sbt "run $arg"
 
