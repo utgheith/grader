@@ -37,7 +37,7 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalameta" %% "munit" % "1.3.5" % Test
+  "org.scalameta" %% "munit" % "1.3.6" % Test
 )
 
 enablePlugins(NativeImagePlugin)
