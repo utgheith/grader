@@ -4,6 +4,5 @@ D=$(dirname $0)
 
 arg="$@"
 
-
 $D/sbt "run $arg"
 

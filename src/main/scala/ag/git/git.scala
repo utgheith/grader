@@ -4,7 +4,6 @@ import ag.cmd.{CallableCommand, Command}
 import os.{CommandResult, Shellable}
 
 import scala.language.implicitConversions
-import scala.language.experimental.namedTuples
 
 // git [-C <dir>] ...
 case class git(C: os.Path | Null = null) extends Command {

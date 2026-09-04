@@ -1,7 +1,5 @@
 package ag.grader
 
-import language.experimental.namedTuples
-
 import upickle.default.ReadWriter
 import scala.collection.SortedMap
 

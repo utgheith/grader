@@ -879,6 +879,7 @@ object Main {
     def projects: Array[Project] = commonArgs.selected_projects.guilty.toArray
   }
 
+  /*
   @main
   def python(
       @arg(positional = true, doc = "script file name")
@@ -899,6 +900,7 @@ object Main {
       ctx.close()
     }
   }
+   */
 
   @main
   def play(commonArgs: CommonArgs): Unit = {
