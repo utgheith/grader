@@ -47,6 +47,7 @@ class State(val workspace: os.Path) extends Tracker {
   def track[A](
       target: Target[A]
   )(using tracker: Tracker[?]): Future[A] = {
+    tracker.check_phase(tracker.Phase.Open)
     if (tracker.route.map(_.path).contains(target.path)) {
       throw new Exception(
         s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"

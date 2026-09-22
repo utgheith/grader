@@ -32,6 +32,10 @@ trait Tracker[A] extends Context[A] {
   @volatile
   private var phase: Phase = Phase.Open
 
+  def check_phase(desired: Phase*): Unit = {
+    phase.check(desired*)
+  }
+
   def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
     phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
