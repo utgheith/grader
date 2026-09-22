@@ -1129,18 +1129,14 @@ case class Project(course: Course, project_name: String)
 
   private lazy val override_tests: Target[SortedMap[String, WithData[String]]] =
     complex_target {
-
-      val pairs = for {
-        test_names <- override_test_names.track.map(_.toSeq)
-        tests <- Future.sequence(
-          test_names.map(test_name => override_test(test_name).track)
-        )
-      } yield test_names.zip(tests)
+      val test_names = override_test_names.guilty.toSeq
+      val test_futures =
+        test_names.map(test_name => override_test(test_name).track)
 
       run_if_needed {
-        pairs.map { pairs =>
-          pairs.to(SortedMap)
-        }
+        (Future.sequence(test_futures).map { tests =>
+          test_names.zip(tests).to(SortedMap)
+        })
       }
     }
 
