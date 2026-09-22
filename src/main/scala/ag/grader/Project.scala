@@ -990,16 +990,15 @@ case class Project(course: Course, project_name: String)
   lazy val student_tests_by_csid: Target[SortedMap[CSID, WithData[String]]] =
     complex_target {
 
-      val possible_tests = for {
-        csids <- students_with_submission.track
-        ids = csids.toSeq
-        possible_tests <- Future.sequence(ids.map(id => student_test(id).track))
-      } yield ids.zip(possible_tests)
+      val csids = students_with_submission.guilty.toSeq
+      val possible_test_futures = csids.map(csid => student_test(csid).track)
 
       run_if_needed {
-        possible_tests.map { possible_tests =>
+        for {
+          possible_tests <- Future.sequence(possible_test_futures)
+        } yield {
           (for {
-            (csid, test) <- possible_tests
+            (csid, test) <- csids.zip(possible_tests)
             git_sha <- test.value.toSeq
           } yield (csid, test.copy(value = git_sha))).to(SortedMap)
         }
