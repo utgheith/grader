@@ -239,14 +239,13 @@ object Course extends Scope(os.RelPath(".")) {
   }
 
   lazy val active_courses: Target[Seq[Course]] = complex_target {
-    val all_future: Future[Seq[Course]] = all.track
-    val active_flags_future: Future[Seq[Boolean]] =
-      all_future.flatMap(all => Future.sequence(all.map(_.active.track)))
+    val all_courses: Seq[Course] = all.guilty
+    val active_flag_futures = all_courses.map(_.active.track)
+
     run_if_needed {
       for {
-        all <- all_future
-        active_flags <- active_flags_future
-      } yield all.zip(active_flags).filter(_._2).map(_._1)
+        active_flags <- Future.sequence(active_flag_futures)
+      } yield all_courses.zip(active_flags).filter(_._2).map(_._1)
     }
   }
 
