@@ -1,12 +1,12 @@
 package ag.r2
 
-import ag.common.{Signature, Signer, block}
+import ag.common.{Signature, Signer}
+import ag.task.Task
 import upickle.default.{ReadWriter, read, write}
 
 import scala.annotation.implicitNotFound
 import scala.collection.{mutable, SortedMap}
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Future
 import scala.util.control.NonFatal
 
 @implicitNotFound("no given Tracker")
@@ -27,7 +27,7 @@ trait Tracker[A] extends Context[A] {
     }
   }
 
-  private val added_dependencies = TrieMap[os.RelPath, Future[Result[?]]]()
+  private val added_dependencies = TrieMap[os.RelPath, Task[Result[?]]]()
   private val done = mutable.Set[os.RelPath]()
   @volatile
   private var phase: Phase = Phase.Open
@@ -36,7 +36,7 @@ trait Tracker[A] extends Context[A] {
     phase.check(desired*)
   }
 
-  def add_dependency(d: TargetBase, fr: Future[Result[?]]): Unit = {
+  def add_dependency(d: TargetBase, fr: Task[Result[?]]): Unit = {
     phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
       Context.say(Some(this), s"does not depend on ${d.path.toString}")
@@ -72,8 +72,8 @@ trait Tracker[A] extends Context[A] {
 
   def run(
       f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
-        (() => Future[A])
-  )(using ReadWriter[A]): Future[Result[A]] = {
+        (() => Task[A])
+  )(using ReadWriter[A]): Task[Result[A]] = {
     given producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val route = Tracker.this.route
@@ -81,12 +81,6 @@ trait Tracker[A] extends Context[A] {
       override val state: State = Tracker.this.state
 
       override def producing_opt: Option[Target[A]] = Tracker.this.producing_opt
-
-      override def execute(runnable: Runnable): Unit = state.execute(runnable)
-
-      override def reportFailure(cause: Throwable): Unit =
-        state.reportFailure(cause)
-
     }
 
     // check if we have a failed update
@@ -143,8 +137,8 @@ trait Tracker[A] extends Context[A] {
 
     f(old_state) match {
       case Some(ra) =>
-        Future.successful(ra)
-      case ffa: (() => Future[A]) =>
+        Task.successful(ra)
+      case ffa: (() => Task[A]) =>
         // remove the old result
         // say("removing old result")
         // os.remove.all(producer.target_path)
@@ -159,7 +153,7 @@ trait Tracker[A] extends Context[A] {
         // clear the log
         os.write.over(producer.log_path, "", createFolders = true)
 
-        // Run the computation (asynchronous)
+        // Run the computation
         ffa().map { new_value =>
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
@@ -174,7 +168,7 @@ trait Tracker[A] extends Context[A] {
           os.remove.all(producer.dirty_path)
           say(s"${producer.producing.path.toString} done")
           new_result
-        }(using producer.state)
+        }
     }
 
   }
@@ -188,8 +182,8 @@ trait Tracker[A] extends Context[A] {
   //
 
   def run_if_needed(
-      f: Producer[A] ?=> Future[A]
-  )(using ReadWriter[A]): Future[Result[A]] = {
+      f: Producer[A] ?=> Task[A]
+  )(using ReadWriter[A]): Task[Result[A]] = {
     run {
       case sra @ Some(_) =>
         sra

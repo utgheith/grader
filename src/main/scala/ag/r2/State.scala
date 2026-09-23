@@ -1,14 +1,9 @@
 package ag.r2
 
+import ag.task.Task
 import os.Path
 
-import java.lang.Thread.Builder
-import scala.concurrent.Future
 import scala.collection.mutable
-
-object State {
-  val builder: Builder.OfVirtual = Thread.ofVirtual().name("v", 0)
-}
 
 class State(val workspace: os.Path) extends Tracker {
 
@@ -18,15 +13,6 @@ class State(val workspace: os.Path) extends Tracker {
   override def producing_opt: Option[Target[Nothing]] = None
 
   override val route = Seq()
-
-  // ExecutionContext methods
-  override def execute(runnable: Runnable): Unit = {
-    val _ = State.builder.start(runnable)
-  }
-  override def reportFailure(cause: Throwable): Unit = {
-    cause.printStackTrace()
-    sys.exit(-1)
-  }
 
   def target_path(target: TargetBase | os.RelPath): os.Path =
     workspace / "targets" / (target match {
@@ -42,26 +28,26 @@ class State(val workspace: os.Path) extends Tracker {
   def log_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "log.txt"
 
-  private val cache = mutable.Map[os.RelPath, Future[Result[?]]]()
+  private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
   def track[A](
       target: Target[A]
-  )(using tracker: Tracker[?]): Future[A] = {
+  )(using tracker: Tracker[?]): Task[A] = {
     tracker.check_phase(tracker.Phase.Open)
     if (tracker.route.map(_.path).contains(target.path)) {
       throw new Exception(
         s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"
       )
     }
-    val result: Future[Result[?]] = cache.synchronized {
+    val result: Task[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
         target.path,
-        (Future {
+        Task {
           Context.say(
             Some(tracker),
             s"miss for ${target.path.toString} in ${this.toString}"
           )
-          val made = target.make(using
+          target.make(using
             new Tracker {
               override val depth: Int = tracker.depth + 1
 
@@ -69,16 +55,9 @@ class State(val workspace: os.Path) extends Tracker {
               override val state: State = tracker.state
 
               override def producing_opt: Option[Target[A]] = Some(target)
-
-              override def execute(runnable: Runnable): Unit =
-                tracker.state.execute(runnable)
-
-              override def reportFailure(cause: Throwable): Unit =
-                tracker.state.reportFailure(cause)
             }
           )
-          made
-        }).flatten
+        }.flatMap(identity)
       )
     }
 

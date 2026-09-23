@@ -2,8 +2,7 @@ package ag.r2
 
 import upickle.default.ReadWriter
 
-import scala.concurrent.Future
-import scala.reflect.ClassTag
+import ag.task.Task
 
 class Scope(base_ : os.RelPath | String | Scope) { self =>
 
@@ -14,8 +13,8 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
   }
   def /[A: ToRelPath](more: A): Scope = new Scope(base / ToRelPath(more))
 
-  def target[Out: {ClassTag, ReadWriter}]()(
-      f: Producer[Out] ?=> Out | Future[Out]
+  def target[Out: ReadWriter]()(
+      f: Producer[Out] ?=> Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -25,46 +24,39 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
   }
 
   // val x = target(ta) { va => ... }
-  def target[A, Out: {ClassTag, ReadWriter}](ta: Target[A])(
-      f: Producer[Out] ?=> A => Out | Future[Out]
+  def target[A, Out: ReadWriter](ta: Target[A])(
+      f: Producer[Out] ?=> A => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
     val fa = ta.track
     run_if_needed {
-      for {
-        a <- fa
-        out <- force_future(f(a))
-      } yield out
+      force_task(f(fa.block))
     }
   }
 
   // val ta: Target[A]
   // val tb: Target[B]
   // val x = target(ta, tb) { (va, vb) => ... }
-  def target[A, B, Out: {ClassTag, ReadWriter}](ta: Target[A], tb: Target[B])(
-      f: Producer[Out] ?=> (A, B) => Out | Future[Out]
+  def target[A, B, Out: ReadWriter](ta: Target[A], tb: Target[B])(
+      f: Producer[Out] ?=> (A, B) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
     val fa = ta.track
     val fb = tb.track
     run_if_needed {
-      for {
-        a <- fa
-        b <- fb
-        out <- force_future(f(a, b))
-      } yield out
+      force_task(f(fa.block, fb.block))
     }
   }
 
   // val x = target(ta, tb, tc) { (va, vb, vc) => ... }
-  def target[A, B, C, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C]
   )(
-      f: Producer[Out] ?=> (A, B, C) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -72,23 +64,18 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fb = tb.track
     val fc = tc.track
     run_if_needed {
-      for {
-        a <- fa
-        b <- fb
-        c <- fc
-        out <- force_future(f(a, b, c))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block))
     }
   }
 
   // val x = target(ta, tb, tc, td) { (va, vb, vc, vd) => ... }
-  def target[A, B, C, D, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
       td: Target[D]
   )(
-      f: Producer[Out] ?=> (A, B, C, D) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -97,25 +84,19 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fc = tc.track
     val fd = td.track
     run_if_needed {
-      for {
-        a <- fa
-        b <- fb
-        c <- fc
-        d <- fd
-        out <- force_future(f(a, b, c, d))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te) { (va, vb, vc, vd, ve) => ... }
-  def target[A, B, C, D, E, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
       td: Target[D],
       te: Target[E]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -125,19 +106,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fd = td.track
     val fe = te.track
     run_if_needed {
-      for {
-        a <- fa
-        b <- fb
-        c <- fc
-        d <- fd
-        e <- fe
-        out <- force_future(f(a, b, c, d, e))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf) { (va, vb, vc, vd, ve, vf) => ... }
-  def target[A, B, C, D, E, F, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -145,7 +119,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       te: Target[E],
       tf: Target[F]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E, F) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -156,20 +130,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fe = te.track
     val ff = tf.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        out <- force_future(f(va, vb, vc, vd, ve, vf))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg) { (va, vb, vc, vd, ve, vf, vg) => ... }
-  def target[A, B, C, D, E, F, G, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -178,7 +144,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tf: Target[F],
       tg: Target[G]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -190,21 +156,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val ff = tf.track
     val fg = tg.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th) { (va, vb, vc, vd, ve, vf, vg, vh) => ... }
-  def target[A, B, C, D, E, F, G, H, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, H, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -214,7 +171,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tg: Target[G],
       th: Target[H]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -227,22 +184,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fg = tg.track
     val fh = th.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti) { (va, vb, vc, vd, ve, vf, vg, vh, vi) => ... }
-  def target[A, B, C, D, E, F, G, H, I, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, H, I, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -253,7 +200,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       th: Target[H],
       ti: Target[I]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -267,23 +214,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fh = th.track
     val fi = ti.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, H, I, J, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -295,7 +231,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       ti: Target[I],
       tj: Target[J]
   )(
-      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J) => Out | Future[Out]
+      f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -310,24 +246,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fi = ti.track
     val fj = tj.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, K, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, H, I, J, K, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -356,25 +280,12 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fj = tj.track
     val fk = tk.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        vk <- fk
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block))
     }
   }
 
   // val x = target(ta, tb, tc, td, te, tf, tg, th, ti, tj, tk, tl) { (va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl) => ... }
-  def target[A, B, C, D, E, F, G, H, I, J, K, L, Out: {ClassTag, ReadWriter}](
+  def target[A, B, C, D, E, F, G, H, I, J, K, L, Out: ReadWriter](
       ta: Target[A],
       tb: Target[B],
       tc: Target[C],
@@ -389,7 +300,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tl: Target[L]
   )(
       f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L) => Out |
-        Future[Out]
+        Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -406,21 +317,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fk = tk.track
     val fl = tl.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        vk <- fk
-        vl <- fl
-        out <- force_future(f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl))
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block))
     }
   }
 
@@ -439,7 +336,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       K,
       L,
       M,
-      Out: {ClassTag, ReadWriter}
+      Out: ReadWriter
   ](
       ta: Target[A],
       tb: Target[B],
@@ -456,7 +353,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tm: Target[M]
   )(
       f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L, M) => Out |
-        Future[Out]
+        Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -474,24 +371,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fl = tl.track
     val fm = tm.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        vk <- fk
-        vl <- fl
-        vm <- fm
-        out <- force_future(
-          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm)
-        )
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block))
     }
   }
 
@@ -511,7 +391,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       L,
       M,
       N,
-      Out: {ClassTag, ReadWriter}
+      Out: ReadWriter
   ](
       ta: Target[A],
       tb: Target[B],
@@ -529,7 +409,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       tn: Target[N]
   )(
       f: Producer[Out] ?=> (A, B, C, D, E, F, G, H, I, J, K, L, M, N) => Out |
-        Future[Out]
+        Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -548,25 +428,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fm = tm.track
     val fn = tn.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        vk <- fk
-        vl <- fl
-        vm <- fm
-        vn <- fn
-        out <- force_future(
-          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm, vn)
-        )
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block, fn.block))
     }
   }
 
@@ -587,7 +449,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       M,
       N,
       O,
-      Out: {ClassTag, ReadWriter}
+      Out: ReadWriter
   ](
       ta: Target[A],
       tb: Target[B],
@@ -621,7 +483,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
           M,
           N,
           O
-      ) => Out | Future[Out]
+      ) => Out | Task[Out]
   )(using fn: sourcecode.FullName): Target[Out] = Target(
     ToRelPath(fn) / base
   ) {
@@ -641,26 +503,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fn = tn.track
     val fo = to.track
     run_if_needed {
-      for {
-        va <- fa
-        vb <- fb
-        vc <- fc
-        vd <- fd
-        ve <- fe
-        vf <- ff
-        vg <- fg
-        vh <- fh
-        vi <- fi
-        vj <- fj
-        vk <- fk
-        vl <- fl
-        vm <- fm
-        vn <- fn
-        vo <- fo
-        out <- force_future(
-          f(va, vb, vc, vd, ve, vf, vg, vh, vi, vj, vk, vl, vm, vn, vo)
-        )
-      } yield out
+      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block, fn.block, fo.block))
     }
   }
 
@@ -691,7 +534,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
       )
   }
 
-  def complex_target[Out](f: Tracker[Out] ?=> Future[Result[Out]])(using
+  def complex_target[Out](f: Tracker[Out] ?=> Task[Result[Out]])(using
       fn: sourcecode.FullName
   ): Target[Out] = Target(ToRelPath(fn) / base) { f }
 }

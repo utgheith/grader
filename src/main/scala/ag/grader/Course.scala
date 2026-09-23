@@ -13,10 +13,10 @@ import ag.r2.{
   update_data
 }
 
+import ag.task.Task
+
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
-
-import scala.concurrent.Future
 
 case class Course(course_name: String) extends Scope(ToRelPath(course_name))
     derives ReadWriter {
@@ -240,12 +240,11 @@ object Course extends Scope(os.RelPath(".")) {
 
   lazy val active_courses: Target[Seq[Course]] = complex_target {
     val all_courses: Seq[Course] = all.guilty
-    val active_flag_futures = all_courses.map(_.active.track)
+    val active_flag_tasks = all_courses.map(_.active.track)
 
     run_if_needed {
-      for {
-        active_flags <- Future.sequence(active_flag_futures)
-      } yield all_courses.zip(active_flags).filter(_._2).map(_._1)
+      val active_flags = Task.sequence(active_flag_tasks).block
+      all_courses.zip(active_flags).filter(_._2).map(_._1)
     }
   }
 

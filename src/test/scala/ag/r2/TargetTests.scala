@@ -1,7 +1,6 @@
 package ag.r2
 
-import ag.common.block
-import scala.concurrent.Future
+import ag.task.Task
 
 object Things extends Scope(".") {
   val a: Target[WithData[Int]] = target() {
@@ -22,7 +21,7 @@ object Things extends Scope(".") {
 // Mirrors the shape of ag.grader.Course.active_courses / Project.all_projects
 // etc: track one target eagerly (`roots`), then, once its value is known,
 // *asynchronously* discover a further set of per-element targets to track
-// (via Future.flatMap/Future.sequence rather than eager/blocking tracking).
+// (via Task.flatMap/Task.sequence rather than eager/blocking tracking).
 object RaceThings extends Scope("race") {
   // roots' value changes between "runs" (simulating a real, external change)
   // so a later run is forced to actually *recompute* `combined` -- and not
@@ -38,20 +37,17 @@ object RaceThings extends Scope("race") {
   }
 
   lazy val combined: Target[Seq[Boolean]] = complex_target {
-    val all_future: Future[Seq[Int]] = roots.track
-    val flags_future: Future[Seq[Boolean]] =
-      all_future.flatMap { all =>
+    val all_task: Task[Seq[Int]] = roots.track
+    val flags_task: Task[Seq[Boolean]] =
+      all_task.flatMap { all =>
         // stand-in for the non-trivial work of turning each element into
         // its target and kicking off tracking; widens the race window so
         // the bug below reproduces reliably instead of only occasionally
         Thread.sleep(50)
-        Future.sequence(all.map(elem(_).track))
+        Task.sequence(all.map(elem(_).track))
       }
     run_if_needed {
-      for {
-        _ <- all_future
-        flags <- flags_future
-      } yield flags
+      flags_task.block
     }
   }
 }
@@ -61,15 +57,12 @@ class TargetTests extends munit.FunSuite {
     def doit(d: Int): Unit = {
       given State = State(config.get_test_dir)
 
-      val tb: Future[Int] =
-        for {
-          a <- Things.a.track
-          _ = assertEquals(a.value, 10)
-          b <- Things.b("thing", d).track
-          _ = assertEquals(b, 10 + d)
-        } yield (a.value + b)
+      val a = Things.a.track.block
+      assertEquals(a.value, 10)
+      val b = Things.b("thing", d).track.block
+      assertEquals(b, 10 + d)
 
-      assertEquals(tb.block, 20 + d)
+      assertEquals(a.value + b, 20 + d)
     }
     doit(6)
     doit(4)

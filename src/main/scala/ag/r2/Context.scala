@@ -5,7 +5,6 @@ import language.experimental.captureChecking
 import ag.common.down
 
 import java.util.concurrent.Semaphore
-import scala.concurrent.ExecutionContext
 import scala.annotation.implicitNotFound
 
 //
@@ -76,7 +75,7 @@ object Context {
 }
 
 @implicitNotFound("no given Context")
-trait Context[A] extends ExecutionContext with caps.SharedCapability {
+trait Context[A] extends caps.SharedCapability {
   val route: Seq[Target[?]]
   val depth: Int
   val state: State

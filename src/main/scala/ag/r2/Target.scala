@@ -1,8 +1,8 @@
 package ag.r2
 
-import ag.common.{block, given_ReadWriter_RelPath, Signature}
+import ag.common.{given_ReadWriter_RelPath, Signature}
+import ag.task.Task
 
-import scala.concurrent.Future
 import upickle.default.ReadWriter
 
 case class WithData[A](
@@ -49,10 +49,10 @@ trait Target[A] extends TargetBase {
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make(using Tracker[A]): Future[Result[A]]
+  def make(using Tracker[A]): Task[Result[A]]
 
   // returns our current value (used by the value consumer)
-  def track(using ctx: Tracker[?]): Future[A] = {
+  def track(using ctx: Tracker[?]): Task[A] = {
     ctx.state.track(this)
   }
 
@@ -61,7 +61,7 @@ trait Target[A] extends TargetBase {
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
 
-    override def make(using Tracker[A]): Future[Result[A]] = outer.make
+    override def make(using Tracker[A]): Task[Result[A]] = outer.make
 
     override val is_peek: Boolean = outer.is_peek
   }
@@ -71,7 +71,7 @@ trait Target[A] extends TargetBase {
     new Target[A] {
       override val path: os.RelPath = outer.path
 
-      override def make(using Tracker[A]): Future[Result[A]] = outer.make
+      override def make(using Tracker[A]): Task[Result[A]] = outer.make
 
       override val is_peek: Boolean = true
     }
@@ -81,9 +81,9 @@ trait Target[A] extends TargetBase {
 object Target {
   def apply[A](
       p: os.RelPath
-  )(f: Tracker[A] ?=> Future[Result[A]]): Target[A] = new Target[A] { outer =>
+  )(f: Tracker[A] ?=> Task[Result[A]]): Target[A] = new Target[A] { outer =>
     override val path: os.RelPath = p
-    override def make(using Tracker[A]): Future[Result[A]] =
+    override def make(using Tracker[A]): Task[Result[A]] =
       f
     override val is_peek: Boolean = false
   }

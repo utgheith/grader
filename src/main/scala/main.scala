@@ -1,5 +1,4 @@
 import ag.common.{
-  block,
   given_ReadWriter_Regex,
   given_ReadWriter_SortedMap,
   human,
@@ -7,6 +6,7 @@ import ag.common.{
 }
 import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
 import ag.r2.{Scope, State, Target, run_if_needed}
+import ag.task.Task
 import mainargs.{
   Flag,
   ParserForClass,
@@ -21,7 +21,6 @@ import scala.util.matching.Regex
 import scala.collection.SortedSet
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import scala.concurrent.Future
 
 given TokensReader.Simple[os.Path] with {
   override def shortName: String = "path"
@@ -667,9 +666,9 @@ object Main {
   ): Unit = {
     given State = State(commonArgs.workspace)
 
-    val out = for {
-      runs <- commonArgs.runs.track
-      out <- Future.sequence {
+    val runs = commonArgs.runs.track.block
+    val outs = Task
+      .sequence {
         for ((p, csid, test_id) <- runs)
           yield p
             .run_one(keep_going.value, commonArgs.count)(
@@ -680,9 +679,7 @@ object Main {
             )
             .track
       }
-    } yield out
-
-    val outs = out.block
+      .block
 
     result_file.foreach(file_name => {
       val results =
