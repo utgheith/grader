@@ -1,5 +1,7 @@
 package ag.r2
 
+import language.experimental.captureChecking
+
 import ag.common.down
 
 import java.util.concurrent.Semaphore
@@ -33,20 +35,23 @@ object Context {
     p
   }
 
-  def say(ctx: Option[Context[?]], msg: => Any): Unit = {
+  def say(ctx: Option[Context[?]]^, msg: => Any): Unit = {
     val t = if (msg == null) {
       "<null>"
     } else {
       msg.toString
     }
 
-    val dots = "." * ctx.map(_.depth).getOrElse(0)
+    val dots = ctx match {
+      case Some(c) => "." * c.depth
+      case None    => ""
+    }
     val thread_name = Thread.currentThread().getName
 
-    val producing = for {
-      ctx <- ctx
-      prod <- ctx.producing_opt
-    } yield prod.path
+    val producing = ctx match {
+      case Some(c) => c.producing_opt.map(_.path)
+      case None    => None
+    }
 
     val out =
       s"$dots[$thread_name]${producing.map(p => s" [${p.toString}]").getOrElse("")} $t\n"
@@ -71,7 +76,7 @@ object Context {
 }
 
 @implicitNotFound("no given Context")
-trait Context[A] extends ExecutionContext {
+trait Context[A] extends ExecutionContext with caps.SharedCapability {
   val route: Seq[Target[?]]
   val depth: Int
   val state: State
