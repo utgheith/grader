@@ -15,10 +15,14 @@ import scala.util.{Failure, Success, Try}
 // there's no hidden asynchronous escape hatch the way there is with
 // scala.concurrent.Future's flatMap.
 //
-// map/flatMap are capture-polymorphic (`Task[B]^{f}`): the result is
-// declared to capture whatever `f` captures, so a capability smuggled into
-// `f` and used inside the continuation it returns is flagged by capture
-// checking as escaping this Task's scope, instead of silently compiling.
+// map/flatMap are capture-polymorphic (`Task[B]^{f, this}`): the result is
+// declared to capture whatever `f` captures *and* whatever the receiver
+// itself captures. Both matter: a capability smuggled into `f` (e.g.
+// `outer.flatMap(a => Task { useIt(cap) })`) or one already captured by
+// the receiver (e.g. `capturingTask.flatMap(a => Task(a))`, where the
+// capture came from however `capturingTask` was built) both need to be
+// reflected here, or the escape they cause goes undetected instead of
+// being flagged by capture checking.
 final class Task[+A] private () {
   private val latch = new CountDownLatch(1)
   @volatile private var outcome: Try[A] | Null = null
@@ -37,16 +41,16 @@ final class Task[+A] private () {
 
   def block: A = block_try.get
 
-  def map[B](f: A => B): Task[B]^{f} = Task(f(block))
+  def map[B](f: A => B): Task[B]^{f, this} = Task(f(block))
 
-  def flatMap[B](f: A => Task[B]^): Task[B]^{f} = Task(f(block).block)
+  def flatMap[B](f: A => Task[B]^): Task[B]^{f, this} = Task(f(block).block)
 }
 
 object Task {
   private val builder: Thread.Builder.OfVirtual =
     Thread.ofVirtual().name("task-", 0)
 
-  def apply[A](body: => A): Task[A] = {
+  def apply[A](body: => A): Task[A]^{body} = {
     val t = new Task[A]()
     val _ = builder.start(() => {
       val result =
