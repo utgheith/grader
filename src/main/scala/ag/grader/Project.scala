@@ -152,7 +152,6 @@ case class Project(course: Course, project_name: String)
           writers = Seq(course.staff_group_name),
           can_push_repo
         ) { _ =>
-
           val initialized_marker = dir / ".initialized"
 
           if (!os.exists(initialized_marker)) {
@@ -750,7 +749,6 @@ case class Project(course: Course, project_name: String)
               writers = Seq(),
               can_push_repo_v
             ) { _ =>
-
               for {
                 f <- os.list(dir)
                 if !f.last.startsWith(".")

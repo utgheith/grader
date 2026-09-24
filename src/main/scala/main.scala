@@ -667,19 +667,17 @@ object Main {
     given State = State(commonArgs.workspace)
 
     val runs = commonArgs.runs.track.block
-    val outs = Task
-      .sequence {
-        for ((p, csid, test_id) <- runs)
-          yield p
-            .run_one(keep_going.value, commonArgs.count)(
-              csid,
-              cutoff,
-              test_id,
-              commonArgs.commit_id_file
-            )
-            .track
-      }
-      .block
+    val outs = Task.sequence {
+      for ((p, csid, test_id) <- runs)
+        yield p
+          .run_one(keep_going.value, commonArgs.count)(
+            csid,
+            cutoff,
+            test_id,
+            commonArgs.commit_id_file
+          )
+          .track
+    }.block
 
     result_file.foreach(file_name => {
       val results =

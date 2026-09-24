@@ -156,7 +156,9 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val ff = tf.track
     val fg = tg.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block))
+      force_task(
+        f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block)
+      )
     }
   }
 
@@ -184,7 +186,18 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fg = tg.track
     val fh = th.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block
+        )
+      )
     }
   }
 
@@ -214,7 +227,19 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fh = th.track
     val fi = ti.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block
+        )
+      )
     }
   }
 
@@ -246,7 +271,20 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fi = ti.track
     val fj = tj.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block
+        )
+      )
     }
   }
 
@@ -280,7 +318,21 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fj = tj.track
     val fk = tk.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block,
+          fk.block
+        )
+      )
     }
   }
 
@@ -317,7 +369,22 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fk = tk.track
     val fl = tl.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block,
+          fk.block,
+          fl.block
+        )
+      )
     }
   }
 
@@ -371,7 +438,23 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fl = tl.track
     val fm = tm.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block,
+          fk.block,
+          fl.block,
+          fm.block
+        )
+      )
     }
   }
 
@@ -428,7 +511,24 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fm = tm.track
     val fn = tn.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block, fn.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block,
+          fk.block,
+          fl.block,
+          fm.block,
+          fn.block
+        )
+      )
     }
   }
 
@@ -503,7 +603,25 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
     val fn = tn.track
     val fo = to.track
     run_if_needed {
-      force_task(f(fa.block, fb.block, fc.block, fd.block, fe.block, ff.block, fg.block, fh.block, fi.block, fj.block, fk.block, fl.block, fm.block, fn.block, fo.block))
+      force_task(
+        f(
+          fa.block,
+          fb.block,
+          fc.block,
+          fd.block,
+          fe.block,
+          ff.block,
+          fg.block,
+          fh.block,
+          fi.block,
+          fj.block,
+          fk.block,
+          fl.block,
+          fm.block,
+          fn.block,
+          fo.block
+        )
+      )
     }
   }
 

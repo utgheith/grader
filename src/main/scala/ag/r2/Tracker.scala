@@ -71,8 +71,7 @@ trait Tracker[A] extends Context[A] {
   }
 
   def run(
-      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] |
-        (() => Task[A])
+      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] | (() => Task[A])
   )(using ReadWriter[A]): Task[Result[A]] = {
     given producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth

@@ -708,7 +708,7 @@ class HtmlGen(p: Project) {
             }
           }
 
-        // sorted submissions
+          // sorted submissions
 
         }
 

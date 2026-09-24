@@ -109,7 +109,6 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
           writers = Seq(),
           can_push_repo
         ) { _ =>
-
           val added = mutable.SortedSet[CSID]()
 
           for {
