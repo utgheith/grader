@@ -220,8 +220,7 @@ object CommonArgs {
 
 object Main {
   @main
-  def dropbox(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def dropbox(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     for (c <- commonArgs.selected_courses.track.block) {
       println(s"\n------ ${c.course_name} -------")
       println(upickle.default.write(c.dropbox.track.block, indent = 2))
@@ -229,114 +228,111 @@ object Main {
   }
 
   @main
-  def bad_tests(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    val r = (for {
-      p <- commonArgs.selected_projects.track.block
-      s <- p.course.enrollment.track.block.keySet.toSeq
-      if commonArgs.students.guilty.matches(s.value)
-      r <- p.get_student_results(s).track.block.toSeq
-      (test, outcome) <- r.outcomes.toSeq
-    } yield (p, s, test, outcome)).groupMapReduce { case (p, _, test, _) =>
-      (p, test)
-    } { case (_, _, _, outcome) =>
-      !outcome.is_happy
-    }(_ && _)
+  def bad_tests(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      val r = (for {
+        p <- commonArgs.selected_projects.track.block
+        s <- p.course.enrollment.track.block.keySet.toSeq
+        if commonArgs.students.guilty.matches(s.value)
+        r <- p.get_student_results(s).track.block.toSeq
+        (test, outcome) <- r.outcomes.toSeq
+      } yield (p, s, test, outcome)).groupMapReduce { case (p, _, test, _) =>
+        (p, test)
+      } { case (_, _, _, outcome) =>
+        !outcome.is_happy
+      }(_ && _)
 
-    r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
-      println(s"${p.course.course_name}_${p.project_name}:${t.external_name}")
+      r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
+        println(s"${p.course.course_name}_${p.project_name}:${t.external_name}")
+      }
     }
-  }
 
   @main
-  def publish_keys(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(s"\n------ ${c.course_name} -------")
-      println(
-        upickle.default.write(c.publish_keys.track.block.value.size, indent = 2)
-      )
+  def publish_keys(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(s"\n------ ${c.course_name} -------")
+        println(
+          upickle.default
+            .write(c.publish_keys.track.block.value.size, indent = 2)
+        )
+      }
     }
-  }
 
   @main
-  def publish_enrollment(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(s"\n------ ${c.course_name} -------")
-      println(c.publish_enrollment.track.block.value.size)
-      // println(upickle.default.write(c.publish_enrollment.value, indent=2))
+  def publish_enrollment(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(s"\n------ ${c.course_name} -------")
+        println(c.publish_enrollment.track.block.value.size)
+        // println(upickle.default.write(c.publish_enrollment.value, indent=2))
+      }
     }
-  }
 
   @main
-  def enrollment(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(s"\n------ ${c.course_name} -------")
-      println(c.enrollment.track.block.size)
-      // println(upickle.default.write(c.publish_enrollment.value, indent=2))
+  def enrollment(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(s"\n------ ${c.course_name} -------")
+        println(c.enrollment.track.block.size)
+        // println(upickle.default.write(c.publish_enrollment.value, indent=2))
+      }
     }
-  }
 
   @main
-  def create_grades_repos(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(s"Creating ${c.course_name}__grades")
-      val _ = c.create_grades_repo.track.block
+  def create_grades_repos(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(s"Creating ${c.course_name}__grades")
+        val _ = c.create_grades_repo.track.block
+      }
     }
-  }
 
   @main
-  def courses(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def courses(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     println(commonArgs.selected_courses.track.block)
   }
 
   @main
-  def history(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def history(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     Gitolite.history.track.block.foreach(println)
   }
 
   @main
-  def info(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def info(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     Gitolite.info.track.block.foreach(println)
   }
 
   @main
-  def projects(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def projects(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     pprint.pprintln(commonArgs.selected_projects.track.block)
   }
 
   @main
-  def overrides(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (p <- commonArgs.selected_projects.track.block) {
-      println(p.publish_override_repo.track.block)
+  def overrides(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (p <- commonArgs.selected_projects.track.block) {
+        println(p.publish_override_repo.track.block)
+      }
     }
-  }
 
   @main
-  def work_repos(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      for {
-        (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.track.block.matches(pn)
-      } {
+  def work_repos(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
         for {
-          (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.track.block.matches(csid.value)
+          (pn, p) <- c.active_projects.track.block
+          if commonArgs.projects.track.block.matches(pn)
         } {
-          println(p.work_repo(csid).guilty)
+          for {
+            (csid, _) <- c.enrollment.guilty
+            if commonArgs.students.track.block.matches(csid.value)
+          } {
+            println(p.work_repo(csid).guilty)
+          }
         }
       }
     }
-  }
 
   @main
   def aliases(
@@ -346,9 +342,7 @@ object Main {
         doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'."
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     val sort = sortMode match
       case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
@@ -388,8 +382,7 @@ object Main {
   @main
   def publish_tests(
       commonArgs: CommonArgs
-  ): Unit = {
-    given State = State(commonArgs.workspace)
+  ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       println(s"-- publishing tests for ${p.project_name}")
       pprint.pprintln(p.publish_tests.guilty)
@@ -405,9 +398,7 @@ object Main {
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
       cutoff: CutoffTime
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     val base = os.pwd / "prepared"
 
     for (c <- commonArgs.selected_courses.track.block) {
@@ -485,9 +476,7 @@ object Main {
         doc = "Sort all commits by date rather than grouping commits by repo"
       )
       sort: Flag
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
     val show_details = details.value
 
@@ -567,40 +556,39 @@ object Main {
   }
 
   @main
-  def publish_work_repos(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(c.course_name)
-      for {
-        (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.track.block.matches(pn)
-      } {
-        println(s"    $pn")
-        var count = 0
+  def publish_work_repos(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(c.course_name)
         for {
-          (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.track.block.matches(csid.value)
+          (pn, p) <- c.active_projects.track.block
+          if commonArgs.projects.track.block.matches(pn)
         } {
-          val _ = p.publish_work_repo(csid).guilty
-          count = count + 1
+          println(s"    $pn")
+          var count = 0
+          for {
+            (csid, _) <- c.enrollment.guilty
+            if commonArgs.students.track.block.matches(csid.value)
+          } {
+            val _ = p.publish_work_repo(csid).guilty
+            count = count + 1
+          }
+          println(s"            $count")
         }
-        println(s"            $count")
       }
     }
-  }
 
   @main
-  def submissions(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    pprint.pprintln(commonArgs.submissions.guilty)
-    // for ((p, csid) <- commonArgs.submissions.guilty) {
-    //  println(s"$p $csid")
-    // }
-  }
+  def submissions(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      pprint.pprintln(commonArgs.submissions.guilty)
+      // for ((p, csid) <- commonArgs.submissions.guilty) {
+      //  println(s"$p $csid")
+      // }
+    }
 
   @main
-  def test_ids(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def test_ids(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     for ((p, test_id) <- commonArgs.test_ids.track.block) {
       println(s"${p.toString} ${test_id.toString}")
     }
@@ -610,9 +598,7 @@ object Main {
   @main
   def latest(
       commonArgs: CommonArgs
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     Gitolite.latest.track.block.foreach(println)
 
   }
@@ -663,9 +649,7 @@ object Main {
         doc = "The json file to write the results summary out to"
       )
       result_file: Option[String]
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     val runs = commonArgs.runs.track.block
     val outs = Task.sequence {
       for ((p, csid, test_id) <- runs)
@@ -718,9 +702,7 @@ object Main {
   @main
   def publish_results(
       commonArgs: CommonArgs
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       val _ =
         p.publish_results(commonArgs.count, commonArgs.commit_id_file).guilty
@@ -731,9 +713,7 @@ object Main {
   @main
   def student_tests(
       commonArgs: CommonArgs
-  ): Unit = {
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       val _ =
         val out = p.student_tests_by_csid.guilty
@@ -743,56 +723,54 @@ object Main {
   }
 
   @main
-  def get_results(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      println(c.course_name)
-      for {
-        (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.guilty.matches(pn)
-      } {
-        println(s"${c.course_name}:$pn")
+  def get_results(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
+        println(c.course_name)
         for {
-          (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.guilty.matches(csid.value)
+          (pn, p) <- c.active_projects.guilty
+          if commonArgs.projects.guilty.matches(pn)
         } {
-          val res = p.get_student_results(csid).guilty
-          res.foreach { res =>
-            val count = res.outcomes.size
-            val pass =
-              res.outcomes.values.count(_.is_happy)
-            println(
-              s"${c.course_name}:$pn:${csid.toString}:${res.alias.map(_.toString).getOrElse("")}:$pass/$count"
-            )
+          println(s"${c.course_name}:$pn")
+          for {
+            (csid, _) <- c.enrollment.guilty
+            if commonArgs.students.guilty.matches(csid.value)
+          } {
+            val res = p.get_student_results(csid).guilty
+            res.foreach { res =>
+              val count = res.outcomes.size
+              val pass =
+                res.outcomes.values.count(_.is_happy)
+              println(
+                s"${c.course_name}:$pn:${csid.toString}:${res.alias.map(_.toString).getOrElse("")}:$pass/$count"
+              )
+            }
           }
         }
       }
     }
-  }
 
   @main
-  def notify_results(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
-    for (c <- commonArgs.selected_courses.track.block) {
-      for {
-        (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.guilty.matches(pn)
-      } {
+  def notify_results(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.track.block) {
         for {
-          (csid, _) <- c.enrollment.guilty
-          if commonArgs.students.guilty.matches(csid.value)
+          (pn, p) <- c.active_projects.guilty
+          if commonArgs.projects.guilty.matches(pn)
         } {
-          // say(s"---> ${c.course_name}:$pn:$csid")
-          p.notify_student_results(csid).guilty
+          for {
+            (csid, _) <- c.enrollment.guilty
+            if commonArgs.students.guilty.matches(csid.value)
+          } {
+            // say(s"---> ${c.course_name}:$pn:$csid")
+            p.notify_student_results(csid).guilty
+          }
         }
       }
     }
-  }
 
   @main
-  def gen_html(commonArgs: CommonArgs): Unit = {
-
-    given State = State(commonArgs.workspace)
+  def gen_html(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     for (c <- commonArgs.selected_courses.guilty) {
       for {
         (pn, p) <- c.active_projects.guilty
@@ -810,10 +788,7 @@ object Main {
       commonArgs: CommonArgs,
       cutoff_time: CutoffTime,
       minutes: Int = 1
-  ): Unit = {
-
-    given State = State(commonArgs.workspace)
-
+  ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       val chosen = p.test_ids.guilty
       val weights = p.test_weights.guilty
@@ -898,16 +873,15 @@ object Main {
    */
 
   @main
-  def play(commonArgs: CommonArgs): Unit = {
-    given State = State(commonArgs.workspace)
+  def play(commonArgs: CommonArgs): Unit = State.run(commonArgs.workspace) {
     pprint.pprintln(Gitolite.mirror("courses_config").guilty)
   }
 
   @main
-  def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit = {
-    given State = State(workspace)
-    pprint.pprintln(PlTools(prefix).fstar.guilty)
-  }
+  def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit =
+    State.run(workspace) {
+      pprint.pprintln(PlTools(prefix).fstar.guilty)
+    }
 
   def main(args: Array[String]): Unit = {
     val _ = ParserForMethods(this).runOrExit(args.toIndexedSeq)

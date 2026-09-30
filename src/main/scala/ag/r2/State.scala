@@ -70,3 +70,10 @@ class State(val workspace: os.Path) extends Tracker {
   }
 
 }
+
+object State {
+  def run[A](path: os.Path)(f: State ?=> A): A = {
+    given State = new State(path)
+    f
+  }
+}
