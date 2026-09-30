@@ -36,13 +36,6 @@ trait TargetBase {
   val is_peek: Boolean
 }
 
-object TargetBase {
-  def apply(p: os.RelPath, peek: Boolean): TargetBase = new TargetBase {
-    override val path: os.RelPath = p
-    override val is_peek: Boolean = peek
-  }
-}
-
 trait Target[A] extends TargetBase {
   outer =>
 
