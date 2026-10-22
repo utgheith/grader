@@ -397,9 +397,14 @@ object Main {
         doc =
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
-      cutoff: CutoffTime
+      cutoff: CutoffTime,
+      @arg(
+        short = 'd',
+        doc = "Directory to copy prepared submissions into. Defaults to 'prepared'"
+      )
+      destination: os.Path = os.pwd / "prepared"
   ): Unit = State.run(commonArgs.workspace) {
-    val base = os.pwd / "prepared"
+    val base = destination
 
     for (c <- commonArgs.selected_courses.track.block) {
 
