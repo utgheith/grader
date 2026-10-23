@@ -380,6 +380,18 @@ object Main {
   }
 
   @main
+  def chosen_tests(
+      commonArgs: CommonArgs
+  ): Unit = State.run(commonArgs.workspace) {
+    for (p <- commonArgs.selected_projects.guilty) {
+      println(s"\n${p.course.course_name}_${p.project_name}:")
+      for (test_id <- p.phase2_test_ids.guilty) {
+        println(test_id.external_name)
+      }
+    }
+  }
+
+  @main
   def publish_tests(
       commonArgs: CommonArgs
   ): Unit = State.run(commonArgs.workspace) {
@@ -709,11 +721,13 @@ object Main {
   def publish_results(
       commonArgs: CommonArgs,
       @arg(short = 'k', doc = "keep going after failure")
-      keep_going: Flag = Flag(false)
+      keep_going: Flag = Flag(false),
+      @arg(doc = "only run and publish the chosen (phase 2) tests")
+      chosen: Flag = Flag(false)
   ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       val _ =
-        p.publish_results(keep_going.value)(
+        p.publish_results(keep_going.value, chosen.value)(
           commonArgs.count,
           commonArgs.commit_id_file
         ).guilty
