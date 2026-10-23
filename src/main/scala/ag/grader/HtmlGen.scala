@@ -113,6 +113,7 @@ object Html {
   val title: Element = Element("title")
   val tr: Element = Element("tr")
   val ul: Element = Element("ul")
+  val nav: Element = Element("nav")
   val select: Element = Element("select")
   val option: Element = Element("option")
 
@@ -145,7 +146,11 @@ final case class ReportData(
     weights: Seq[Weight],
     bad_tests: SortedSet[String],
     // highlighted rows: aliases that belong to staff
-    staff_aliases: Set[Alias]
+    staff_aliases: Set[Alias],
+    // the course's project pages, as (tab label, file name), in tab order
+    tabs: Seq[(String, String)] = Nil,
+    // the page's heading; the title if empty
+    project_name: String = ""
 )
 
 class HtmlGen(p: Project) {
@@ -168,7 +173,8 @@ class HtmlGen(p: Project) {
       p.course.enrollment,
       p.anti_aliases,
       p.course.staff,
-      p.staff
+      p.staff,
+      p.course.active_projects
     ) {
       (
           results,
@@ -183,9 +189,12 @@ class HtmlGen(p: Project) {
           enrollment,
           anti_aliases,
           course_staff,
-          project_staff
+          project_staff,
+          projects
       ) =>
         create_data(_ => false) { dir =>
+          val tab_names = (projects.keys.toSeq :+ p.project_name).distinct
+            .sortBy(n => (n.length, n))
           val data = ReportData(
             title = s"${p.course.course_name}_${p.project_name}",
             generated = LocalDateTime.now().nn,
@@ -205,7 +214,9 @@ class HtmlGen(p: Project) {
                     csid
                   ) =>
                 alias
-            }.toSet
+            }.toSet,
+            tabs = tab_names.map(n => n -> s"${p.course.course_name}_$n.html"),
+            project_name = p.project_name
           )
           os.write.over(dir / page_name, HtmlGen.render(data))
         }
@@ -583,7 +594,18 @@ object HtmlGen {
       }
       body.data("assignment", d.title) {
         header.css_class("top") {
-          h1(text(d.title))
+          h1(text(if (d.project_name.nonEmpty) d.project_name else d.title))
+          if (d.tabs.nonEmpty)
+            nav.css_class("tabs").attr("aria-label", "projects") {
+              d.tabs.foreach { (label, file) =>
+                val here = file == s"${d.title}.html"
+                a.css_class(if (here) "active" else null)
+                  .attr("href", file)
+                  .attr("aria-current", if (here) "page" else null)(
+                    text(label)
+                  )
+              }
+            }
           dl.css_class("dates") {
             div {
               dt(text("generated"));
@@ -753,6 +775,14 @@ object HtmlGen {
     |h1 { margin: 0; font-size: 1.6rem; font-weight: 650; letter-spacing: -0.01em; }
     |h2 { margin: 0 0 0.75rem; font-size: 1rem; font-weight: 600; }
     |.dates { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; margin: 0; color: var(--muted); }
+    |nav.tabs { order: 3; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.5rem; border-bottom: 1px solid var(--border); }
+    |nav.tabs a {
+    |  padding: 0.4rem 0.95rem; margin-bottom: -1px; border: 1px solid transparent; border-bottom: none;
+    |  border-radius: 8px 8px 0 0; color: var(--muted); text-decoration: none; font-weight: 600;
+    |}
+    |nav.tabs a:hover { color: var(--accent); }
+    |nav.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    |nav.tabs a.active { color: var(--text); background: var(--surface); border-color: var(--border); }
     |.dates div { display: flex; gap: 0.4rem; }
     |.dates dt::after { content: ":"; }
     |.dates dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -899,14 +929,19 @@ object HtmlGen {
   private val js: String = """
     |(() => {
     |  const FIXED = FIXED_COLUMNS;
+    |  // Settings are per project (switching tabs loads the other project's).
     |  // Same key as earlier versions of this page, so saved pins carry over.
-    |  const key = `~gheith/${document.body.dataset.assignment}.html#config`;
-    |  let config = {};
-    |  try { config = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (e) {}
-    |  config.pinned_tests = config.pinned_tests || {};
-    |  config.pinned_aliases = config.pinned_aliases || {};
+    |  let key, config, sort;
+    |  function load_config() {
+    |    key = `~gheith/${document.body.dataset.assignment}.html#config`;
+    |    config = {};
+    |    try { config = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (e) {}
+    |    config.pinned_tests = config.pinned_tests || {};
+    |    config.pinned_aliases = config.pinned_aliases || {};
+    |    sort = config.sort || { key: "alias", dir: 1 };
+    |  }
+    |  load_config();
     |  const save = () => { try { localStorage.setItem(key, JSON.stringify(config)); } catch (e) {} };
-    |  let sort = config.sort || { key: "alias", dir: 1 };
     |
     |  // Wires up the current <main>. Runs again whenever a newer version of
     |  // the page is swapped in.
@@ -1045,7 +1080,8 @@ object HtmlGen {
     |
     |  // ---- Compare one submission with all the others, from the data the
     |  // page embeds (#report-data).
-    |  let compare = decodeURIComponent((location.hash.match(/compare=([^&]+)/) || [])[1] || "") || config.compare || "";
+    |  const hash_compare = () => decodeURIComponent((location.hash.match(/compare=([^&]+)/) || [])[1] || "");
+    |  let compare = hash_compare() || config.compare || "";
     |
     |  function el(tag, props, ...kids) {
     |    const e = document.createElement(tag);
@@ -1280,7 +1316,9 @@ object HtmlGen {
     |      if (!res.ok) return;
     |      const doc = new DOMParser().parseFromString(await res.text(), "text/html");
     |      const v = version_of(doc);
-    |      if (v && v !== version_of(document)) swap_in(doc);
+    |      // (a tab switch may have happened while this was in flight)
+    |      const same = doc.body && doc.body.dataset.assignment === document.body.dataset.assignment;
+    |      if (same && v && v !== version_of(document)) swap_in(doc);
     |    } catch (e) {
     |      // offline or briefly unavailable: try again next time
     |    } finally {
@@ -1299,6 +1337,51 @@ object HtmlGen {
     |    schedule();
     |  });
     |  schedule();
+    |
+    |  // ---- Project tabs: switch to a sibling project's page in place, like
+    |  // following its link but without reloading.
+    |  let loaded_path = location.pathname;
+    |  async function open_project(href, push) {
+    |    let doc;
+    |    try {
+    |      const res = await fetch(href, { cache: "no-cache" });
+    |      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    |      doc = new DOMParser().parseFromString(await res.text(), "text/html");
+    |    } catch (e) {
+    |      location.href = href; // fall back to a plain page load
+    |      return;
+    |    }
+    |    const main = doc.querySelector("main");
+    |    const header = doc.querySelector("header.top");
+    |    if (!main || !header || !doc.getElementById("report-data")) {
+    |      location.href = href;
+    |      return;
+    |    }
+    |    if (push) history.pushState(null, "", href);
+    |    loaded_path = location.pathname;
+    |    document.title = doc.title;
+    |    document.body.dataset.assignment = doc.body.dataset.assignment;
+    |    document.querySelector('meta[name="report-version"]').content = version_of(doc);
+    |    document.querySelector("header.top").replaceWith(document.adoptNode(header));
+    |    document.querySelector("main").replaceWith(document.adoptNode(main));
+    |    load_config();
+    |    compare = hash_compare() || config.compare || "";
+    |    setup();
+    |  }
+    |
+    |  document.addEventListener("click", (e) => {
+    |    const link = e.target.closest("nav.tabs a");
+    |    // let new-tab / new-window clicks, and pages opened from disk, behave normally
+    |    if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    |    if (location.protocol === "file:") return;
+    |    e.preventDefault();
+    |    if (!link.classList.contains("active")) open_project(link.href, true);
+    |  });
+    |  // Back / Forward between projects; a hash-only change just re-compares
+    |  window.addEventListener("popstate", () => {
+    |    if (location.pathname !== loaded_path) open_project(location.href, false);
+    |    else show_compare(hash_compare() || compare, false);
+    |  });
     |})();
     |""".stripMargin
 }

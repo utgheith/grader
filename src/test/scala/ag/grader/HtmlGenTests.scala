@@ -76,6 +76,26 @@ class HtmlGenTests extends FunSuite {
       student(1, false, false, "t0" -> pass, "t1" -> failed, "<b>'x" -> failed)
     )
   )
+  // ... and two sibling project pages with tabs, into a directory
+  private val tabs = Seq(
+    "p4" -> "cs439t_f26_p4.html",
+    "p5" -> "cs439t_f26_p5.html"
+  )
+  sys.env.get("REPORT_SAMPLE_TABS").foreach { d =>
+    os.write.over(
+      os.Path(d) / "cs439t_f26_p4.html",
+      HtmlGen.render(data.copy(tabs = tabs)),
+      createFolders = true
+    )
+    os.write.over(
+      os.Path(d) / "cs439t_f26_p5.html",
+      HtmlGen.render(
+        changed
+          .copy(title = "cs439t_f26_p5", tabs = tabs, staff_aliases = Set())
+      ),
+      createFolders = true
+    )
+  }
   sys.env
     .get("REPORT_SAMPLE_V2")
     .foreach(f => os.write.over(os.Path(f), HtmlGen.render(changed)))
@@ -222,5 +242,23 @@ class HtmlGenTests extends FunSuite {
     )
     val j = report_data(HtmlGen.render(tricky))
     assertEquals(j("tests").arr.map(_.str).toList, List("</script><b>"))
+  }
+
+  test("each project page has a tab per project, with its own marked") {
+    val p5 = HtmlGen.render(data.copy(title = "cs439t_f26_p5", tabs = tabs))
+    assert(p5.contains("""<a href="cs439t_f26_p4.html">p4</a>"""))
+    assert(
+      p5.contains(
+        """<a class="active" href="cs439t_f26_p5.html" aria-current="page">p5</a>"""
+      )
+    )
+    assert(!page.contains("<nav"), "no tab bar without tabs")
+  }
+
+  test("the heading is the project's name; the title stays the full name") {
+    val p5 =
+      HtmlGen.render(data.copy(title = "cs439t_f26_p5", project_name = "p5"))
+    assert(p5.contains("<h1>p5</h1>"))
+    assert(p5.contains("<title>cs439t_f26_p5</title>"))
   }
 }
