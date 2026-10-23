@@ -5,7 +5,11 @@ import os.Path
 
 import scala.collection.mutable
 
-class State(val workspace: os.Path) extends Tracker {
+// `force_roots`: rebuild every target the program tracks directly (its
+// "roots", tracked at depth 0), even if its saved result is current. Their
+// inputs are reused as usual.
+class State(val workspace: os.Path, val force_roots: Boolean = false)
+    extends Tracker {
 
   // Context[Nothing] methods
   override val depth: Int = 0
@@ -25,6 +29,11 @@ class State(val workspace: os.Path) extends Tracker {
     target_path(target) / "saved.json"
   def dirty_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "dirty"
+
+  // Makes `target` rebuild the next time it's used, as if its last run had
+  // failed: its saved result and data are discarded.
+  def force(target: TargetBase): Unit =
+    os.write.over(dirty_path(target), "", createFolders = true)
   def log_path(target: TargetBase | os.RelPath): os.Path =
     target_path(target) / "log.txt"
 
@@ -41,23 +50,26 @@ class State(val workspace: os.Path) extends Tracker {
     }
     val result: Task[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
-        target.path,
-        Task {
-          Context.say(
-            Some(tracker),
-            s"miss for ${target.path.toString} in ${this.toString}"
-          )
-          target.make(using
-            new Tracker {
-              override val depth: Int = tracker.depth + 1
+        target.path, {
+          // first use of this target in this run
+          if (force_roots && tracker.depth == 0) force(target)
+          Task {
+            Context.say(
+              Some(tracker),
+              s"miss for ${target.path.toString} in ${this.toString}"
+            )
+            target.make(using
+              new Tracker {
+                override val depth: Int = tracker.depth + 1
 
-              override val route = tracker.route :+ target
-              override val state: State = tracker.state
+                override val route = tracker.route :+ target
+                override val state: State = tracker.state
 
-              override def producing_opt: Option[Target[A]] = Some(target)
-            }
-          )
-        }.flatMap(identity)
+                override def producing_opt: Option[Target[A]] = Some(target)
+              }
+            )
+          }.flatMap(identity)
+        }
       )
     }
 
@@ -72,8 +84,10 @@ class State(val workspace: os.Path) extends Tracker {
 }
 
 object State {
-  def run[A](path: os.Path)(f: State ?=> A): A = {
-    given State = new State(path)
+  def run[A](path: os.Path, force_roots: Boolean = false)(
+      f: State ?=> A
+  ): A = {
+    given State = new State(path, force_roots)
     f
   }
 }
