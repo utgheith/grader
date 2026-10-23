@@ -712,8 +712,9 @@ case class Project(course: Course, project_name: String)
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
-  private lazy val publish_student_results
-      : (CSID, Int, String) => Target[WithData[StudentResults]] = fun {
+  private def publish_student_results(
+      keep_going: Boolean
+  ): (CSID, Int, String) => Target[WithData[StudentResults]] = fun {
     (csid, n, commit_id_file) =>
       complex_target {
         val prepared = prepare(csid, CutoffTime.None, commit_id_file).track
@@ -724,7 +725,7 @@ case class Project(course: Course, project_name: String)
         val can_push_repo = Config.can_push_repo.track
 
         val outcomes = test_ids.guilty.toSeq.map { test_id =>
-          run_one(false, n)(
+          run_one(keep_going, n)(
             csid,
             CutoffTime.None,
             test_id,
@@ -848,14 +849,14 @@ case class Project(course: Course, project_name: String)
   lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"
 
-  lazy val publish_results: (Int, String) => Target[
+  def publish_results(keep_going: Boolean): (Int, String) => Target[
     WithData[SortedMap[Alias, RedactedStudentResults]]
   ] =
     fun { (n, commit_id_file) =>
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
         val results = students_with_submission.guilty.toSeq.map { csid =>
-          publish_student_results(csid, n, commit_id_file).track.map(r =>
+          publish_student_results(keep_going)(csid, n, commit_id_file).track.map(r =>
             (csid, r)
           )
         }

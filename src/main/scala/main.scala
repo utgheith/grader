@@ -706,11 +706,16 @@ object Main {
 
   @main
   def publish_results(
-      commonArgs: CommonArgs
+      commonArgs: CommonArgs,
+      @arg(short = 'k', doc = "keep going after failure")
+      keep_going: Flag = Flag(false)
   ): Unit = State.run(commonArgs.workspace) {
     for (p <- commonArgs.selected_projects.guilty) {
       val _ =
-        p.publish_results(commonArgs.count, commonArgs.commit_id_file).guilty
+        p.publish_results(keep_going.value)(
+          commonArgs.count,
+          commonArgs.commit_id_file
+        ).guilty
       // println(upickle.default.write(results, indent=2))
     }
   }
