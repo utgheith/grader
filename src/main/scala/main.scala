@@ -809,6 +809,25 @@ object Main {
   }
 
   @main
+  def publish_site(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.guilty) {
+        println(
+          s"${c.site_repo_name}: ${c.publish_site.guilty.value.mkString(" ")}"
+        )
+      }
+    }
+
+  @main
+  def push_to_cloudflare(commonArgs: CommonArgs): Unit =
+    State.run(commonArgs.workspace) {
+      for (c <- commonArgs.selected_courses.guilty) {
+        val url = c.push_to_cloudflare.guilty.value
+        println(s"${c.course_name}: ${url.getOrElse("not deployed")}")
+      }
+    }
+
+  @main
   def compute_scores(
       commonArgs: CommonArgs,
       cutoff_time: CutoffTime,

@@ -195,6 +195,95 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       }
     }
 
+  lazy val site_repo_name: String = s"${course_name}__site"
+
+  // The report pages of all active projects, kept in a git repo so the
+  // site is under source control: each change is a commit, and history is
+  // preserved. Pages of projects that are no longer active stay in the repo.
+  lazy val publish_site: Target[WithData[SortedSet[String]]] =
+    complex_target {
+      val repo_info = Gitolite.repo_info(site_repo_name).track
+      val pages = active_projects.guilty.values.toSeq.map { p =>
+        val g = HtmlGen(p)
+        (g.page_name, g.page.guilty)
+      }
+      val can_push_repo = Config.can_push_repo.track
+
+      run_if_needed {
+        val repo_info_v = repo_info.block
+        update_data(_.lastOpt.contains(".git")) { dir =>
+          repo_info_v.update(
+            path = dir,
+            fork_from = Some("empty"),
+            msg = "update site",
+            readers = Seq("@all"),
+            writers = Seq(),
+            can_push_repo.block
+          ) { _ =>
+            for ((name, page) <- pages) {
+              os.copy.over(page.get_data_path / name, dir / name)
+            }
+            // the front page lists every page in the repo, including those
+            // of projects that are no longer active
+            val all_pages = os
+              .list(dir)
+              .map(_.last)
+              .filter(f => f.endsWith(".html") && f != "index.html")
+            os.write.over(
+              dir / "index.html",
+              HtmlGen.render_index(course_name, all_pages)
+            )
+            pages.map(_._1).to(SortedSet)
+          }
+        }
+      }
+    }
+
+  // Each course is its own Cloudflare Pages project: a deploy replaces a
+  // project's whole site, so courses sharing one would erase each other.
+  // Project names allow only lowercase letters, digits and dashes.
+  lazy val cloudflare_project: String =
+    course_name.toLowerCase.nn.map(c => if (c.isLetterOrDigit) c else '-')
+
+  // Deploys the site repo's pages whenever they change (or cloudflare's
+  // settings do), and serves them at <cloudflare_project>.<domain> when a
+  // domain is configured. The data directory holds exactly what was
+  // deployed; the value is the site's address, or None if not deployed.
+  lazy val push_to_cloudflare: Target[WithData[Option[String]]] =
+    target(
+      publish_site,
+      Config.cloudflare_enabled,
+      Config.cloudflare_domain
+    ) { (site, enabled, domain) =>
+      create_data(_ => false) { dir =>
+        // the deployed files: the repo's, minus .git and other dot-files;
+        // wrangler runs from `dir`, so its own .wrangler cache stays out
+        val site_dir = dir / "site"
+        os.makeDir.all(site_dir)
+        for {
+          f <- os.list(site.get_data_path)
+          if !f.last.startsWith(".")
+        } os.copy.into(f, site_dir)
+
+        Config.cloudflare.filter(_ => enabled) match {
+          case Some(cf) =>
+            say(s"deploying ${site_repo_name} to $cloudflare_project")
+            cf.deploy(site_dir, cloudflare_project)
+            val host = domain match {
+              case Some(zone) =>
+                val host = s"$cloudflare_project.$zone"
+                cf.ensure_domain(cloudflare_project, host, zone)
+                host
+              case None => cf.pages_host(cloudflare_project)
+            }
+            Some(s"https://$host")
+          case None =>
+            say("cloudflare is not enabled in config.json, not deploying")
+            None
+        }
+      }
+    }
+
   private lazy val grades_repo_name = s"${course_name}__grades"
 
   lazy val create_grades_repo: Target[WithData[Unit]] =

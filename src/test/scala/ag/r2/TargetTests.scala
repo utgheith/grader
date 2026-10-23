@@ -71,7 +71,7 @@ class TargetTests extends munit.FunSuite {
 
   // KNOWN BUG: Tracker.dependencies is a `lazy val` that gets forced (and
   // memoized) the first time it's read. On a target's *first* run there's
-  // no saved.json, so it's only forced after the whole computation Future
+  // no saved.json, so it's only forced after the whole computation Task
   // completes -- by which point every `.track` call the body made,
   // including asynchronous ones, has already registered its dependency.
   //
@@ -79,7 +79,7 @@ class TargetTests extends munit.FunSuite {
   // forces `dependencies` immediately, to compare it against the old
   // dependency map -- synchronously, right as `run_if_needed` is called,
   // before any dependency that's only discovered asynchronously (i.e.
-  // after some other tracked Future completes, as with `RaceThings.combined`
+  // after some other tracked Task completes, as with `RaceThings.combined`
   // above) has had a chance to register itself. That closes the tracker's
   // phase before the deferred `elem(i).track` calls run, so they blow up.
   test(

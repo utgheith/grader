@@ -8,9 +8,7 @@ import scala.collection.{SortedMap, SortedSet}
 import upickle.default.{ReadWriter, readwriter}
 
 import java.io.OutputStream
-import java.util.concurrent.{CountDownLatch, Semaphore}
-import scala.concurrent.Future
-import scala.util.Try
+import java.util.concurrent.Semaphore
 import scala.util.matching.Regex
 
 ///// ReadWriter for SortedMap ////
@@ -112,22 +110,6 @@ extension (md: MessageDigest) {
 
     one(path, path)
   }
-}
-
-/////// Future ///////
-
-extension [A](fa: Future[A]) {
-  def slow: Try[A] = {
-    val latch = new CountDownLatch(1)
-    fa.onComplete { _ =>
-      latch.countDown()
-    }
-    latch.await()
-    fa.value.get
-  }
-
-  inline def block_try: Try[A] = fa.value.getOrElse(slow)
-  inline def block: A = block_try.get
 }
 
 ////// Semaphore /////

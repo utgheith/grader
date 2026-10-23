@@ -412,14 +412,18 @@ case class Project(course: Course, project_name: String)
                 case CutoffTime.Default             =>
                   Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
                 case CutoffTime.None => None
-              val commit_id =
+              val from_file: Option[String] =
                 if (
                   os.exists(commit_id_file) && (os
                     .stat(commit_id_file)
                     .size != 0)
                 ) {
-                  os.read.lines(commit_id_file).head.trim.nn
+                  Some(os.read.lines(commit_id_file).head.trim.nn)
                 } else {
+                  None
+                }
+              val commit_id =
+                from_file.getOrElse {
                   cutoff_time match
                     case Some(cutoff_time) =>
                       // Find the last commit in the main branch before the cutoff time.
@@ -452,17 +456,24 @@ case class Project(course: Course, project_name: String)
                 }
 
               // (3) checkout the correct commit_id
-              val _ =
+              val checked_out =
                 try {
-                  os.proc("git", "checkout", commit_id).run(cwd = dir)
+                  val _ = os.proc("git", "checkout", commit_id).run(cwd = dir)
+                  true
                 } catch {
                   case ex: Throwable =>
                     ex.printStackTrace()
                     say(
                       s"??????????????? checking out '$commit_id' failed, trying 'master'"
                     )
-                    os.proc("git", "checkout", "master").run(cwd = dir)
+                    val _ = os.proc("git", "checkout", "master").run(cwd = dir)
+                    false
                 }
+
+              val commit_source = from_file match
+                case Some(sha) if checked_out =>
+                  CommitSource.FromFile(commit_id_file_name, sha)
+                case _ => CommitSource.Latest
 
               val git_sha =
                 os.proc("git", "rev-parse", "HEAD")
@@ -528,7 +539,8 @@ case class Project(course: Course, project_name: String)
                 commit_time = zdt,
                 sha = git_sha,
                 has_report = has_student_report,
-                push_time = push_time
+                push_time = push_time,
+                commit_source = commit_source
               )
 
             }
@@ -859,7 +871,11 @@ case class Project(course: Course, project_name: String)
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
         val results = students_with_submission.guilty.toSeq.map { csid =>
-          publish_student_results(keep_going, chosen)(csid, n, commit_id_file).track
+          publish_student_results(keep_going, chosen)(
+            csid,
+            n,
+            commit_id_file
+          ).track
             .map(r => (csid, r))
         }
 
