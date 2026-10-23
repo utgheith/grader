@@ -400,7 +400,8 @@ object Main {
       cutoff: CutoffTime,
       @arg(
         short = 'd',
-        doc = "Directory to copy prepared submissions into. Defaults to 'prepared'"
+        doc =
+          "Directory to copy prepared submissions into. Defaults to 'prepared'"
       )
       destination: os.Path = os.pwd / "prepared"
   ): Unit = State.run(commonArgs.workspace) {

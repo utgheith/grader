@@ -635,6 +635,8 @@ case class Project(course: Course, project_name: String)
     one("err")
     one("result")
     one("time")
+    one("stdout")
+    one("stderr")
   }
 
   // Run a submission/test combination once and report the outcome
@@ -673,13 +675,9 @@ case class Project(course: Course, project_name: String)
               val docker_image = docker_image_f.block
               Task.successful {
                 update_data(_ => false) { dir =>
-                  if (history.isEmpty) {
-                    os.remove.all(dir)
-                    os.makeDir.all(dir)
-                  }
-                  val out_dir = dir / n.toString
-                  os.remove.all(out_dir)
-                  os.makeDir.all(out_dir)
+                  // only the files from the latest run are kept
+                  os.remove.all(dir)
+                  os.makeDir.all(dir)
 
                   val res = doit(
                     project = this,
@@ -690,7 +688,7 @@ case class Project(course: Course, project_name: String)
                     test_path = test_info.get_data_path,
                     test_extensions = test_extensions,
                     n = history.size + 1,
-                    out_path = dir / n.toString,
+                    out_path = dir,
                     docker_image = docker_image
                   )
 
@@ -856,9 +854,8 @@ case class Project(course: Course, project_name: String)
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
         val results = students_with_submission.guilty.toSeq.map { csid =>
-          publish_student_results(keep_going)(csid, n, commit_id_file).track.map(r =>
-            (csid, r)
-          )
+          publish_student_results(keep_going)(csid, n, commit_id_file).track
+            .map(r => (csid, r))
         }
 
         val aliases = publish_aliases.track

@@ -46,7 +46,7 @@ def doit(
 
         val start = System.currentTimeMillis()
         var run_time: Option[Double] = None
-        val (_, _, stderr) =
+        val (_, stdout, stderr) =
           try {
             val _ = os
               .proc("make", "-k", "clean")
@@ -94,13 +94,21 @@ def doit(
               .get()}] finished [${out.toString}] $m in ${how_long.toString} seconds"
         )
 
-        stderr.foreach { stderr =>
-          os.copy(
-            from = stderr,
-            to = out_path / s"$tn.err",
-            createFolders = true,
-            replaceExisting = true,
-            followLinks = false
+        // the output of "make", distinct from the .out/.err the test writes
+        // only kept when non-empty, truncated to the first 10K
+        // stdout is only kept when the test didn't pass
+        val max_std_size = 10 * 1024
+        val kept_stdout = if (outcome.isHappy) None else Some(stdout)
+        for {
+          (f, ext) <- Seq(kept_stdout -> "stdout", stderr -> "stderr")
+          f <- f
+          size = os.size(f)
+          if size > 0
+        } {
+          os.write.over(
+            out_path / s"$tn.$ext",
+            os.read.bytes(f, 0, math.min(size, max_std_size.toLong).toInt),
+            createFolders = true
           )
         }
         project.copy_results(prepared_path, out_path, test_id)
