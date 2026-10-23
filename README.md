@@ -1,16 +1,8 @@
 ![CI](https://github.com/utgheith/grader/actions/workflows/ci.yml/badge.svg)
 
-* Install Coursier: https://get-coursier.io/docs/cli-installation
+* build: `make`
+* unit tests: `make test`
+* run: ./run --help
 
-* Build
-
-```
-make stage
-```
-
-* Run
-
-```
-./run --help
-```
+  
 
