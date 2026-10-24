@@ -1007,6 +1007,73 @@ object Main {
       pprint.pprintln(Gitolite.mirror("courses_config").guilty)
     }
 
+  // Watches the selected courses' dropboxes and repos, recording what changes
+  // in each course's private log (<course>__private on the git server). It
+  // holds its own lock (one watcher per workspace), not the workspace's, so
+  // other commands can run while it does.
+  @main
+  def watch(
+      commonArgs: CommonArgs,
+      @arg(doc = "run one round, then stop")
+      once: Flag = Flag(false),
+      @arg(doc = "seconds between rounds")
+      every: Int = 60,
+      @arg(doc =
+        "where the courses' key stores (<course>.json) live; keep it out of git and long-term backups"
+      )
+      keys: os.Path = os.home / ".grader" / "keys"
+  ): Unit = {
+    val (courses, server, dropbox) =
+      in_workspace(commonArgs.workspace) {
+        (
+          commonArgs.selected_courses.guilty.map(_.course_name),
+          ag.grader.Config.gitolite.guilty,
+          ag.grader.Config.dropbox_path.guilty
+        )
+      }
+    val events_dir = commonArgs.workspace / "events"
+    RunLock(events_dir, command_line) {
+      val watches =
+        for (course <- courses)
+          yield course -> ag.events.CourseWatch(
+            course,
+            ag.events.GitEventLog(
+              server.git_uri(s"${course}__private"),
+              events_dir / course / "private",
+              ag.events.PrivateLog.kinds
+            ),
+            ag.events.KeyStore(keys / s"$course.json"),
+            dropbox.map(d => os.home / d / course),
+            Some(events_dir / course / "private-view.json")
+          )
+      var go = true
+      while (go) {
+        val now = java.time.Instant.now().nn.toString
+        try {
+          val repos = ag.events.Gitolite.observe(
+            s"${server.user}@${server.host}",
+            server.port
+          )
+          for ((course, w) <- watches) {
+            try println(s"$now $course: ${w.poll(repos).toString}")
+            catch {
+              case scala.util.control.NonFatal(e) =>
+                println(
+                  s"$now $course: failed: ${String.valueOf(e.getMessage)}"
+                )
+            }
+          }
+        } catch {
+          case scala.util.control.NonFatal(e) =>
+            println(
+              s"$now: can't observe the git server: ${String.valueOf(e.getMessage)}"
+            )
+        }
+        if (once.value) go = false else Thread.sleep(every * 1000L)
+      }
+    }
+  }
+
   @main
   def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit =
     in_workspace(workspace) {

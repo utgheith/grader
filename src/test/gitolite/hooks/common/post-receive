@@ -1,0 +1,32 @@
+#!/bin/bash
+# Runs after every push; stdin has one "old new ref" line per updated ref.
+
+repo=$(basename "$(pwd)" .git)
+[ "$repo" = "history" ] && exit 0
+
+ts=$(date +%s)
+zero=0000000000000000000000000000000000000000
+
+# push_time: when each commit first arrived. On every updated branch, each
+# commit new to the repo gets this push's time; a commit that already has one
+# keeps it. So a note is written once, when the commit arrives, and never
+# appended to -- re-pushing old commits (e.g. to a new branch) changes nothing.
+noted=$(git notes --ref push_time list 2>/dev/null | cut -d' ' -f2)
+while read -r old new ref; do
+    case "$ref" in refs/heads/*) ;; *) continue ;; esac   # branches only
+    [ "$new" = "$zero" ] && continue                      # a deleted branch
+    if [ "$old" = "$zero" ]; then range="$new"; else range="$old..$new"; fi
+    for c in $(git rev-list "$range"); do
+        if ! grep -qx "$c" <<< "$noted"; then
+            git notes --ref push_time add -m "$ts" "$c"
+            noted="$noted"$'\n'"$c"
+        fi
+    done
+done
+echo "updated push_time"
+
+# history: the default branch's tip (what gets graded), for `history`
+if sha=$(git rev-parse --verify -q HEAD); then
+    echo "$sha" > ~/history/$repo
+    echo "updated history"
+fi

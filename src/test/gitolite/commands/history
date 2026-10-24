@@ -1,0 +1,5 @@
+if gitolite access -q grader $GL_USER R; then
+    for i in ~/history/*; do echo -n "`basename $i` "; cat $i; done
+else
+    echo ""
+fi

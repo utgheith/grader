@@ -1,0 +1,21 @@
+# A throwaway gitolite server for integration tests (see GitoliteServer.scala).
+FROM docker.io/library/debian:stable-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gitolite3 openssh-server git ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd \
+ && ssh-keygen -A \
+ && useradd -m -s /bin/bash git \
+ && sed -i '/^AcceptEnv/d' /etc/ssh/sshd_config \
+ && printf 'PasswordAuthentication no\nPermitRootLogin no\nAllowUsers git\n' >> /etc/ssh/sshd_config
+
+# the real server's custom code: commands, and hooks for every repo
+COPY commands/ /home/git/local/commands/
+COPY hooks/ /home/git/local/hooks/
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh /home/git/local/commands/* /home/git/local/hooks/common/* \
+ && chown -R git:git /home/git/local
+
+EXPOSE 22
+ENTRYPOINT ["/entrypoint.sh"]
