@@ -95,6 +95,11 @@ trait Tracker[A] extends Context[A] {
         try {
           say("loading old state")
           val old = read[Saved[A]](os.read(producer.saved_path))
+          // a null means an older format: treat it like any unreadable state
+          val _ = ag.common.NoNulls.check(
+            old.result.value,
+            s"the saved value of ${producer.producing.path.toString}"
+          )
           // (2) we seem to have one, check if the dependencies changed
           // ctx has the newly discovered dependencies
           // old has the dependency at the time the value was saved

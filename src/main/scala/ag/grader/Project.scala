@@ -1,6 +1,7 @@
 package ag.grader
 
 import ag.common.{
+  NoNulls,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
@@ -816,13 +817,15 @@ case class Project(course: Course, project_name: String)
   // a file they can't read rather than pass on partial results.
 
   private def readable[A: upickle.default.Reader](file: os.Path): Boolean =
-    os.isFile(file) && Try(upickle.default.read[A](os.read(file))).isSuccess
+    os.isFile(file) && Try(
+      NoNulls.check(upickle.default.read[A](os.read(file)), file.toString)
+    ).isSuccess
 
   private def read_published[A: upickle.default.Reader](
       file: os.Path,
       rewritten_by: String
   ): A =
-    try upickle.default.read[A](os.read(file))
+    try NoNulls.check(upickle.default.read[A](os.read(file)), file.toString)
     catch {
       case NonFatal(e) =>
         throw new IllegalStateException(
