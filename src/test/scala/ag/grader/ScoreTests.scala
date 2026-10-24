@@ -16,7 +16,8 @@ class ScoreTests extends FunSuite {
   ): RedactedStudentResults = RedactedStudentResults(
     alias = Some(Alias(1)),
     has_test = true,
-    prepare_info = PrepareInfo(commit, "abc", true, None, CommitSource.Latest),
+    prepare_info = PrepareInfo(commit, "abc", true, None, CommitSource.Latest)
+      .redacted(cutoff),
     outcomes = runs
       .map((t, ss) =>
         RedactedTestId(t) -> RedactedOutcome(
@@ -50,19 +51,19 @@ class ScoreTests extends FunSuite {
   private val failed = OutcomeStatus.fail
 
   test("lateness is measured in fractional days") {
-    assertEqualsDouble(HtmlGen.days_late(cutoff, cutoff), 0.0, 1e-9)
+    assertEqualsDouble(PrepareInfo.days_late(cutoff, cutoff), 0.0, 1e-9)
     assertEqualsDouble(
-      HtmlGen.days_late(cutoff.minusHours(5), cutoff),
+      PrepareInfo.days_late(cutoff.minusHours(5), cutoff),
       0.0,
       1e-9
     )
     assertEqualsDouble(
-      HtmlGen.days_late(cutoff.plusHours(6), cutoff),
+      PrepareInfo.days_late(cutoff.plusHours(6), cutoff),
       0.25,
       1e-9
     )
     assertEqualsDouble(
-      HtmlGen.days_late(cutoff.plusHours(36), cutoff),
+      PrepareInfo.days_late(cutoff.plusHours(36), cutoff),
       1.5,
       1e-9
     )
@@ -122,14 +123,14 @@ class ScoreTests extends FunSuite {
         push.map(_.toInstant.nn),
         CommitSource.Latest
       )
-    assertEquals(HtmlGen.push_gap(info(None)), None)
-    assertEquals(HtmlGen.push_gap(info(Some(cutoff.plusMinutes(29)))), None)
+    assertEquals(PrepareInfo.push_gap(info(None)), None)
+    assertEquals(PrepareInfo.push_gap(info(Some(cutoff.plusMinutes(29)))), None)
     assertEquals(
-      HtmlGen.push_gap(info(Some(cutoff.plusMinutes(31)))).map(_.toMinutes),
+      PrepareInfo.push_gap(info(Some(cutoff.plusMinutes(31)))).map(_.toMinutes),
       Some(31L)
     )
     assertEquals(
-      HtmlGen.push_gap(info(Some(cutoff.minusHours(2)))).map(_.toMinutes),
+      PrepareInfo.push_gap(info(Some(cutoff.minusHours(2)))).map(_.toMinutes),
       Some(-120L),
       "a push before the commit's own time is flagged too"
     )

@@ -2,133 +2,9 @@ package ag.grader
 
 import ag.r2.{create_data, say, Target, WithData}
 
-import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import scala.collection.{SortedMap, SortedSet}
-
-// A tiny HTML DSL: `td.css_class("x") { text("...") }`. Text and attribute
-// values are escaped; only `raw` (for <style> and <script>) is not.
-trait HtmlContext {
-  def doctype(): Unit
-  def start(tag: String, attributes: Seq[(String, String)]): Unit
-  def start_self_closing(tag: String, attributes: Seq[(String, String)]): Unit
-  def text(s: String): Unit
-  def raw(s: String): Unit
-  def end(tag: String): Unit
-}
-
-object HtmlContext {
-  def escape_text(s: String): String =
-    s.replace("&", "&amp;").nn.replace("<", "&lt;").nn.replace(">", "&gt;").nn
-
-  def escape_attr(s: String): String =
-    escape_text(s).replace("\"", "&quot;").nn.replace("'", "&#39;").nn
-}
-
-class StringHtmlContext extends HtmlContext {
-  private val sb = new StringBuilder
-
-  private def open(tag: String, attributes: Seq[(String, String)]): Unit = {
-    sb ++= s"<$tag"
-    attributes.foreach { (k, v) =>
-      sb ++= s""" $k="${HtmlContext.escape_attr(v)}""""
-    }
-  }
-
-  def doctype(): Unit = sb ++= "<!DOCTYPE html>\n"
-  def start(tag: String, attributes: Seq[(String, String)]): Unit = {
-    open(tag, attributes)
-    sb += '>'
-  }
-  // HTML void elements (meta, input) take no closing tag
-  def start_self_closing(
-      tag: String,
-      attributes: Seq[(String, String)]
-  ): Unit = start(tag, attributes)
-  def text(s: String): Unit = sb ++= HtmlContext.escape_text(s)
-  def raw(s: String): Unit = sb ++= s
-  def end(tag: String): Unit = sb ++= s"</$tag>"
-
-  def result: String = sb.toString
-}
-
-case class Element(tag: String, attributes: Seq[(String, String)]) {
-  def attr(name: String, value: String | Null): Element = value match {
-    case s: String => this.copy(attributes = attributes :+ (name, s))
-    case null      => this
-  }
-  def data(name: String, value: String | Null): Element =
-    attr(s"data-$name", value)
-  def id(c: String): Element = attr("id", c)
-  def colspan(c: String | Null): Element = attr("colspan", c)
-  def css_class(c: String | Null): Element = attr("class", c)
-  def css_class(c: List[String]): Element =
-    if (c.isEmpty) this else attr("class", c.mkString(" "))
-  def title(c: String | Null): Element = attr("title", c)
-
-  def apply(f: HtmlContext ?=> Any)(using c: HtmlContext): Unit = {
-    if (Element.void_tags.contains(tag)) {
-      c.start_self_closing(tag, attributes)
-    } else {
-      c.start(tag, attributes)
-      val _ = f(using c)
-      c.end(tag)
-    }
-  }
-}
-
-object Element {
-  val void_tags: Set[String] = Set("meta", "input")
-  def apply(t: String): Element = Element(t, Seq())
-}
-
-object Html {
-  val a: Element = Element("a")
-  val body: Element = Element("body")
-  val button: Element = Element("button")
-  val details: Element = Element("details")
-  val div: Element = Element("div")
-  val dl: Element = Element("dl")
-  val dd: Element = Element("dd")
-  val dt: Element = Element("dt")
-  val h1: Element = Element("h1")
-  val head: Element = Element("head")
-  val header: Element = Element("header")
-  val input: Element = Element("input")
-  val label: Element = Element("label")
-  val li: Element = Element("li")
-  val main: Element = Element("main")
-  val meta: Element = Element("meta")
-  val script: Element = Element("script")
-  val section: Element = Element("section")
-  val span: Element = Element("span")
-  val style: Element = Element("style")
-  val summary: Element = Element("summary")
-  val table: Element = Element("table")
-  val tbody: Element = Element("tbody")
-  val td: Element = Element("td")
-  val tfoot: Element = Element("tfoot")
-  val th: Element = Element("th")
-  val thead: Element = Element("thead")
-  val title: Element = Element("title")
-  val tr: Element = Element("tr")
-  val ul: Element = Element("ul")
-  val nav: Element = Element("nav")
-  val select: Element = Element("select")
-  val option: Element = Element("option")
-
-  def text(s: String)(using c: HtmlContext): Unit = c.text(s)
-  def raw(s: String)(using c: HtmlContext): Unit = c.raw(s)
-
-  def document(f: HtmlContext ?=> Any): String = {
-    val c = new StringHtmlContext
-    c.doctype()
-    c.start("html", Seq("lang" -> "en"))
-    val _ = f(using c)
-    c.end("html")
-    c.result
-  }
-}
 
 // Everything a report page shows, as plain data (no targets), so pages can
 // be rendered -- and tested -- without a grader workspace.
@@ -150,7 +26,9 @@ final case class ReportData(
     // the course's project pages, as (tab label, file name), in tab order
     tabs: Seq[(String, String)] = Nil,
     // the page's heading; the title if empty
-    project_name: String = ""
+    project_name: String = "",
+    // shown instead of the summary when the results can't be shown
+    notice: Option[String] = None
 )
 
 class HtmlGen(p: Project) {
@@ -201,7 +79,13 @@ class HtmlGen(p: Project) {
             test_cutoff = test_cutoff,
             code_cutoff = code_cutoff,
             enrollments = enrollment.size,
-            results = results.getOrElse(SortedMap()),
+            results = results.toOption.flatten.getOrElse(SortedMap()),
+            notice = results.left.toOption.map { why =>
+              say(
+                s"can't show ${p.course.course_name}_${p.project_name}'s results: $why"
+              )
+              "The results for this project are being updated; they'll be back shortly."
+            },
             phase1_tests = phase1_tests,
             phase1_weight = phase1_weight,
             phase2_tests = phase2_tests,
@@ -236,7 +120,10 @@ class HtmlGen(p: Project) {
 }
 
 object HtmlGen {
-  import Html.*
+  // ScalaTags: typed tags and attributes; text and attribute values are
+  // escaped, and only `raw` (the page's own CSS, JS and JSON) is not.
+  import scalatags.Text.all.*
+  import scalatags.Text.tags2
 
   private val display_format: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
@@ -260,11 +147,6 @@ object HtmlGen {
       percent: Double // after the late penalty
   )
 
-  // Fractional days: 6 hours late is 0.25.
-  def days_late(commit: ZonedDateTime, cutoff: ZonedDateTime): Double =
-    if (!commit.isAfter(cutoff)) 0.0
-    else java.time.Duration.between(cutoff, commit).nn.getSeconds / 86400.0
-
   // e.g. "1 day 2 hours", "45 minutes"
   private def describe_days(days: Double): String = {
     val minutes = math.round(days * 24 * 60)
@@ -282,11 +164,10 @@ object HtmlGen {
   }
 
   def score_of(d: ReportData, r: RedactedStudentResults): Option[Score] =
-    score_with(compute_weights(d), d, r)
+    score_with(compute_weights(d), r)
 
   private def score_with(
       weights: Weights,
-      d: ReportData,
       r: RedactedStudentResults
   ): Option[Score] = {
     val possible = weights.phase1_total + weights.phase2_total
@@ -301,10 +182,7 @@ object HtmlGen {
           else runs.count(_._1 == OutcomeStatus.pass).toDouble / runs.size
         (row.phase1 + row.phase2) * fraction
       }.sum
-      val days = days_late(
-        r.prepare_info.commit_time,
-        ZonedDateTime.of(d.code_cutoff, ZoneId.systemDefault()).nn
-      )
+      val days = r.prepare_info.days_late
       Score(
         earned,
         possible,
@@ -312,23 +190,6 @@ object HtmlGen {
         100 * earned / possible * math.pow(0.9, days)
       )
     }
-  }
-
-  // Commit times come from the student's machine; push times from the
-  // server. A big gap between them (either way) is worth a look.
-  def push_gap(info: PrepareInfo): Option[java.time.Duration] =
-    info.push_time
-      .map(p => java.time.Duration.between(info.commit_time.toInstant, p).nn)
-      .filter(_.abs.nn.toMinutes > 30)
-
-  private def describe_gap(gap: java.time.Duration): String = {
-    val m = gap.abs.nn.toMinutes
-    val amount =
-      if (m >= 60 * 24) s"${m / (60 * 24)}d ${m / 60 % 24}h"
-      else if (m >= 60) s"${m / 60}h ${m % 60}m"
-      else s"${m}m"
-    if (gap.isNegative) s"pushed $amount before its commit time"
-    else s"pushed $amount after its commit time"
   }
 
   // How a test's last run is shown: css class, glyph, word, sort rank
@@ -419,8 +280,6 @@ object HtmlGen {
       .sortBy(t => (!chosen.contains(t), t.length, t))
     val chosen_count = tests.count(chosen.contains)
 
-    val code_cutoff = ZonedDateTime.of(d.code_cutoff, ZoneId.systemDefault())
-
     val rows: Seq[(Alias, RedactedStudentResults)] =
       d.results.toSeq.filter(_._2.alias.isDefined)
 
@@ -443,7 +302,7 @@ object HtmlGen {
     val weights = compute_weights(d)
     val scores: Map[Alias, Score] =
       rows
-        .flatMap((alias, r) => score_with(weights, d, r).map(alias -> _))
+        .flatMap((alias, r) => score_with(weights, r).map(alias -> _))
         .toMap
 
     // Per submission, per test (in `tests` order): [result rank, passing
@@ -495,368 +354,352 @@ object HtmlGen {
         .nn
     }
 
-    def stat(label: String, value: String, note: String = "")(using
-        HtmlContext
-    ): Unit =
-      div.css_class("stat") {
-        div.css_class("stat-value")(text(value))
-        div.css_class("stat-label") {
-          text(label)
-          if (note.nonEmpty) span.css_class("stat-note")(text(s" $note"))
-        }
-      }
+    def stat(label: String, amount: String, note: String = ""): Frag =
+      div(cls := "stat")(
+        div(cls := "stat-value")(amount),
+        div(cls := "stat-label")(
+          label,
+          Option.when(note.nonEmpty)(span(cls := "stat-note")(s" $note"))
+        )
+      )
 
-    def results_table(using HtmlContext): Unit =
-      table.css_class("results") {
-        thead {
-          tr.css_class("head") {
-            th.css_class("pin-col").title("pin rows to the top") {
-              text("⚑")
-            }
-            th.css_class("alias") {
-              button.css_class("sort").data("key", "alias")(text("alias"))
-            }
-            th.css_class("num").title("chosen tests passed") {
-              button.css_class("sort").data("key", "chosen") {
-                text("chosen")
-                span.css_class("of")(text(s"/$chosen_count"))
-              }
-            }
-            th.css_class("num").title("all tests passed") {
-              button.css_class("sort").data("key", "all") {
-                text("all")
-                span.css_class("of")(text(s"/${tests.size}"))
-              }
-            }
-            th.css_class("num score")
-              .title("correctness score, after any late penalty") {
-                button.css_class("sort").data("key", "score")(text("score"))
-              }
-            tests.zipWithIndex.foreach { (t, i) =>
-              th.css_class(
-                "test" :: (if (chosen.contains(t)) List("chosen")
-                           else List("opt"))
-              ).data("col", i.toString)
-                .data("id", t) {
-                  button
-                    .css_class("sort")
-                    .data("key", s"test:$t")
-                    .title(s"sort by $t") {
-                      span.css_class("vname")(text(t))
-                    }
-                  input
-                    .css_class("colpin")
-                    .attr("type", "checkbox")
-                    .data("id", t)
-                    .title(s"pin $t to the left")
-                    .attr("aria-label", s"pin $t") {}
-                }
-            }
-          }
-        }
-        tbody {
-          rows.foreach { (alias, r) =>
+    def results_table: Frag =
+      table(cls := "results")(
+        thead(
+          tr(cls := "head")(
+            th(cls := "pin-col", title := "pin rows to the top")("⚑"),
+            th(cls := "alias")(
+              button(cls := "sort", data("key") := "alias")("alias")
+            ),
+            th(cls := "num", title := "chosen tests passed")(
+              button(cls := "sort", data("key") := "chosen")(
+                "chosen",
+                span(cls := "of")(s"/$chosen_count")
+              )
+            ),
+            th(cls := "num", title := "all tests passed")(
+              button(cls := "sort", data("key") := "all")(
+                "all",
+                span(cls := "of")(s"/${tests.size}")
+              )
+            ),
+            th(
+              cls := "num score",
+              title := "correctness score, after any late penalty"
+            )(button(cls := "sort", data("key") := "score")("score")),
+            for ((t, i) <- tests.zipWithIndex)
+              yield th(
+                cls := (if (chosen.contains(t)) "test chosen" else "test opt"),
+                data("col") := i.toString,
+                data("id") := t
+              )(
+                button(
+                  cls := "sort",
+                  data("key") := s"test:$t",
+                  title := s"sort by $t"
+                )(span(cls := "vname")(t)),
+                input(
+                  cls := "colpin",
+                  tpe := "checkbox",
+                  data("id") := t,
+                  title := s"pin $t to the left",
+                  aria.label := s"pin $t"
+                )
+              )
+          )
+        ),
+        tbody(
+          for ((alias, r) <- rows) yield {
+            // only what's safe to publish: no sha, no times
             val info = r.prepare_info
-            val is_late = info.commit_time.isAfter(code_cutoff)
-            val from_file = info.commit_source match {
-              case CommitSource.FromFile(file_name, file_sha) =>
-                Some(s"from $file_name: $file_sha")
-              case CommitSource.Latest => None
-            }
+            val is_late = info.days_late > 0
             val n_chosen = passed(alias, chosen_tests)
             val n_all = passed(alias, tests)
             val score = scores.get(alias)
-            val gap = push_gap(info)
 
-            tr.css_class(
-              if (d.staff_aliases.contains(alias)) "staff" else null
-            ).data("alias", alias.toString)
-              .data("chosen", n_chosen.toString)
-              .data("all", n_all.toString)
-              .data("score", score.fold("-1")(s => f"${s.percent}%.3f")) {
-                td.css_class("pin-col") {
-                  input
-                    .css_class("rowpin")
-                    .attr("type", "checkbox")
-                    .title("pin to the top")
-                    .attr("aria-label", s"pin ${alias.toString}") {}
+            tr(
+              Option.when(d.staff_aliases.contains(alias))(cls := "staff"),
+              data("alias") := alias.toString,
+              data("chosen") := n_chosen.toString,
+              data("all") := n_all.toString,
+              data("score") := score.fold("-1")(s => f"${s.percent}%.3f")
+            )(
+              td(cls := "pin-col")(
+                input(
+                  cls := "rowpin",
+                  tpe := "checkbox",
+                  title := "pin to the top",
+                  aria.label := s"pin ${alias.toString}"
+                )
+              ),
+              td(
+                cls := (if (info.from_commit_file) "alias from-file"
+                        else "alias"),
+                title := List(
+                  Option.when(is_late)("late commit"),
+                  Option.when(info.from_commit_file)(
+                    "commit chosen by a commit id file"
+                  ),
+                  Option.when(info.push_gap)(
+                    "push and commit times differ by over 30 min"
+                  )
+                ).flatten.mkString(" · ")
+              )(
+                alias.toString,
+                Option.when(is_late)(span(cls := "mark late")("*")),
+                Option.when(info.from_commit_file)(span(cls := "mark")("†")),
+                Option.when(info.push_gap)(span(cls := "mark warn")("!"))
+              ),
+              td(
+                cls := (if (chosen_count > 0 && n_chosen == chosen_count)
+                          "num full"
+                        else "num")
+              )(n_chosen.toString),
+              td(cls := "num")(n_all.toString),
+              td(
+                cls := "num score",
+                score.map { s =>
+                  val late =
+                    if (s.days_late == 0) ""
+                    else
+                      f" × 0.9^${s.days_late}%.2f (${describe_days(s.days_late)} late)"
+                  title := f"${s.earned}%.1f of ${s.possible} points$late = ${s.percent}%.1f%%"
                 }
-                td.css_class(
-                  "alias" :: from_file.map(_ => "from-file").toList
-                ).title(
-                  List(
-                    Some(info.sha),
-                    Option.when(is_late)("late commit"),
-                    from_file,
-                    gap.map(describe_gap)
-                  ).flatten.mkString(" · ")
-                ) {
-                  text(alias.toString)
-                  span.css_class("sha")(text(info.sha.take(4)))
-                  if (is_late) span.css_class("mark late")(text("*"))
-                  if (from_file.isDefined)
-                    span.css_class("mark")(text("†"))
-                  if (gap.isDefined) span.css_class("mark warn")(text("!"))
+              )(score.fold("–")(s => f"${s.percent}%.1f")),
+              for ((t, i) <- tests.zipWithIndex) yield {
+                val o = r.outcomes.get(RedactedTestId(t))
+                val (status_cls, glyph, word, rank) =
+                  status_of(statuses(alias).get(t).flatten)
+                val tries = o.map(_.outcomes.size).filter(_ > 0)
+                val times = o.flatMap(_.min_max).map { (lo, hi) =>
+                  if (lo == hi) f"$lo%.2fs" else f"$lo%.2f–$hi%.2fs"
                 }
-                td.css_class(
-                  "num" :: (if (chosen_count > 0 && n_chosen == chosen_count)
-                              List("full")
-                            else Nil)
-                )(text(n_chosen.toString))
-                td.css_class("num")(text(n_all.toString))
-                td.css_class("num score")
-                  .title(score.fold[String | Null](null) { s =>
-                    val late =
-                      if (s.days_late == 0) ""
-                      else
-                        f" × 0.9^${s.days_late}%.2f (${describe_days(s.days_late)} late)"
-                    f"${s.earned}%.1f of ${s.possible} points$late = ${s.percent}%.1f%%"
-                  })(text(score.fold("–")(s => f"${s.percent}%.1f")))
-                tests.zipWithIndex.foreach { (t, i) =>
-                  val o = r.outcomes.get(RedactedTestId(t))
-                  val (cls, glyph, word, rank) =
-                    status_of(statuses(alias).get(t).flatten)
-                  val tries = o.map(_.outcomes.size).filter(_ > 0)
-                  val times = o.flatMap(_.min_max).map { (lo, hi) =>
-                    if (lo == hi) f"$lo%.2fs" else f"$lo%.2f–$hi%.2fs"
-                  }
-                  td.css_class(
-                    "cell" :: cls :: (if (chosen.contains(t)) Nil
-                                      else List("opt"))
-                  ).data("col", i.toString)
-                    .data("r", rank.toString)
-                    .title(
-                      (List(s"$t: $word") ++
-                        tries
-                          .map(n => s"$n ${if (n == 1) "try" else "tries"}") ++
-                        times).mkString(" · ")
-                    )(text(glyph))
-                }
+                td(
+                  cls := (s"cell $status_cls" + (if (chosen.contains(t)) ""
+                                                 else " opt")),
+                  data("col") := i.toString,
+                  data("r") := rank.toString,
+                  title := (List(s"$t: $word") ++
+                    tries.map(n => s"$n ${if (n == 1) "try" else "tries"}") ++
+                    times).mkString(" · ")
+                )(glyph)
               }
+            )
           }
-        }
-      }
+        )
+      )
 
-    def legend(using HtmlContext): Unit =
-      ul.css_class("legend") {
-        li { span.css_class("cell pass")(text("\u00b7")); text(" pass") }
-        li { span.css_class("cell fail")(text("✗")); text(" fail") }
-        li { span.css_class("cell timeout")(text("T")); text(" timeout") }
-        li { span.css_class("cell unknown")(text("?")); text(" didn't run") }
-        li { span.css_class("swatch chosen")(text("")); text(" chosen test") }
-        li { span.css_class("mark late")(text("*")); text(" late commit") }
-        li {
-          span.css_class("mark")(text("†"))
-          text(" commit chosen by a commit id file")
-        }
-        li {
-          span.css_class("mark warn")(text("!"))
-          text(" push and commit times differ by over 30 min")
-        }
-        li { span.css_class("swatch staff")(text("")); text(" staff") }
-      }
+    def legend_list: Frag =
+      ul(cls := "legend")(
+        li(span(cls := "cell pass")("·"), " pass"),
+        li(span(cls := "cell fail")("✗"), " fail"),
+        li(span(cls := "cell timeout")("T"), " timeout"),
+        li(span(cls := "cell unknown")("?"), " didn't run"),
+        li(span(cls := "swatch chosen")(""), " chosen test"),
+        li(span(cls := "mark late")("*"), " late commit"),
+        li(span(cls := "mark")("†"), " commit chosen by a commit id file"),
+        li(
+          span(cls := "mark warn")("!"),
+          " push and commit times differ by over 30 min"
+        ),
+        li(span(cls := "swatch staff")(""), " staff")
+      )
 
-    def weights_card(using HtmlContext): Unit =
-      section.css_class("card") {
-        Element("h2")(text("Selected test weights"))
-        table.css_class("weights") {
-          thead {
-            tr {
-              th(text("test"))
-              th.css_class("num")(text("weight"))
-              th.css_class("num")(
-                text(s"phase 1 (×${weights.phase1_factor})")
+    def weights_card: Frag =
+      tags2.section(cls := "card")(
+        h2("Selected test weights"),
+        table(cls := "weights")(
+          thead(
+            tr(
+              th("test"),
+              th(cls := "num")("weight"),
+              th(cls := "num")(s"phase 1 (×${weights.phase1_factor})"),
+              th(cls := "num")(s"phase 2 (×${weights.phase2_factor})")
+            )
+          ),
+          tbody(
+            for (w <- weights.rows)
+              yield tr(
+                td(w.test),
+                td(cls := "num")(w.weight.fold("?")(_.toString)),
+                td(cls := "num")(w.phase1.toString),
+                td(cls := "num")(w.phase2.toString)
               )
-              th.css_class("num")(
-                text(s"phase 2 (×${weights.phase2_factor})")
-              )
-            }
-          }
-          tbody {
-            weights.rows.foreach { w =>
-              tr {
-                td(text(w.test))
-                td.css_class("num")(text(w.weight.fold("?")(_.toString)))
-                td.css_class("num")(text(w.phase1.toString))
-                td.css_class("num")(text(w.phase2.toString))
-              }
-            }
-          }
-          tfoot {
-            tr {
-              td(text("total"))
-              td(text(""))
-              td.css_class("num")(text(weights.phase1_total.toString))
-              td.css_class("num")(text(weights.phase2_total.toString))
-            }
-          }
-        }
-        div.css_class("note") {
-          val total = weights.phase1_total + weights.phase2_total
-          text(
-            s"Overall: ${weights.phase1_total} + ${weights.phase2_total} = $total; " +
-              s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
+          ),
+          tfoot(
+            tr(
+              td("total"),
+              td(""),
+              td(cls := "num")(weights.phase1_total.toString),
+              td(cls := "num")(weights.phase2_total.toString)
+            )
           )
-        }
-        div.css_class("note") {
-          text(
-            "Score: each test earns its weight times the fraction of its tries " +
-              "that passed; the score is the share of all the weight earned, " +
-              "times 0.9 per day the commit is past the phase 2 cutoff, " +
-              "pro-rated by the hour (0.9 ^ (hours late / 24))."
-          )
-        }
+        ),
+        div(cls := "note")(
+          s"Overall: ${weights.phase1_total} + ${weights.phase2_total} = " +
+            s"${weights.phase1_total + weights.phase2_total}; " +
+            s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
+        ),
+        div(cls := "note")(
+          "Score: each test earns its weight times the fraction of its tries " +
+            "that passed; the score is the share of all the weight earned, " +
+            "times 0.9 per day the commit is past the phase 2 cutoff, " +
+            "pro-rated by the hour (0.9 ^ (hours late / 24))."
+        )
+      )
+
+    val median_score: Option[Double] =
+      Option.when(scores.nonEmpty) {
+        val sorted = scores.values.map(_.percent).toSeq.sorted
+        val m = sorted.size / 2
+        if (sorted.size % 2 == 1) sorted(m) else (sorted(m - 1) + sorted(m)) / 2
       }
 
-    document {
-      head {
-        meta.attr("charset", "utf-8") {}
-        meta
-          .attr("name", "viewport")
-          .attr("content", "width=device-width,initial-scale=1") {}
-        meta.attr("name", "report-version").attr("content", version) {}
-        title(text(d.title))
-        style(raw(css))
-      }
-      body.data("assignment", d.title) {
-        header.css_class("top") {
-          h1(text(if (d.project_name.nonEmpty) d.project_name else d.title))
-          if (d.tabs.nonEmpty)
-            nav.css_class("tabs").attr("aria-label", "projects") {
-              d.tabs.foreach { (label, file) =>
+    page(
+      head(
+        meta(charset := "utf-8"),
+        meta(
+          name := "viewport",
+          content := "width=device-width,initial-scale=1"
+        ),
+        meta(name := "report-version", content := version),
+        tags2.title(d.title),
+        tags2.style(raw(css))
+      ),
+      body(data("assignment") := d.title)(
+        header(cls := "top")(
+          h1(if (d.project_name.nonEmpty) d.project_name else d.title),
+          Option.when(d.tabs.nonEmpty)(
+            tags2.nav(cls := "tabs", aria.label := "projects")(
+              for ((tab, file) <- d.tabs) yield {
                 val here = file == s"${d.title}.html"
-                a.css_class(if (here) "active" else null)
-                  .attr("href", file)
-                  .attr("aria-current", if (here) "page" else null)(
-                    text(label)
-                  )
+                a(
+                  Option.when(here)(cls := "active"),
+                  href := file,
+                  Option.when(here)(attr("aria-current") := "page")
+                )(tab)
               }
-            }
-          dl.css_class("dates") {
-            div {
-              dt(text("generated"));
-              dd(text(display_format.format(d.generated).nn))
-            }
-            div {
-              dt(text("phase 1 cutoff"));
-              dd(text(display_format.format(d.test_cutoff).nn))
-            }
-            div {
-              dt(text("phase 2 cutoff"));
-              dd(text(display_format.format(d.code_cutoff).nn))
-            }
-          }
-        }
-        main {
-          section.css_class("stats") {
-            stat("enrollments", d.enrollments.toString)
-            stat("submissions", rows.size.toString)
-            stat("tests", tests.size.toString, s"($chosen_count chosen)")
-            if (chosen_count > 0)
-              stat("pass every chosen test", all_chosen_passing.toString)
-            if (scores.nonEmpty) {
-              val sorted = scores.values.map(_.percent).toSeq.sorted
-              val m = sorted.size / 2
-              val median =
-                if (sorted.size % 2 == 1) sorted(m)
-                else (sorted(m - 1) + sorted(m)) / 2
-              stat("median score", f"$median%.1f")
-            }
-          }
-          section.css_class("card grid-card") {
-            div.css_class("toolbar") {
-              input
-                .id("filter")
-                .attr("type", "search")
-                .attr("placeholder", "Filter aliases…")
-                .attr("aria-label", "filter aliases") {}
-              label.css_class("toggle") {
-                input.id("only-chosen").attr("type", "checkbox") {}
-                text(" chosen tests only")
-              }
-              button.id("clear-pins").attr("type", "button")(text("Clear pins"))
-              legend
-            }
-            div.css_class("table-wrap")(results_table)
-            div.css_class("note") {
-              text(
-                "Click a column heading to sort; click again to reverse. " +
-                  "Click an alias to highlight its row and compare it below. " +
-                  "Pins are remembered in this browser. " +
-                  "The page checks for new results every minute and updates in place."
+            )
+          ),
+          dl(cls := "dates")(
+            div(dt("generated"), dd(display_format.format(d.generated).nn)),
+            div(
+              dt("phase 1 cutoff"),
+              dd(display_format.format(d.test_cutoff).nn)
+            ),
+            div(
+              dt("phase 2 cutoff"),
+              dd(display_format.format(d.code_cutoff).nn)
+            )
+          )
+        ),
+        tags2.main(
+          d.notice.map(n => div(cls := "card notice", role := "status")(n)),
+          Option.when(d.notice.isEmpty)(
+            tags2.section(cls := "stats")(
+              stat("enrollments", d.enrollments.toString),
+              stat("submissions", rows.size.toString),
+              stat("tests", tests.size.toString, s"($chosen_count chosen)"),
+              Option.when(chosen_count > 0)(
+                stat("pass every chosen test", all_chosen_passing.toString)
+              ),
+              median_score.map(m => stat("median score", f"$m%.1f"))
+            )
+          ),
+          tags2.section(cls := "card grid-card")(
+            div(cls := "toolbar")(
+              input(
+                id := "filter",
+                tpe := "search",
+                placeholder := "Filter aliases…",
+                aria.label := "filter aliases"
+              ),
+              label(cls := "toggle")(
+                input(id := "only-chosen", tpe := "checkbox"),
+                " chosen tests only"
+              ),
+              button(id := "clear-pins", tpe := "button")("Clear pins"),
+              legend_list
+            ),
+            div(cls := "table-wrap")(results_table),
+            div(cls := "note")(
+              "Click a column heading to sort; click again to reverse. " +
+                "Click an alias to highlight its row and compare it below. " +
+                "Pins are remembered in this browser. " +
+                "The page checks for new results every minute and updates in place."
+            )
+          ),
+          tags2.section(cls := "card", id := "compare")(
+            div(cls := "compare-head")(
+              h2("Compare a submission"),
+              label(
+                "submission ",
+                select(id := "compare-pick")(
+                  option(value := "")("—"),
+                  for ((alias, _) <- rows)
+                    yield option(value := alias.toString)(alias.toString)
+                )
+              ),
+              label(cls := "toggle")(
+                input(id := "notable-only", tpe := "checkbox"),
+                " only tests that stand out"
               )
-            }
-          }
-          section.css_class("card").id("compare") {
-            div.css_class("compare-head") {
-              Element("h2")(text("Compare a submission"))
-              label {
-                text("submission ")
-                select.id("compare-pick") {
-                  option.attr("value", "")(text("\u2014"))
-                  rows.foreach((alias, _) =>
-                    option.attr("value", alias.toString)(text(alias.toString))
-                  )
-                }
-              }
-              label.css_class("toggle") {
-                input.id("notable-only").attr("type", "checkbox") {}
-                text(" only tests that stand out")
-              }
-            }
-            div.id("compare-body") {}
-            script
-              .attr("type", "application/json")
-              .id("report-data")(
-                raw(report_json)
+            ),
+            div(id := "compare-body"),
+            script(tpe := "application/json", id := "report-data")(
+              raw(report_json)
+            )
+          ),
+          div(cls := "cards")(
+            Option.when(d.bad_tests.nonEmpty)(
+              tags2.section(cls := "card")(
+                h2("Ignored tests"),
+                ul(cls := "plain")(d.bad_tests.toSeq.map(t => li(t)))
               )
-          }
-          div.css_class("cards") {
-            if (d.bad_tests.nonEmpty)
-              section.css_class("card") {
-                Element("h2")(text("Ignored tests"))
-                ul.css_class("plain") {
-                  d.bad_tests.foreach(t => li(text(t)))
-                }
-              }
+            ),
             weights_card
-          }
-        }
+          )
+        ),
         script(raw(js.replace("FIXED_COLUMNS", fixed_columns.toString).nn))
-      }
-    }
+      )
+    )
   }
+
+  // A whole document: ScalaTags doesn't write the doctype.
+  private def page(content: Modifier*): String =
+    "<!DOCTYPE html>\n" + html(lang := "en")(content*).render
 
   // A course site's front page: a link to each project's page.
   def render_index(course_name: String, pages: Seq[String]): String = {
     val sorted = pages.sortBy(f => (f.length, f))
-    document {
-      head {
-        meta.attr("charset", "utf-8") {}
-        meta
-          .attr("name", "viewport")
-          .attr("content", "width=device-width,initial-scale=1") {}
-        title(text(course_name))
-        style(raw(css))
-      }
-      body {
-        header.css_class("top")(h1(text(course_name)))
-        main {
-          section.css_class("card") {
-            Element("h2")(text("Projects"))
-            if (sorted.isEmpty) div.css_class("note")(text("No projects yet."))
+    page(
+      head(
+        meta(charset := "utf-8"),
+        meta(
+          name := "viewport",
+          content := "width=device-width,initial-scale=1"
+        ),
+        tags2.title(course_name),
+        tags2.style(raw(css))
+      ),
+      body(
+        header(cls := "top")(h1(course_name)),
+        tags2.main(
+          tags2.section(cls := "card")(
+            h2("Projects"),
+            if (sorted.isEmpty) div(cls := "note")("No projects yet.")
             else
-              ul.css_class("projects") {
-                sorted.foreach { f =>
-                  val name =
+              ul(cls := "projects")(
+                for (f <- sorted) yield {
+                  val project =
                     f.stripPrefix(s"${course_name}_").stripSuffix(".html")
-                  li(a.attr("href", f)(text(name)))
+                  li(a(href := f)(project))
                 }
-              }
-          }
-        }
-      }
-    }
+              )
+          )
+        )
+      )
+    )
   }
 
   private val css: String = """
@@ -931,6 +774,7 @@ object HtmlGen {
     |.card { padding: 1rem; min-width: 0; }
     |.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; align-items: start; }
     |.note { color: var(--muted); font-size: 0.85rem; margin-top: 0.6rem; }
+    |.card.notice { background: var(--timeout-bg); color: var(--timeout-fg); border-color: var(--timeout-fg); font-weight: 600; }
     |
     |.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
     |.toolbar input[type=search] {

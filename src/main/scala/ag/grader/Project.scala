@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.time.{Duration, Instant, ZoneId, ZoneOffset, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 import scala.util.Try
+import scala.util.control.NonFatal
 import scala.util.matching.Regex
 
 // TODO: introduce a better abstraction
@@ -732,6 +733,8 @@ case class Project(course: Course, project_name: String)
         val prepared = prepare(csid, CutoffTime.None, commit_id_file).track
         val repo_info =
           Gitolite.repo_info(student_results_repo_name(csid)).track
+        // rewrite the_results.json if it stops being readable
+        val _ = student_results_readable(csid).track
         val alias = csid_to_alias(csid).track
         val has_test = csid_has_test(csid).track
         val can_push_repo = Config.can_push_repo.track
@@ -786,11 +789,15 @@ case class Project(course: Course, project_name: String)
                 alias = alias_v,
                 has_test = has_test_v,
                 prepare_info = prepared_v.value.get,
-                outcomes = pairs.to(SortedMap)
+                // keyed by alias: a student test's internal name is its
+                // author's CSID
+                outcomes = pairs
+                  .map((id, outcome) => id.redacted -> outcome.redacted)
+                  .to(SortedMap)
               )
               os.write.over(
                 dir / "the_results.json",
-                upickle.default.write(res.redacted)
+                upickle.default.write(res)
               )
               res
             }
@@ -799,7 +806,49 @@ case class Project(course: Course, project_name: String)
       }
   }
 
-  lazy val get_student_results: CSID => Target[Option[RedactedStudentResults]] =
+  // ---- Results published to git repos (results.json, the_results.json)
+  //
+  // These live outside the workspace, so the cache's rule (a saved value that
+  // can't be read back is recomputed) doesn't reach them by itself. Instead,
+  // each writer depends on whether its published file is readable by this
+  // version of the grader: when that changes (say, a file in an older format
+  // turns up), the writer runs again and rewrites it. Readers fail loudly on
+  // a file they can't read rather than pass on partial results.
+
+  private def readable[A: upickle.default.Reader](file: os.Path): Boolean =
+    os.isFile(file) && Try(upickle.default.read[A](os.read(file))).isSuccess
+
+  private def read_published[A: upickle.default.Reader](
+      file: os.Path,
+      rewritten_by: String
+  ): A =
+    try upickle.default.read[A](os.read(file))
+    catch {
+      case NonFatal(e) =>
+        throw new IllegalStateException(
+          s"${file.toString} isn't readable by this version of the grader; " +
+            s"`$rewritten_by` rewrites it (${e.getMessage})",
+          e
+        )
+    }
+
+  private lazy val student_results_readable: CSID => Target[Boolean] = fun {
+    csid =>
+      target(Gitolite.mirror(student_results_repo_name(csid))) { repo =>
+        repo.value && readable[StudentResults](
+          repo.get_data_path / "the_results.json"
+        )
+      }
+  }
+
+  private lazy val results_readable: Target[Boolean] =
+    target(Gitolite.mirror(project_results_repo_name)) { repo =>
+      repo.value && readable[SortedMap[Alias, RedactedStudentResults]](
+        repo.get_data_path / "results.json"
+      )
+    }
+
+  lazy val get_student_results: CSID => Target[Option[StudentResults]] =
     fun { csid =>
       target(Gitolite.mirror(student_results_repo_name(csid))) { sp =>
         if (sp.value) {
@@ -807,7 +856,10 @@ case class Project(course: Course, project_name: String)
 
           if (os.isFile(f)) {
             Some(
-              upickle.default.read[RedactedStudentResults](os.read(f))
+              read_published[StudentResults](
+                f,
+                s"run publish_results -c ${course.course_name} -p $project_name -s ${csid.value}"
+              )
             )
           } else {
             None
@@ -871,6 +923,8 @@ case class Project(course: Course, project_name: String)
     fun { (n, commit_id_file) =>
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
+        // rewrite results.json if it stops being readable
+        val _ = results_readable.track
         val results = students_with_submission.guilty.toSeq.map { csid =>
           publish_student_results(keep_going, chosen)(
             csid,
@@ -882,9 +936,12 @@ case class Project(course: Course, project_name: String)
 
         val aliases = publish_aliases.track
         val can_push_repo = Config.can_push_repo.track
+        val cutoff = code_cutoff.track
 
         run_if_needed {
           val repo_info_v = repo_info.block
+          val cutoff_v =
+            ZonedDateTime.of(cutoff.block, ZoneId.systemDefault()).nn
           update_data(_.lastOpt.contains(".git")) { dir =>
             repo_info_v.update(
               path = dir,
@@ -897,7 +954,8 @@ case class Project(course: Course, project_name: String)
               val data = (for {
                 (csid, student_results) <- Task.sequence(results).block
                 alias <- aliases.block.value.get(csid).toSeq
-              } yield (alias, student_results.value.redacted)).to(SortedMap)
+              } yield (alias, student_results.value.redacted(cutoff_v)))
+                .to(SortedMap)
               os.write.over(
                 dir / "results.json",
                 upickle.default.write(data, indent = 2)
@@ -909,22 +967,27 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  lazy val results: Target[Option[SortedMap[Alias, RedactedStudentResults]]] =
+  // The published results, for the report page: Right(None) if there are
+  // none yet, Left(why) if results.json isn't readable by this version of the
+  // grader. The page shows a notice for that project instead of failing the
+  // whole course site, until publish_results rewrites the file.
+  lazy val results: Target[
+    Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
+  ] =
     target(
       Gitolite.mirror(project_results_repo_name)
     ) { results_repo =>
-      if (results_repo.value) {
-        val f = results_repo.get_data_path / "results.json"
-        if (os.exists(f)) {
-          val d = upickle.default
-            .read[SortedMap[Alias, RedactedStudentResults]](os.read(f))
-          Some(d)
-        } else {
-          None
-        }
-      } else {
-        None
-      }
+      val f = results_repo.get_data_path / "results.json"
+      if (!results_repo.value || !os.exists(f)) Right(None)
+      else
+        Try(
+          read_published[SortedMap[Alias, RedactedStudentResults]](
+            f,
+            s"run publish_results -c ${course.course_name} -p $project_name"
+          )
+        ).toEither.left
+          .map(e => String.valueOf(e.getMessage))
+          .map(Some(_))
     }
 
   ///////////////////

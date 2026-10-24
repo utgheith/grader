@@ -26,11 +26,11 @@ class HtmlGenTests extends FunSuite {
         commit_time = commit,
         sha = f"$alias%04x" + "beef",
         has_report = true,
-        push_time = None,
+        push_time = Some(commit.plusHours(2).toInstant.nn),
         commit_source =
           if (from_file) CommitSource.FromFile("commit_id", "abc123")
           else CommitSource.Latest
-      ),
+      ).redacted(ZonedDateTime.of(cutoff, java.time.ZoneId.systemDefault()).nn),
       outcomes = outcomes
         .map((t, s) =>
           RedactedTestId(t) -> RedactedOutcome(
@@ -156,8 +156,9 @@ class HtmlGenTests extends FunSuite {
 
   test("text and attributes are escaped") {
     assert(!page.contains("<b>'x"))
-    assert(page.contains("&lt;b&gt;&#39;x"), "in attributes")
-    assert(page.contains("&lt;b&gt;'x"), "in text")
+    // attribute values are double-quoted, so a ' needn't be escaped there
+    assert(page.contains("""data-id="&lt;b&gt;'x""""), "in attributes")
+    assert(page.contains(""">&lt;b&gt;'x<"""), "in text")
   }
 
   test("ignored tests get no column") {
@@ -170,14 +171,22 @@ class HtmlGenTests extends FunSuite {
       .findAllMatchIn(page)
       .map(_.group(1))
       .toList
-    assertEquals(order, List("t0", "t1", "&lt;b&gt;&#39;x"))
+    assertEquals(order, List("t0", "t1", "&lt;b&gt;'x"))
     assert(page.contains("""data-alias="001" data-chosen="2" data-all="2""""))
     assert(page.contains("""data-alias="002" data-chosen="0" data-all="1""""))
   }
 
-  test("late and commit-id-file submissions are marked") {
+  test("late, commit-id-file and push-gap submissions are marked") {
     assert(page.contains("late commit"))
-    assert(page.contains("from commit_id: abc123"))
+    assert(page.contains("commit chosen by a commit id file"))
+    assert(page.contains("push and commit times differ by over 30 min"))
+  }
+
+  test("nothing on the page identifies a student: no shas, no times") {
+    for (a <- 1 to 3) assert(!page.contains(f"$a%04x"), s"sha of $a")
+    assert(!page.contains("abc123"), "commit id file contents")
+    assert(!page.contains("2026-09-30T"), "commit times")
+    assert(!page.contains("2026-10-02T"), "commit times")
   }
 
   test("tooltips show tries and times") {
@@ -261,5 +270,21 @@ class HtmlGenTests extends FunSuite {
       HtmlGen.render(data.copy(title = "cs439t_f26_p5", project_name = "p5"))
     assert(p5.contains("<h1>p5</h1>"))
     assert(p5.contains("<title>cs439t_f26_p5</title>"))
+  }
+
+  test("unreadable results show a notice instead of breaking the page") {
+    val waiting = HtmlGen.render(
+      data.copy(results = SortedMap(), notice = Some("being updated"))
+    )
+    assert(
+      waiting.contains(
+        """<div class="card notice" role="status">being updated</div>"""
+      )
+    )
+    assert(!waiting.contains("enrollments"), "no misleading summary")
+    assert(
+      waiting.contains("""<table class="results">"""),
+      "the page's script still finds its grid"
+    )
   }
 }
