@@ -78,7 +78,7 @@ class ScoreTests extends FunSuite {
     )
     val s = HtmlGen.score_of(data, r).get
     assertEquals((s.earned, s.possible, s.days_late), (8.0, 8, 0.0))
-    assertEqualsDouble(s.percent, 100.0, 1e-9)
+    assertEqualsDouble(s.correctness, 1.0, 1e-9)
   }
 
   test("each test earns the fraction of its tries that passed") {
@@ -90,12 +90,12 @@ class ScoreTests extends FunSuite {
     )
     val s = HtmlGen.score_of(data, r).get
     assertEqualsDouble(s.earned, 2.0 + 0.0 + 2.25, 1e-9)
-    assertEqualsDouble(s.percent, 100 * 4.25 / 8, 1e-9)
+    assertEqualsDouble(s.correctness, 4.25 / 8, 1e-9)
   }
 
   test("a test that never ran earns nothing") {
     val r = results(cutoff.minusDays(1), "t0" -> Seq(pass))
-    assertEqualsDouble(HtmlGen.score_of(data, r).get.percent, 50.0, 1e-9)
+    assertEqualsDouble(HtmlGen.score_of(data, r).get.correctness, 0.5, 1e-9)
   }
 
   test("10% off per day late, pro-rated continuously") {
@@ -104,9 +104,9 @@ class ScoreTests extends FunSuite {
     val six = HtmlGen.score_of(data, results(cutoff.plusHours(6), all*)).get
     val two_and_a_half =
       HtmlGen.score_of(data, results(cutoff.plusHours(60), all*)).get
-    assertEqualsDouble(day.percent, 90.0, 1e-9)
-    assertEqualsDouble(six.percent, 100 * math.pow(0.9, 0.25), 1e-9) // 97.4
-    assertEqualsDouble(two_and_a_half.percent, 100 * math.pow(0.9, 2.5), 1e-9)
+    assertEqualsDouble(day.correctness, 0.9, 1e-9)
+    assertEqualsDouble(six.correctness, math.pow(0.9, 0.25), 1e-9) // 0.974
+    assertEqualsDouble(two_and_a_half.correctness, math.pow(0.9, 2.5), 1e-9)
   }
 
   test("no weights, no score") {
@@ -144,16 +144,16 @@ class ScoreTests extends FunSuite {
       "t2" -> Seq(pass)
     )
     val page = HtmlGen.render(data.copy(results = SortedMap(Alias(1) -> r)))
-    val pct = 100 * math.pow(0.9, 26 / 24.0) // 89.2
+    val ratio = math.pow(0.9, 26 / 24.0) // 0.892
     assert(page.contains("""data-key="score""""))
-    assert(page.contains(f"""data-score="$pct%.3f""""))
+    assert(page.contains(f"""data-score="$ratio%.6f""""))
     assert(
       clue(page).contains(
-        f"8.0 of 8 points × 0.9^1.08 (1 day 2 hours late) = $pct%.1f%%"
+        f"8.0 of 8 points × 0.9^1.08 (1 day 2 hours late) = $ratio%.3f"
       )
     )
-    assert(page.contains(f">$pct%.1f</td>"))
-    assert(page.contains("median score"))
+    assert(page.contains(f">$ratio%.3f</td>"))
+    assert(page.contains("median correctness"))
   }
 
 }

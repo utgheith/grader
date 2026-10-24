@@ -144,7 +144,7 @@ object HtmlGen {
       earned: Double, // weighted, before the late penalty
       possible: Int,
       days_late: Double,
-      percent: Double // after the late penalty
+      correctness: Double // 0..1, after the late penalty
   )
 
   // e.g. "1 day 2 hours", "45 minutes"
@@ -187,7 +187,7 @@ object HtmlGen {
         earned,
         possible,
         days,
-        100 * earned / possible * math.pow(0.9, days)
+        earned / possible * math.pow(0.9, days)
       )
     }
   }
@@ -343,7 +343,7 @@ object HtmlGen {
               alias.toString -> scores
                 .get(alias)
                 .fold(ujson.Null)(s =>
-                  ujson.Num(math.round(s.percent * 10) / 10.0)
+                  ujson.Num(math.round(s.correctness * 1000) / 1000.0)
                 )
             })
           )
@@ -385,8 +385,8 @@ object HtmlGen {
             ),
             th(
               cls := "num score",
-              title := "correctness score, after any late penalty"
-            )(button(cls := "sort", data("key") := "score")("score")),
+              title := "correctness (0 to 1), after any late penalty"
+            )(button(cls := "sort", data("key") := "score")("correctness")),
             for ((t, i) <- tests.zipWithIndex)
               yield th(
                 cls := (if (chosen.contains(t)) "test chosen" else "test opt"),
@@ -422,7 +422,7 @@ object HtmlGen {
               data("alias") := alias.toString,
               data("chosen") := n_chosen.toString,
               data("all") := n_all.toString,
-              data("score") := score.fold("-1")(s => f"${s.percent}%.3f")
+              data("score") := score.fold("-1")(s => f"${s.correctness}%.6f")
             )(
               td(cls := "pin-col")(
                 input(
@@ -463,9 +463,9 @@ object HtmlGen {
                     if (s.days_late == 0) ""
                     else
                       f" × 0.9^${s.days_late}%.2f (${describe_days(s.days_late)} late)"
-                  title := f"${s.earned}%.1f of ${s.possible} points$late = ${s.percent}%.1f%%"
+                  title := f"${s.earned}%.1f of ${s.possible} points$late = ${s.correctness}%.3f"
                 }
-              )(score.fold("–")(s => f"${s.percent}%.1f")),
+              )(score.fold("–")(s => f"${s.correctness}%.3f")),
               for ((t, i) <- tests.zipWithIndex) yield {
                 val o = r.outcomes.get(RedactedTestId(t))
                 val (status_cls, glyph, word, rank) =
@@ -541,16 +541,16 @@ object HtmlGen {
             s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
         ),
         div(cls := "note")(
-          "Score: each test earns its weight times the fraction of its tries " +
-            "that passed; the score is the share of all the weight earned, " +
+          "Correctness (0 to 1): each test earns its weight times the fraction " +
+            "of its tries that passed; correctness is the share of all the weight earned, " +
             "times 0.9 per day the commit is past the phase 2 cutoff, " +
             "pro-rated by the hour (0.9 ^ (hours late / 24))."
         )
       )
 
-    val median_score: Option[Double] =
+    val median_correctness: Option[Double] =
       Option.when(scores.nonEmpty) {
-        val sorted = scores.values.map(_.percent).toSeq.sorted
+        val sorted = scores.values.map(_.correctness).toSeq.sorted
         val m = sorted.size / 2
         if (sorted.size % 2 == 1) sorted(m) else (sorted(m - 1) + sorted(m)) / 2
       }
@@ -603,7 +603,7 @@ object HtmlGen {
               Option.when(chosen_count > 0)(
                 stat("pass every chosen test", all_chosen_passing.toString)
               ),
-              median_score.map(m => stat("median score", f"$m%.1f"))
+              median_correctness.map(m => stat("median correctness", f"$m%.3f"))
             )
           ),
           tags2.section(cls := "card grid-card")(
@@ -1157,7 +1157,7 @@ object HtmlGen {
     |      const all = aliases.map((a) => data.scores[a]).filter((x) => x !== null);
     |      const s = standing(my_score, all);
     |      summary.append(el("div", { class: "stat" },
-    |        el("div", { class: "stat-value" }, my_score.toFixed(1), el("small", {}, " score")),
+    |        el("div", { class: "stat-value" }, my_score.toFixed(3), el("small", {}, " correctness")),
     |        el("div", { class: "stat-label" },
     |          `rank ${s.rank} of ${all.length} \u00b7 higher than ${pct(s.beats)} of submissions`)));
     |    }
