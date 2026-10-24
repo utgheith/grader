@@ -18,10 +18,18 @@ def say(msg: Any): Unit = say.synchronized {
 
 val next_std_id = new AtomicLong(0)
 
+// Where each run's command output goes: std_out_err/ in the workspace
+// (Main sets this before a command runs, and holds the workspace's lock, so
+// no other run shares it); ./std_out_err when nothing set it. Emptied at the
+// start of each run.
+@volatile private var std_out_err_dir: Option[os.Path] = None
+
+def use_std_out_err(dir: os.Path): Unit = std_out_err_dir = Some(dir)
+
 lazy val std_dir: os.Path = {
-  val d = os.pwd / "std_out_err"
+  val d = std_out_err_dir.getOrElse(os.pwd / "std_out_err")
   os.remove.all(d)
-  os.makeDir(d)
+  os.makeDir.all(d)
   d
 }
 
