@@ -10,6 +10,7 @@ import upickle.default.ReadWriter
 import scala.collection.SortedMap
 
 // The persistent state of a computed value
+@upickle.implicits.allowUnknownKeys(false)
 case class Saved[+A](
     result: Result[A],
     depends_on: SortedMap[os.RelPath, Signature]

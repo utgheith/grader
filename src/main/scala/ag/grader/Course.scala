@@ -18,6 +18,7 @@ import ag.task.Task
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class Course(course_name: String) extends Scope(ToRelPath(course_name))
     derives ReadWriter {
 

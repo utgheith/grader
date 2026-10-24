@@ -4,6 +4,7 @@ import upickle.default.ReadWriter
 import java.time.{ZonedDateTime, Duration}
 import ag.common.{given_ReadWriter_ZonedDateTime, given_ReadWriter_Duration}
 
+@upickle.implicits.allowUnknownKeys(false)
 final case class LateCommit(
     hash: String,
     time: ZonedDateTime,

@@ -9,6 +9,7 @@ import ag.common.{
 import scala.collection.SortedMap
 import upickle.default.ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class Saved[+T](
     value: T,
     signature: Signature,

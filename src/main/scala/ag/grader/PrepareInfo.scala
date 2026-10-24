@@ -14,11 +14,11 @@ enum CommitSource derives ReadWriter:
   // Named in the submission's commit id file; `sha` is the file's contents.
   case FromFile(file_name: String, sha: String)
 
+@upickle.implicits.allowUnknownKeys(false)
 final case class PrepareInfo(
     commit_time: ZonedDateTime,
     sha: String,
     has_report: Boolean,
-    push_time: Option[Instant] = None,
-    // Defaulted so results saved before this was tracked still load.
-    commit_source: CommitSource = CommitSource.Latest
+    push_time: Option[Instant],
+    commit_source: CommitSource
 ) derives ReadWriter

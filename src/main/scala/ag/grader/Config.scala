@@ -59,12 +59,12 @@ object RemoteServer {
 
 @upickle.implicits.allowUnknownKeys(false)
 case class CloudflareConfig(
-    enabled: Boolean = false,
+    enabled: Boolean,
     id: String,
     api_key: String,
     // a zone on this Cloudflare account; each course's site is served at
     // https://<course project>.<domain>
-    domain: Option[String] = None
+    domain: Option[String]
 ) derives ReadWriter {
   // keep the api_key out of logs and pprint output
   override def toString: String =
@@ -207,11 +207,11 @@ case class CloudflareConfig(
 @upickle.implicits.allowUnknownKeys(false)
 case class Config(
     gitolite: RemoteServer,
-    dropbox_path: Option[os.RelPath] = None,
-    site_base: Option[String] = None,
-    can_send_mail: Option[Boolean] = None,
-    can_push_repo: Option[Boolean] = None,
-    cloudflare: Option[CloudflareConfig] = None
+    dropbox_path: Option[os.RelPath],
+    site_base: Option[String],
+    can_send_mail: Option[Boolean],
+    can_push_repo: Option[Boolean],
+    cloudflare: Option[CloudflareConfig]
 ) derives ReadWriter {}
 
 object Config extends Scope(".") {

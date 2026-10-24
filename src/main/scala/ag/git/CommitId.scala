@@ -18,12 +18,15 @@ object CommitId {
     override val name: String = "HEAD"
   }
 
+  @upickle.implicits.allowUnknownKeys(false)
   case class SHA(sha: Sha.Commit) extends Simple {
     override def name: String = sha.sha
   }
 
+  @upickle.implicits.allowUnknownKeys(false)
   case class Name(override val name: String) extends Simple {}
 
+  @upickle.implicits.allowUnknownKeys(false)
   case class Parent(base: Simple, back: Int) extends CommitId {
     override lazy val name: String = s"${base.name}~$back"
   }

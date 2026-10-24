@@ -3,6 +3,7 @@ package ag.grader
 import upickle.default.ReadWriter
 import scala.collection.SortedMap
 
+@upickle.implicits.allowUnknownKeys(false)
 case class StudentFailures(
     alias: Option[Alias],
     has_test: Boolean,
@@ -24,6 +25,7 @@ object StudentFailures {
   )
 }
 
+@upickle.implicits.allowUnknownKeys(false)
 case class RedactedStudentResults(
     alias: Option[Alias],
     has_test: Boolean,
@@ -31,6 +33,7 @@ case class RedactedStudentResults(
     outcomes: SortedMap[RedactedTestId, RedactedOutcome]
 ) derives ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class StudentResults(
     csid: CSID,
     alias: Option[Alias],

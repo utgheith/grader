@@ -7,7 +7,8 @@ import java.time.LocalDateTime
 @upickle.implicits.allowUnknownKeys(false)
 case class RawProject(
     active: Boolean,
-    cores: Int = 4,
+    cores: Int,
+    // TODO: drop this default once every project in courses.json lists it
     score_iterations: Int = 100,
     code_cutoff: LocalDateTime,
     test_cutoff: LocalDateTime,

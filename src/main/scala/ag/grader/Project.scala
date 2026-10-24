@@ -65,6 +65,7 @@ object CutoffTime:
 private val started_runs = AtomicLong(0)
 private val finished_runs = AtomicLong(0)
 
+@upickle.implicits.allowUnknownKeys(false)
 case class Project(course: Course, project_name: String)
     extends Scope(course / project_name) derives ReadWriter {
 

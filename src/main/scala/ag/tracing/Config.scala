@@ -7,6 +7,7 @@ import upickle.default.ReadWriter
 import java.time.LocalDateTime
 import java.util.concurrent.locks.ReentrantLock
 
+@upickle.implicits.allowUnknownKeys(false)
 case class Config(
     file: Option[os.RelPath],
     thread_name: Boolean,

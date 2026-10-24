@@ -9,5 +9,5 @@ case class RawCourse(
     active: Boolean,
     notifications: NotificationConfig,
     projects: SortedMap[String, RawProject],
-    staff: SortedSet[CSID] = SortedSet()
+    staff: SortedSet[CSID]
 ) derives ReadWriter

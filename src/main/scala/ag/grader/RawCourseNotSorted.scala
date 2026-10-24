@@ -8,7 +8,7 @@ case class RawCourseNotSorted(
     active: Boolean,
     notifications: NotificationConfig,
     projects: Map[String, RawProject],
-    staff: SortedSet[CSID] = SortedSet()
+    staff: SortedSet[CSID]
 ) derives ReadWriter {
   lazy val sorted: RawCourse = RawCourse(
     active = active,

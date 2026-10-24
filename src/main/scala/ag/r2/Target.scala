@@ -5,6 +5,7 @@ import ag.task.Task
 
 import upickle.default.ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class WithData[A](
     value: A,
     target_name: os.RelPath,

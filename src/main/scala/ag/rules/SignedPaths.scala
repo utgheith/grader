@@ -4,4 +4,5 @@ import ag.common.{given_ReadWriter_Path, given_ReadWriter_SortedSet}
 import scala.collection.SortedSet
 import upickle.default.ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class SignedPaths(paths: SortedSet[os.Path]) derives ReadWriter {}

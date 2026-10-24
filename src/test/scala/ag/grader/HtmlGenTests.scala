@@ -26,6 +26,7 @@ class HtmlGenTests extends FunSuite {
         commit_time = commit,
         sha = f"$alias%04x" + "beef",
         has_report = true,
+        push_time = None,
         commit_source =
           if (from_file) CommitSource.FromFile("commit_id", "abc123")
           else CommitSource.Latest

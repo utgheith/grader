@@ -6,6 +6,7 @@ import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 import ag.rules.{check, run}
 
+@upickle.implicits.allowUnknownKeys(false)
 case class RepoInfo(
     server: RemoteServer,
     repo_name: String,

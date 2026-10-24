@@ -5,6 +5,7 @@ import ag.common.given_ReadWriter_RelPath
 import ag.tracing.trace
 import upickle.default.ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class TraceFlags(
     miss: Boolean,
     read_error: Boolean,
@@ -12,6 +13,7 @@ case class TraceFlags(
     dirty: Boolean
 ) derives ReadWriter
 
+@upickle.implicits.allowUnknownKeys(false)
 case class Config(
     trace_flags: TraceFlags,
     test_dir: Option[os.RelPath]
