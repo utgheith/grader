@@ -243,7 +243,93 @@ object HtmlGen {
 
   // The fixed (non-test) columns at the start of every row; the page's
   // script relies on this count.
-  private val fixed_columns = 4
+  private val fixed_columns = 5
+
+  // ---- Correctness score
+  //
+  // Each chosen test is worth its weight from `test_weights`, scaled per
+  // phase as in the "Selected test weights" table, and earns that weight
+  // times the fraction of its tries that passed. The score is the earned
+  // share of all the weight, times 0.9 per day (continuously: 0.9^(hours/24))
+  // the commit is past the phase 2 (code) cutoff.
+
+  final case class Score(
+      earned: Double, // weighted, before the late penalty
+      possible: Int,
+      days_late: Double,
+      percent: Double // after the late penalty
+  )
+
+  // Fractional days: 6 hours late is 0.25.
+  def days_late(commit: ZonedDateTime, cutoff: ZonedDateTime): Double =
+    if (!commit.isAfter(cutoff)) 0.0
+    else java.time.Duration.between(cutoff, commit).nn.getSeconds / 86400.0
+
+  // e.g. "1 day 2 hours", "45 minutes"
+  private def describe_days(days: Double): String = {
+    val minutes = math.round(days * 24 * 60)
+    def unit(n: Long, what: String) = s"$n $what${if (n == 1) "" else "s"}"
+    if (minutes < 60) unit(minutes, "minute")
+    else {
+      val d = minutes / (24 * 60)
+      val h = minutes / 60 % 24
+      List(
+        Option.when(d > 0)(unit(d, "day")),
+        Option.when(h > 0)(unit(h, "hour"))
+      ).flatten
+        .mkString(" ")
+    }
+  }
+
+  def score_of(d: ReportData, r: RedactedStudentResults): Option[Score] =
+    score_with(compute_weights(d), d, r)
+
+  private def score_with(
+      weights: Weights,
+      d: ReportData,
+      r: RedactedStudentResults
+  ): Option[Score] = {
+    val possible = weights.phase1_total + weights.phase2_total
+    Option.when(possible > 0) {
+      val earned = weights.rows.map { row =>
+        val runs = r.outcomes
+          .get(RedactedTestId(row.test))
+          .map(_.outcomes)
+          .getOrElse(Nil)
+        val fraction =
+          if (runs.isEmpty) 0.0
+          else runs.count(_._1 == OutcomeStatus.pass).toDouble / runs.size
+        (row.phase1 + row.phase2) * fraction
+      }.sum
+      val days = days_late(
+        r.prepare_info.commit_time,
+        ZonedDateTime.of(d.code_cutoff, ZoneId.systemDefault()).nn
+      )
+      Score(
+        earned,
+        possible,
+        days,
+        100 * earned / possible * math.pow(0.9, days)
+      )
+    }
+  }
+
+  // Commit times come from the student's machine; push times from the
+  // server. A big gap between them (either way) is worth a look.
+  def push_gap(info: PrepareInfo): Option[java.time.Duration] =
+    info.push_time
+      .map(p => java.time.Duration.between(info.commit_time.toInstant, p).nn)
+      .filter(_.abs.nn.toMinutes > 30)
+
+  private def describe_gap(gap: java.time.Duration): String = {
+    val m = gap.abs.nn.toMinutes
+    val amount =
+      if (m >= 60 * 24) s"${m / (60 * 24)}d ${m / 60 % 24}h"
+      else if (m >= 60) s"${m / 60}h ${m % 60}m"
+      else s"${m}m"
+    if (gap.isNegative) s"pushed $amount before its commit time"
+    else s"pushed $amount after its commit time"
+  }
 
   // How a test's last run is shown: css class, glyph, word, sort rank
   private def status_of(
@@ -355,6 +441,10 @@ object HtmlGen {
       else rows.count((alias, _) => passed(alias, chosen_tests) == chosen_count)
 
     val weights = compute_weights(d)
+    val scores: Map[Alias, Score] =
+      rows
+        .flatMap((alias, r) => score_with(weights, d, r).map(alias -> _))
+        .toMap
 
     // Per submission, per test (in `tests` order): [result rank, passing
     // tries, tries, median passing time or null]. The comparison view is
@@ -389,7 +479,14 @@ object HtmlGen {
             "chosen" -> ujson.Arr.from(
               tests.map(t => ujson.Bool(chosen.contains(t)))
             ),
-            "rows" -> ujson.Obj.from(per_submission)
+            "rows" -> ujson.Obj.from(per_submission),
+            "scores" -> ujson.Obj.from(rows.map { (alias, _) =>
+              alias.toString -> scores
+                .get(alias)
+                .fold(ujson.Null)(s =>
+                  ujson.Num(math.round(s.percent * 10) / 10.0)
+                )
+            })
           )
         )
         // no raw "<" (e.g. "</script>" in a test name) inside the <script>;
@@ -431,6 +528,10 @@ object HtmlGen {
                 span.css_class("of")(text(s"/${tests.size}"))
               }
             }
+            th.css_class("num score")
+              .title("correctness score, after any late penalty") {
+                button.css_class("sort").data("key", "score")(text("score"))
+              }
             tests.zipWithIndex.foreach { (t, i) =>
               th.css_class(
                 "test" :: (if (chosen.contains(t)) List("chosen")
@@ -464,12 +565,15 @@ object HtmlGen {
             }
             val n_chosen = passed(alias, chosen_tests)
             val n_all = passed(alias, tests)
+            val score = scores.get(alias)
+            val gap = push_gap(info)
 
             tr.css_class(
               if (d.staff_aliases.contains(alias)) "staff" else null
             ).data("alias", alias.toString)
               .data("chosen", n_chosen.toString)
-              .data("all", n_all.toString) {
+              .data("all", n_all.toString)
+              .data("score", score.fold("-1")(s => f"${s.percent}%.3f")) {
                 td.css_class("pin-col") {
                   input
                     .css_class("rowpin")
@@ -483,7 +587,8 @@ object HtmlGen {
                   List(
                     Some(info.sha),
                     Option.when(is_late)("late commit"),
-                    from_file
+                    from_file,
+                    gap.map(describe_gap)
                   ).flatten.mkString(" · ")
                 ) {
                   text(alias.toString)
@@ -491,6 +596,7 @@ object HtmlGen {
                   if (is_late) span.css_class("mark late")(text("*"))
                   if (from_file.isDefined)
                     span.css_class("mark")(text("†"))
+                  if (gap.isDefined) span.css_class("mark warn")(text("!"))
                 }
                 td.css_class(
                   "num" :: (if (chosen_count > 0 && n_chosen == chosen_count)
@@ -498,6 +604,14 @@ object HtmlGen {
                             else Nil)
                 )(text(n_chosen.toString))
                 td.css_class("num")(text(n_all.toString))
+                td.css_class("num score")
+                  .title(score.fold[String | Null](null) { s =>
+                    val late =
+                      if (s.days_late == 0) ""
+                      else
+                        f" × 0.9^${s.days_late}%.2f (${describe_days(s.days_late)} late)"
+                    f"${s.earned}%.1f of ${s.possible} points$late = ${s.percent}%.1f%%"
+                  })(text(score.fold("–")(s => f"${s.percent}%.1f")))
                 tests.zipWithIndex.foreach { (t, i) =>
                   val o = r.outcomes.get(RedactedTestId(t))
                   val (cls, glyph, word, rank) =
@@ -534,6 +648,10 @@ object HtmlGen {
         li {
           span.css_class("mark")(text("†"))
           text(" commit chosen by a commit id file")
+        }
+        li {
+          span.css_class("mark warn")(text("!"))
+          text(" push and commit times differ by over 30 min")
         }
         li { span.css_class("swatch staff")(text("")); text(" staff") }
       }
@@ -578,6 +696,14 @@ object HtmlGen {
           text(
             s"Overall: ${weights.phase1_total} + ${weights.phase2_total} = $total; " +
               s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
+          )
+        }
+        div.css_class("note") {
+          text(
+            "Score: each test earns its weight times the fraction of its tries " +
+              "that passed; the score is the share of all the weight earned, " +
+              "times 0.9 per day the commit is past the phase 2 cutoff, " +
+              "pro-rated by the hour (0.9 ^ (hours late / 24))."
           )
         }
       }
@@ -628,6 +754,14 @@ object HtmlGen {
             stat("tests", tests.size.toString, s"($chosen_count chosen)")
             if (chosen_count > 0)
               stat("pass every chosen test", all_chosen_passing.toString)
+            if (scores.nonEmpty) {
+              val sorted = scores.values.map(_.percent).toSeq.sorted
+              val m = sorted.size / 2
+              val median =
+                if (sorted.size % 2 == 1) sorted(m)
+                else (sorted(m - 1) + sorted(m)) / 2
+              stat("median score", f"$median%.1f")
+            }
           }
           section.css_class("card grid-card") {
             div.css_class("toolbar") {
@@ -831,6 +965,8 @@ object HtmlGen {
     |.mark.late { color: var(--fail-fg); }
     |.results .num { padding: 0 0.45rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     |.results td.num.full { color: var(--pass-fg); font-weight: 700; }
+    |.results td.num.score { font-weight: 700; }
+    |.mark.warn { color: var(--timeout-fg); }
     |.results th.num + th.test, .results td.num + td.cell { border-left: 1px solid var(--border); }
     |.results .of { color: var(--muted); font-weight: 400; }
     |
@@ -976,7 +1112,7 @@ object HtmlGen {
     |    // scrolling); both groups are sorted the same way.
     |    function value_of(row) {
     |      if (sort.key === "alias") return row.dataset.alias;
-    |      if (sort.key === "chosen" || sort.key === "all") return +row.dataset[sort.key];
+    |      if (sort.key === "chosen" || sort.key === "all" || sort.key === "score") return +row.dataset[sort.key];
     |      const col = col_of.get(sort.key.slice("test:".length));
     |      const cell = col === undefined ? null : row.querySelector(`td[data-col="${col}"]`);
     |      return cell ? +cell.dataset.r : -1;
@@ -1172,6 +1308,15 @@ object HtmlGen {
     |        histogram(all, me, out_of),
     |        el("div", { class: "hist-axis" }, el("span", {}, "0"), el("span", {}, `${out_of} passed`))));
     |    };
+    |    const my_score = data.scores[compare];
+    |    if (my_score !== null && my_score !== undefined) {
+    |      const all = aliases.map((a) => data.scores[a]).filter((x) => x !== null);
+    |      const s = standing(my_score, all);
+    |      summary.append(el("div", { class: "stat" },
+    |        el("div", { class: "stat-value" }, my_score.toFixed(1), el("small", {}, " score")),
+    |        el("div", { class: "stat-label" },
+    |          `rank ${s.rank} of ${all.length} \u00b7 higher than ${pct(s.beats)} of submissions`)));
+    |    }
     |    if (n_chosen > 0) score_card("chosen tests", true, n_chosen);
     |    score_card("tests", false, data.tests.length);
     |
