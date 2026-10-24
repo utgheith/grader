@@ -43,4 +43,27 @@ class PrepareInfoTests extends FunSuite {
       info.copy(commit_source = CommitSource.FromFile("commit_id", "deadbeef"))
     assertEquals(read[PrepareInfo](write(pinned)), pinned)
   }
+
+  test("push times come from the hook's bare notes, or older PushTime lines") {
+    def at(secs: Long) = Some(java.time.Instant.ofEpochSecond(secs).nn)
+    assertEquals(PrepareInfo.push_time_from(Seq("1730000000")), at(1730000000))
+    assertEquals(
+      PrepareInfo.push_time_from(Seq("PushTime: 1720000000")),
+      at(1720000000)
+    )
+    assertEquals(PrepareInfo.push_time_from(Nil), None)
+    assertEquals(
+      PrepareInfo.push_time_from(Seq("", "not a time", "PushTime: x")),
+      None
+    )
+  }
+
+  test("of several push times, the earliest counts: when the commit arrived") {
+    assertEquals(
+      PrepareInfo.push_time_from(
+        Seq("1730000300", "", "1730000000", "PushTime: 1730000100")
+      ),
+      Some(java.time.Instant.ofEpochSecond(1730000000).nn)
+    )
+  }
 }

@@ -35,6 +35,23 @@ final case class PrepareInfo(
 }
 
 object PrepareInfo {
+  // When a commit first reached the server, from its push-time notes: bare
+  // "<secs>" lines (the hook appends one per push that leaves HEAD on it), or
+  // "PushTime: <secs>" lines (older repos). The earliest counts: that's when
+  // the commit arrived; later ones are re-pushes.
+  def push_time_from(note_lines: Seq[String]): Option[Instant] =
+    note_lines
+      .map(_.trim)
+      .flatMap { line =>
+        line.split(' ') match {
+          case Array(secs)              => secs.toLongOption
+          case Array("PushTime:", secs) => secs.toLongOption
+          case _                        => None
+        }
+      }
+      .minOption
+      .map(Instant.ofEpochSecond(_, 0).nn)
+
   // Fractional days past the cutoff (6 hours late is 0.25); 0 if on time.
   def days_late(commit: ZonedDateTime, cutoff: ZonedDateTime): Double =
     if (!commit.isAfter(cutoff)) 0.0

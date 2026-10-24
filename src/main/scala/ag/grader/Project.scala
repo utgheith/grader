@@ -499,17 +499,16 @@ case class Project(course: Course, project_name: String)
                 ZoneOffset.UTC
               )
 
-              // push time
-
-              val push_time = (for {
-                line <- os
-                  .proc("git", "show", "-s", "--format=%N")
-                  .lines(cwd = dir)
-                parts = line.split(' ')
-                if parts.length >= 2
-                if parts(0) == "PushTime:"
-                v <- Try(parts(1).toLong).toOption
-              } yield v).maxOption.map(s => Instant.ofEpochSecond(s, 0))
+              // push time: the server's push hook notes it on HEAD, in
+              // refs/notes/push_time (older repos: "PushTime: <secs>" lines
+              // in the default notes)
+              val push_time = PrepareInfo.push_time_from(
+                os.proc("git", "notes", "--ref", "push_time", "show", "HEAD")
+                  .call(cwd = dir, check = false, stderr = os.Pipe)
+                  .out
+                  .lines() ++
+                  os.proc("git", "show", "-s", "--format=%N").lines(cwd = dir)
+              )
 
               // (4) override
               os.copy(
