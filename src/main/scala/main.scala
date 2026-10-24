@@ -5,7 +5,19 @@ import ag.common.{
   human,
   timed
 }
-import ag.grader.{CSID, Course, CutoffTime, Gitolite, HtmlGen, Project, TestId}
+import ag.grader.{
+  Priority,
+  ProjectState,
+  TestSet,
+  CSID,
+  Course,
+  CutoffTime,
+  Gitolite,
+  HtmlGen,
+  Project,
+  TestId
+}
+import ag.grader.TestSet.given
 import ag.r2.{Scope, State, Target, run_if_needed}
 import ag.task.Task
 import mainargs.{
@@ -671,8 +683,14 @@ object Main {
           "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
       )
       cutoff: CutoffTime,
-      @arg(short = 'k', doc = "keep going after failure")
+      @arg(
+        short = 'k',
+        doc =
+          "keep going after failure (default: only after the second deadline)"
+      )
       keep_going: Flag = Flag(false),
+      @arg(name = "no-keep-going", doc = "stop retrying a test once it fails")
+      no_keep_going: Flag = Flag(false),
       @arg(
         name = "result-file",
         doc = "The json file to write the results summary out to"
@@ -683,7 +701,10 @@ object Main {
     val outs = Task.sequence {
       for ((p, csid, test_id) <- runs)
         yield p
-          .run_one(keep_going.value, commonArgs.count)(
+          .run_one(
+            keep_going_for(p, keep_going, no_keep_going),
+            commonArgs.count
+          )(
             csid,
             cutoff,
             test_id,
@@ -728,21 +749,70 @@ object Main {
 
   }
 
+  // A project's state (from its deadlines and the clock), announced once.
+  private def state_of(p: Project)(using State): ProjectState = p.state.guilty
+
+  // -k / --no-keep-going if given, otherwise what the project's state says.
+  private def keep_going_for(p: Project, on: Flag, off: Flag)(using
+      State
+  ): Boolean =
+    if (on.value) true
+    else if (off.value) false
+    else state_of(p).keep_going
+
   @main
   def publish_results(
       commonArgs: CommonArgs,
-      @arg(short = 'k', doc = "keep going after failure")
+      @arg(
+        short = 'k',
+        doc =
+          "keep going after failure (default: only after the second deadline)"
+      )
       keep_going: Flag = Flag(false),
-      @arg(doc = "only run and publish the chosen (phase 2) tests")
+      @arg(name = "no-keep-going", doc = "stop retrying a test once it fails")
+      no_keep_going: Flag = Flag(false),
+      @arg(
+        name = "test-set",
+        doc =
+          "which tests: all, good (not ignored) or chosen (default: all before the first deadline, good between the deadlines, chosen after)"
+      )
+      test_set: Option[TestSet] = None,
+      @arg(doc = "same as --test-set chosen")
       chosen: Flag = Flag(false)
   ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
-      val _ =
-        p.publish_results(keep_going.value, chosen.value)(
+    val candidates = commonArgs.selected_projects.guilty
+    def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
+    // with no -p, grade one project, picked by priority (see Priority)
+    val named = commonArgs.projects_.regex != ".*"
+    val projects =
+      if (named || candidates.size <= 1) candidates
+      else {
+        val weighted = candidates.map(p => p -> state_of(p).priority)
+        for ((p, prio) <- weighted)
+          println(
+            s"${name(p)}: ${state_of(p).description}; ${prio.toString.toLowerCase} priority"
+          )
+        val picked =
+          Priority.pick(weighted, scala.util.Random.nextDouble()).toSeq
+        picked.foreach(p => println(s"picked ${name(p)}"))
+        picked
+      }
+    for (p <- projects) {
+      val kg = keep_going_for(p, keep_going, no_keep_going)
+      val which =
+        if (chosen.value) "chosen"
+        else test_set.getOrElse(state_of(p).tests)
+      println(
+        s"${name(p)}: ${state_of(p).description}; tests: ${which: String}, keep-going ${
+            if (kg) "on" else "off"
+          }"
+      )
+      val _ = p
+        .publish_results(kg, which)(
           commonArgs.count,
           commonArgs.commit_id_file
-        ).guilty
-      // println(upickle.default.write(results, indent=2))
+        )
+        .guilty
     }
   }
 

@@ -156,4 +156,18 @@ class ScoreTests extends FunSuite {
     assert(page.contains("median correctness"))
   }
 
+
+  test("an ignored chosen test carries no weight") {
+    val ignoring_t2 = data.copy(bad_tests = SortedSet("t2"))
+    val r = results(
+      cutoff.minusDays(1),
+      "t0" -> Seq(pass),
+      "t1" -> Seq(pass),
+      "t2" -> Seq(failed)
+    )
+    val s = HtmlGen.score_of(ignoring_t2, r).get
+    // t0 alone in phase 1, t1 alone in phase 2: 1 : 1, no t2 in either
+    assertEquals((s.earned, s.possible), (2.0, 2))
+    assertEqualsDouble(s.correctness, 1.0, 1e-9)
+  }
 }

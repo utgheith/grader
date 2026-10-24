@@ -7,6 +7,7 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.r2.{
+  periodic,
   Scope,
   Target,
   ToRelPath,
@@ -727,7 +728,7 @@ case class Project(course: Course, project_name: String)
 
   private def publish_student_results(
       keep_going: Boolean,
-      chosen: Boolean
+      tests: TestSet
   ): (CSID, Int, String) => Target[WithData[StudentResults]] = fun {
     (csid, n, commit_id_file) =>
       complex_target {
@@ -740,7 +741,7 @@ case class Project(course: Course, project_name: String)
         val has_test = csid_has_test(csid).track
         val can_push_repo = Config.can_push_repo.track
 
-        val ids = if (chosen) phase2_test_ids else test_ids
+        val ids = test_ids_for(tests)
         val outcomes = ids.guilty.toSeq.map { test_id =>
           run_one(keep_going, n)(
             csid,
@@ -890,6 +891,16 @@ case class Project(course: Course, project_name: String)
     }
   }
 
+  // Where the project is relative to its deadlines. Recomputed when a
+  // deadline changes, and checked again every minute as time passes; what
+  // depends on it reruns only when the phase actually changes.
+  lazy val state: Target[ProjectState] =
+    target(test_cutoff, code_cutoff, periodic(60 * 1000)) {
+      (first, second, _) =>
+        ProjectState.at(LocalDateTime.now().nn, first, second)
+    }
+
+  // No result emails after the second deadline.
   lazy val notify_student_results: CSID => Target[Unit] = fun { csid =>
     target(
       get_student_failures(
@@ -900,9 +911,14 @@ case class Project(course: Course, project_name: String)
       has_spamon(
         csid
       ),
-      Config.can_send_mail
+      Config.can_send_mail,
+      state
     ) {
-      case (Some(sr), n, g, has_spamon, can_send_mail) =>
+      case (_, _, _, _, _, ProjectState.AfterSecondDeadline) =>
+        say(
+          s"no result emails after the second deadline: ${course.course_name}:$project_name:${csid.toString}"
+        )
+      case (Some(sr), n, g, has_spamon, can_send_mail, _) =>
         if (has_spamon) {
           n.send_result_update(this, csid, g, sr, can_send_mail)
         } else {
@@ -910,7 +926,7 @@ case class Project(course: Course, project_name: String)
             s"no spamon for ${course.course_name}:$project_name:${csid.toString}"
           )
         }
-      case (None, _, _, _, _) =>
+      case (None, _, _, _, _, _) =>
     }
   }
 
@@ -919,7 +935,7 @@ case class Project(course: Course, project_name: String)
 
   def publish_results(
       keep_going: Boolean,
-      chosen: Boolean
+      tests: TestSet
   ): (Int, String) => Target[
     WithData[SortedMap[Alias, RedactedStudentResults]]
   ] =
@@ -929,7 +945,7 @@ case class Project(course: Course, project_name: String)
         // rewrite results.json if it stops being readable
         val _ = results_readable.track
         val results = students_with_submission.guilty.toSeq.map { csid =>
-          publish_student_results(keep_going, chosen)(
+          publish_student_results(keep_going, tests)(
             csid,
             n,
             commit_id_file
@@ -1214,7 +1230,6 @@ case class Project(course: Course, project_name: String)
       publish_submitted_tests,
       override_tests,
       test_extensions,
-      bad_tests,
       Config.can_push_repo
     ) {
       (
@@ -1224,7 +1239,6 @@ case class Project(course: Course, project_name: String)
           _,
           override_tests,
           test_extensions,
-          bad_tests,
           can_push_repo
       ) =>
         update_data(_.lastOpt.contains(".git")) { dir =>
@@ -1246,13 +1260,11 @@ case class Project(course: Course, project_name: String)
 
             val info = mutable.Map[TestId, TestInfo]()
 
-            // copy student tests
+            // copy student tests, including ignored ones (projects before
+            // their first deadline run those too; see TestSet)
             for {
               (csid, test_sp) <- student_tests_by_csid.toSeq
               alias <- aliases.value.get(csid).toSeq
-              if !bad_tests.contains(alias.toString) && !bad_tests.contains(
-                csid.value
-              )
             } {
               for (ext <- test_extensions) {
                 val test_id = TestId(
@@ -1323,6 +1335,26 @@ case class Project(course: Course, project_name: String)
         )
       } yield test
     }
+
+  // all but the tests marked ignored, by external or internal name
+  lazy val good_test_ids: Target[SortedSet[TestId]] =
+    target(test_ids, bad_tests) { (tests, bad) =>
+      tests.filterNot(t =>
+        bad.contains(t.external_name) || bad.contains(t.internal_name)
+      )
+    }
+
+  // the tests the correctness score counts: (phase 1 + phase 2) - ignored
+  lazy val chosen_test_ids: Target[SortedSet[TestId]] =
+    target(phase1_test_ids, phase2_test_ids, good_test_ids) {
+      (phase1, phase2, good) => (phase1 ++ phase2).intersect(good)
+    }
+
+  def test_ids_for(tests: TestSet): Target[SortedSet[TestId]] = tests match {
+    case "all"    => test_ids
+    case "good"   => good_test_ids
+    case "chosen" => chosen_test_ids
+  }
 
   lazy val test_info: TestId => Target[WithData[TestInfo]] = fun { test_id =>
     target(

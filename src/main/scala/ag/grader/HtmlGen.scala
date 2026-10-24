@@ -221,7 +221,9 @@ object HtmlGen {
   // Scales the two phases' raw weights so they keep the configured
   // phase1:phase2 ratio, using the lcm of the raw sums.
   private def compute_weights(d: ReportData): Weights = {
+    // chosen = (phase 1 + phase 2) - ignored, as in Project.chosen_test_ids
     val selected = (d.phase1_tests ++ d.phase2_tests).toList
+      .filterNot(d.bad_tests.contains)
       .sortBy(c => (c.length, c))
     def weight_of(c: String): Option[Int] =
       d.weights
