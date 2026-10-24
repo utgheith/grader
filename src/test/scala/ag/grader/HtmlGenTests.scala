@@ -182,11 +182,14 @@ class HtmlGenTests extends FunSuite {
     assert(page.contains("push and commit times differ by over 30 min"))
   }
 
-  test("nothing on the page identifies a student: no shas, no times") {
-    for (a <- 1 to 3) assert(!page.contains(f"$a%04x"), s"sha of $a")
+  test("each row shows its commit's short sha, with the details on hover") {
+    for (a <- 1 to 3) {
+      val sha = f"$a%04x" + "beef"
+      assert(page.contains(s">${sha.take(6)}</span>"), s"short sha of $a")
+      assert(page.contains(s"title=\"$sha\ncommitted "), s"full sha of $a")
+    }
+    assert(page.contains("\npushed "), "push time")
     assert(!page.contains("abc123"), "commit id file contents")
-    assert(!page.contains("2026-09-30T"), "commit times")
-    assert(!page.contains("2026-10-02T"), "commit times")
   }
 
   test("tooltips show tries and times") {

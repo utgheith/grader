@@ -123,7 +123,7 @@ case class NotificationConfig(
     val n_tests = student_failures.total_tests
     val n_pass = n_tests - student_failures.failed_tests.size
 
-    val short_sha = student_failures.prepare_info.sha.substring(6).nn
+    val short_sha = student_failures.prepare_info.sha.take(6)
     val has_report = if (student_failures.prepare_info.has_report) "+" else "-"
     val has_test = if (student_failures.has_test) "+" else "-"
 

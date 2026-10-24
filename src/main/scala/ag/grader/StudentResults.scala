@@ -26,8 +26,8 @@ object StudentFailures {
 }
 
 // Published to everyone (results repos readable by all, the public report
-// pages): must hold nothing that identifies the student. Tests are named by
-// alias, and the commit by facts only (see RedactedPrepareInfo).
+// pages): must hold no CSIDs. Tests are named by alias; for the commit, see
+// RedactedPrepareInfo.
 @upickle.implicits.allowUnknownKeys(false)
 case class RedactedStudentResults(
     alias: Option[Alias],

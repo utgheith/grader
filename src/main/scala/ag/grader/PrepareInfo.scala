@@ -14,9 +14,8 @@ enum CommitSource derives ReadWriter:
   // Named in the submission's commit id file; `sha` is the file's contents.
   case FromFile(file_name: String, sha: String)
 
-// Private: the commit's sha and times identify the student to anyone who can
-// see their repo. Only staff and the student themselves may see this; what
-// may be published is `redacted`.
+// The commit graded, and how it was chosen. What may be published is
+// `redacted`.
 @upickle.implicits.allowUnknownKeys(false)
 final case class PrepareInfo(
     commit_time: ZonedDateTime,
@@ -27,6 +26,9 @@ final case class PrepareInfo(
 ) derives ReadWriter {
   def redacted(code_cutoff: ZonedDateTime): RedactedPrepareInfo =
     RedactedPrepareInfo(
+      sha = sha,
+      commit_time = commit_time,
+      push_time = push_time,
       has_report = has_report,
       days_late = PrepareInfo.days_late(commit_time, code_cutoff),
       from_commit_file = commit_source != CommitSource.Latest,
@@ -65,10 +67,15 @@ object PrepareInfo {
       .filter(_.abs.nn.toMinutes > 30)
 }
 
-// What may be published about how a submission was prepared: facts the
-// report needs, and nothing that identifies the student (no sha, no times).
+// What may be published about how a submission was prepared. The sha and
+// times are published: they tie an alias to a repo only for those who can
+// see the repo, and students are responsible for keeping theirs private.
+// Commit id file names are not.
 @upickle.implicits.allowUnknownKeys(false)
 final case class RedactedPrepareInfo(
+    sha: String,
+    commit_time: ZonedDateTime,
+    push_time: Option[Instant],
     has_report: Boolean,
     // past the code cutoff, in days; 0 if on time (needed for the score)
     days_late: Double,

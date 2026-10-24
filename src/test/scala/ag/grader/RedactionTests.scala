@@ -36,16 +36,14 @@ class RedactionTests extends FunSuite {
     )
   )
 
-  test("what's published names no student and pins down no commit") {
+  test("what's published names no student, nor their commit id file") {
     val published = write(mine.redacted(cutoff))
     for (
       secret <- Seq(
         "csid_of_me",
         "csid_of_classmate",
-        "0123456789abcdef",
         "fedcba98",
-        "commit_id_2",
-        "2026-10-0"
+        "commit_id_2"
       )
     )
       assert(!published.contains(secret), s"leaks $secret: $published")
@@ -57,6 +55,9 @@ class RedactionTests extends FunSuite {
     assert(info.from_commit_file)
     assert(info.push_gap)
     assert(info.has_report)
+    assertEquals(info.sha, "0123456789abcdef0123456789abcdef01234567")
+    assertEquals(info.commit_time, commit)
+    assertEquals(info.push_time, Some(commit.plusHours(3).toInstant.nn))
   }
 
   test("a student's own results don't name their classmates") {

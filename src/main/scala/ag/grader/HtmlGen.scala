@@ -128,6 +128,14 @@ object HtmlGen {
   private val display_format: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
+  // commit and push times, both in the grader's time zone
+  private val time_format: DateTimeFormatter =
+    DateTimeFormatter
+      .ofPattern("yyyy-MM-dd HH:mm:ss z")
+      .nn
+      .withZone(java.time.ZoneId.systemDefault())
+      .nn
+
   // The fixed (non-test) columns at the start of every row; the page's
   // script relies on this count.
   private val fixed_columns = 5
@@ -387,8 +395,11 @@ object HtmlGen {
             ),
             th(
               cls := "num score",
-              title := "correctness (0 to 1), after any late penalty"
-            )(button(cls := "sort", data("key") := "score")("correctness")),
+              title := "experimental: correctness (0 to 1), after any late penalty; may change"
+            )(
+              button(cls := "sort", data("key") := "score")("correctness"),
+              span(cls := "exp")("experimental")
+            ),
             for ((t, i) <- tests.zipWithIndex)
               yield th(
                 cls := (if (chosen.contains(t)) "test chosen" else "test opt"),
@@ -412,7 +423,6 @@ object HtmlGen {
         ),
         tbody(
           for ((alias, r) <- rows) yield {
-            // only what's safe to publish: no sha, no times
             val info = r.prepare_info
             val is_late = info.days_late > 0
             val n_chosen = passed(alias, chosen_tests)
@@ -450,7 +460,16 @@ object HtmlGen {
                 alias.toString,
                 Option.when(is_late)(span(cls := "mark late")("*")),
                 Option.when(info.from_commit_file)(span(cls := "mark")("†")),
-                Option.when(info.push_gap)(span(cls := "mark warn")("!"))
+                Option.when(info.push_gap)(span(cls := "mark warn")("!")),
+                span(
+                  cls := "sha",
+                  title := (List(
+                    info.sha,
+                    s"committed ${time_format.format(info.commit_time)}"
+                  ) ++ info.push_time.map(t =>
+                    s"pushed ${time_format.format(t)}"
+                  )).mkString("\n")
+                )(info.sha.take(6))
               ),
               td(
                 cls := (if (chosen_count > 0 && n_chosen == chosen_count)
@@ -543,7 +562,8 @@ object HtmlGen {
             s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
         ),
         div(cls := "note")(
-          "Correctness (0 to 1): each test earns its weight times the fraction " +
+          span(cls := "exp")("experimental"),
+          " Correctness (0 to 1) may change. Each test earns its weight times the fraction " +
             "of its tries that passed; correctness is the share of all the weight earned, " +
             "times 0.9 per day the commit is past the phase 2 cutoff, " +
             "pro-rated by the hour (0.9 ^ (hours late / 24))."
@@ -605,7 +625,9 @@ object HtmlGen {
               Option.when(chosen_count > 0)(
                 stat("pass every chosen test", all_chosen_passing.toString)
               ),
-              median_correctness.map(m => stat("median correctness", f"$m%.3f"))
+              median_correctness.map(m =>
+                stat("median correctness", f"$m%.3f", "(experimental)")
+              )
             )
           ),
           tags2.section(cls := "card grid-card")(
@@ -808,6 +830,8 @@ object HtmlGen {
     |.results td.from-file { font-style: italic; }
     |.results .sha { color: var(--muted); font-weight: 400; margin-left: 0.35em; }
     |.mark { color: var(--accent); font-weight: 700; margin-left: 0.1em; }
+    |.exp { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border: 1px solid var(--timeout-fg); border-radius: 999px; color: var(--timeout-fg); font: 600 0.65rem/1.5 system-ui, sans-serif; letter-spacing: 0.03em; text-transform: uppercase; vertical-align: middle; }
+    |.results th .exp { display: block; margin: 0.15em 0 0 auto; width: max-content; }
     |.mark.late { color: var(--fail-fg); }
     |.results .num { padding: 0 0.45rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     |.results td.num.full { color: var(--pass-fg); font-weight: 700; }
@@ -1159,7 +1183,8 @@ object HtmlGen {
     |      const all = aliases.map((a) => data.scores[a]).filter((x) => x !== null);
     |      const s = standing(my_score, all);
     |      summary.append(el("div", { class: "stat" },
-    |        el("div", { class: "stat-value" }, my_score.toFixed(3), el("small", {}, " correctness")),
+    |        el("div", { class: "stat-value" }, my_score.toFixed(3), el("small", {}, " correctness"),
+    |          el("span", { class: "exp" }, "experimental")),
     |        el("div", { class: "stat-label" },
     |          `rank ${s.rank} of ${all.length} \u00b7 higher than ${pct(s.beats)} of submissions`)));
     |    }
