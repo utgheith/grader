@@ -43,21 +43,26 @@ final class DropboxWatcher(view: View[CourseState])(using keys: KeyStore) {
 object Dropbox {
   // The keys in `dir`. A file counts only if the operating system says its
   // owner is the CSID it's named after; others are skipped, with a warning.
-  def observe(dir: os.Path): Map[String, String] =
-    if (!os.isDir(dir)) Map()
-    else
-      os.list(dir)
-        .filter(f => os.isFile(f) && f.ext == "pub")
-        .flatMap { f =>
-          val csid = f.baseName
-          val owner = os.owner(f).getName
-          if (owner == csid) Some(csid -> os.read(f).trim.nn)
-          else {
-            println(s"dropbox: skipping ${f.last}: owned by $owner, not $csid")
-            None
-          }
+  // `check_owners` = false trusts every file: only for a copy of a dropbox
+  // whose owners were checked where it came from (copying loses them). A
+  // missing dropbox is an error: it would look like a course with no one in
+  // it.
+  def observe(dir: os.Path, check_owners: Boolean): Map[String, String] = {
+    if (!os.isDir(dir))
+      throw EventLogException(s"no dropbox at ${dir.toString}")
+    os.list(dir)
+      .filter(f => os.isFile(f) && f.ext == "pub")
+      .flatMap { f =>
+        val csid = f.baseName
+        val owner = os.owner(f).getName
+        if (!check_owners || owner == csid) Some(csid -> os.read(f).trim.nn)
+        else {
+          println(s"dropbox: skipping ${f.last}: owned by $owner, not $csid")
+          None
         }
-        .toMap
+      }
+      .toMap
+  }
 }
 
 // ---- The git server: `history` gives each repo's latest sha

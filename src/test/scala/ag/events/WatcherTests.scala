@@ -69,7 +69,18 @@ class WatcherTests extends FunSuite {
       "ssh-ed25519 theirs\n"
     ) // owned by me, not them
     os.write(dir / "notes.txt", "ignored")
-    assertEquals(Dropbox.observe(dir), Map(me -> "ssh-ed25519 mine"))
+    assertEquals(
+      Dropbox.observe(dir, check_owners = true),
+      Map(me -> "ssh-ed25519 mine")
+    )
+    assertEquals(
+      Dropbox.observe(dir, check_owners = false).keySet,
+      Set(me, "someone_else"),
+      "a copy: owners not checked"
+    )
+    val _ = intercept[EventLogException](
+      Dropbox.observe(dir / "missing", check_owners = true)
+    )
   }
 
   // ---- git

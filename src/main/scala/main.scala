@@ -1021,9 +1021,17 @@ object Main {
       @arg(doc =
         "where the courses' key stores (<course>.json) live; keep it out of git and long-term backups"
       )
-      keys: os.Path = os.home / ".grader" / "keys"
+      keys: os.Path = os.home / ".grader" / "keys",
+      @arg(doc =
+        "the dropbox, holding <course>/<csid>.pub (default: the configured dropbox_path, under ~)"
+      )
+      dropbox: Option[os.Path] = None,
+      @arg(doc =
+        "trust every file in the dropbox, whoever owns it: only for a copy, whose owners were lost (and checked where it came from)"
+      )
+      unchecked_owners: Flag = Flag(false)
   ): Unit = {
-    val (courses, server, dropbox) =
+    val (courses, server, configured_dropbox) =
       in_workspace(commonArgs.workspace) {
         (
           commonArgs.selected_courses.guilty.map(_.course_name),
@@ -1043,7 +1051,10 @@ object Main {
               ag.events.PrivateLog.kinds
             ),
             ag.events.KeyStore(keys / s"$course.json"),
-            dropbox.map(d => os.home / d / course),
+            dropbox
+              .orElse(configured_dropbox.map(os.home / _))
+              .map(_ / course),
+            !unchecked_owners.value,
             Some(events_dir / course / "private-view.json")
           )
       var go = true

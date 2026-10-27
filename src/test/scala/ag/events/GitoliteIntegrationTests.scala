@@ -10,11 +10,21 @@ class GitoliteIntegrationTests extends FunSuite {
 
   // The real server's rules (users and groups made up): `@me` (the grader)
   // can do anything, course staff can create and write any repo of their
-  // course, and `perms` makes others READERS or WRITERS of a repo.
+  // course, and `perms` makes others READERS or WRITERS of a repo. The
+  // course's private repo comes first, so its rules win: only the grader
+  // writes it, staff and admins only read it, and no one else sees it. It's
+  // named in full, so gitolite creates it: no one can create it first, and
+  // there's no creator to hand out access with `perms`.
   private val conf =
     """@me = admin
-      |@admins = admin
+      |@admins = admin boss
       |@cs439c_f26_staff = admin ta
+      |
+      |repo cs439c_f26__private
+      |    RW+    = @me
+      |    R      = @cs439c_f26_staff @admins
+      |    -      = @all
+      |    option deny-rules = 1
       |
       |repo @all
       |    RW+    = @me
@@ -37,7 +47,7 @@ class GitoliteIntegrationTests extends FunSuite {
   private var started: Option[GitoliteServer] = None
   private def server: GitoliteServer = started.getOrElse {
     assume(GitoliteServer.image.isDefined, "podman isn't available")
-    val s = GitoliteServer(conf, Seq("ta", "ada123"))
+    val s = GitoliteServer(conf, Seq("ta", "boss", "ada123"))
     started = Some(s)
     s
   }
@@ -88,14 +98,28 @@ class GitoliteIntegrationTests extends FunSuite {
   }
 
   test(
-    "the private log: staff read and write it, students can't read it".tag(
-      Integration
-    )
+    "the private log: only the grader writes it, staff and admins read it, students can't see it"
+      .tag(Integration)
   ) {
     val grader = private_log("admin")
     val _ = grader.append(Seq(RepoChanged("cs439c_f26_p1", Some("abc"))))
-    assertEquals(private_log("ta").read().size, 1)
+    val end = grader.end
+    for (reader <- Seq("ta", "boss")) {
+      assertEquals(private_log(reader).end, end, s"$reader reads it")
+      val _ = intercept[EventLogException](
+        private_log(reader).append(Seq(RepoChanged("x", None)))
+      )
+    }
+    assertEquals(private_log("admin").end, end, "no one else wrote")
     val _ = intercept[EventLogException](private_log("ada123").read().toList)
+    assert(
+      !server.run("ada123", "info").out.text().contains("__private"),
+      "not even listed"
+    )
+    // it was never a wildcard repo: no creator, so no one can share it
+    val perms =
+      server.run("ta", "perms", "cs439c_f26__private", "+", "READERS", "ada123")
+    assertNotEquals(perms.exitCode, 0)
   }
 
   test(
@@ -206,10 +230,28 @@ class GitoliteIntegrationTests extends FunSuite {
         env = server.git_env("admin")
       ),
       keys,
-      Some(dropbox)
+      Some(dropbox),
+      true
     )
     def observe() =
       Gitolite.observe(server.server, server.port, server.ssh("admin"))
+
+    // a course whose private repo isn't declared is refused, not created
+    val _ = intercept[EventLogException](
+      CourseWatch(
+        "cs439c_f27",
+        GitEventLog(
+          server.url("cs439c_f27__private"),
+          os.temp.dir(deleteOnExit = true) / "undeclared",
+          PrivateLog.kinds,
+          env = server.git_env("admin")
+        ),
+        keys,
+        Some(dropbox),
+        true
+      ).poll(observe())
+    )
+    assert(!observe().contains("cs439c_f27__private"), "not created")
 
     val start = private_log("admin").end
     val first = watch("a").poll(observe())

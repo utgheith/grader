@@ -110,6 +110,8 @@ final class CourseWatch(
     keys: KeyStore,
     // where students drop their keys, if the course has one
     dropbox: Option[os.Path],
+    // see Dropbox.observe
+    check_owners: Boolean,
     // where to keep the course's view of the log between runs
     checkpoint: Option[os.Path] = None
 ) {
@@ -120,8 +122,16 @@ final class CourseWatch(
   // before their repos are looked at. `repos` is the git server's state
   // (Gitolite.observe), shared by every course's round.
   def poll(repos: Map[String, Option[String]]): WatchSummary = {
+    // The private repo must be declared in the server's conf, with its own
+    // rules (only the grader writes it). Pushing to it otherwise would create
+    // it as a wildcard repo, writable by staff and shareable by its creator.
+    val private_repo = s"${course}__private"
+    if (!repos.contains(private_repo))
+      throw EventLogException(
+        s"$private_repo isn't on the git server: declare it in gitolite.conf first"
+      )
     val new_keys = dropbox.fold(Nil)(d =>
-      DropboxWatcher(view).poll(Dropbox.observe(d))
+      DropboxWatcher(view).poll(Dropbox.observe(d, check_owners))
     )
     val (changes, unknown) = GitWatcher(course, view).poll(repos)
     WatchSummary(

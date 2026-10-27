@@ -19,6 +19,7 @@ object RunLock {
   // Right(release) if acquired; Left(who holds it) if not.
   def acquire(dir: os.Path, what: String): Either[String, () => Unit] = {
     val file = dir / ".grader.lock"
+    os.makeDir.all(dir)
     val channel = FileChannel.open(file.toNIO, CREATE, READ, WRITE).nn
     val lock =
       try Option(channel.tryLock())

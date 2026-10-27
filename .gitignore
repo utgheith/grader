@@ -2,6 +2,7 @@
 /tracing.log
 .bloop/
 /config.json
+/dropbox
 /prepared
 /workspace
 /std_out_err
