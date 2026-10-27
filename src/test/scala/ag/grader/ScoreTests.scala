@@ -98,15 +98,16 @@ class ScoreTests extends FunSuite {
     assertEqualsDouble(HtmlGen.score_of(data, r).get.correctness, 0.5, 1e-9)
   }
 
-  test("10% off per day late, pro-rated continuously") {
+  test("10% off per day late, any part of a day counting as a whole one") {
     val all = Seq("t0" -> Seq(pass), "t1" -> Seq(pass), "t2" -> Seq(pass))
-    val day = HtmlGen.score_of(data, results(cutoff.plusHours(24), all*)).get
-    val six = HtmlGen.score_of(data, results(cutoff.plusHours(6), all*)).get
-    val two_and_a_half =
-      HtmlGen.score_of(data, results(cutoff.plusHours(60), all*)).get
-    assertEqualsDouble(day.correctness, 0.9, 1e-9)
-    assertEqualsDouble(six.correctness, math.pow(0.9, 0.25), 1e-9) // 0.974
-    assertEqualsDouble(two_and_a_half.correctness, math.pow(0.9, 2.5), 1e-9)
+    def late(hours: Int) =
+      HtmlGen.score_of(data, results(cutoff.plusHours(hours), all*)).get
+    assertEqualsDouble(late(0).correctness, 1.0, 1e-9)
+    assertEqualsDouble(late(6).correctness, 0.9, 1e-9) // part of a day
+    assertEqualsDouble(late(24).correctness, 0.9, 1e-9) // exactly one
+    assertEqualsDouble(late(25).correctness, 0.81, 1e-9)
+    assertEqualsDouble(late(60).correctness, math.pow(0.9, 3), 1e-9)
+    assertEqualsDouble(late(6).days_late, 0.25, 1e-9, "the exact lateness")
   }
 
   test("a phase's score counts only that phase's tests") {
@@ -164,12 +165,12 @@ class ScoreTests extends FunSuite {
       "t2" -> Seq(pass)
     )
     val page = HtmlGen.render(data.copy(results = SortedMap(Alias(1) -> r)))
-    val ratio = math.pow(0.9, 26 / 24.0) // 0.892
+    val ratio = math.pow(0.9, 2) // 1 day 2 hours: two days begun
     assert(page.contains("""data-key="score""""))
     assert(page.contains(f"""data-score="$ratio%.6f""""))
     assert(
       clue(page).contains(
-        f"8.0 of 8 points × 0.9^1.08 (1 day 2 hours late) = $ratio%.3f"
+        f"8.0 of 8 points × 0.9^2 (1 day 2 hours late) = $ratio%.3f"
       )
     )
     assert(page.contains(f">$ratio%.3f</td>"))

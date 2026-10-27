@@ -208,17 +208,21 @@ object HtmlGen {
   // Each chosen test is worth its weight from `test_weights`, scaled per
   // phase as in the "Selected test weights" table, and earns that weight
   // times the fraction of its tries that passed. The score is the earned
-  // share of all the weight, times 0.9 per day (continuously: 0.9^(hours/24))
-  // the commit is late. A phase's results count only that phase's weight,
-  // and are late from that phase's cutoff; the latest results count both,
-  // and are late from the phase 2 (code) cutoff.
+  // share of all the weight, times 0.9 per day the commit is late, counting
+  // any part of a day as a whole one (1 day 2 hours late: 0.9^2). A phase's
+  // results count only that phase's weight, and are late from that phase's
+  // cutoff; the latest results count both, and are late from the phase 2
+  // (code) cutoff.
 
   final case class Score(
       earned: Double, // weighted, before the late penalty
       possible: Int,
-      days_late: Double,
+      days_late: Double, // exact (1 day 2 hours = 1.083)
       correctness: Double // 0..1, after the late penalty
   )
+
+  // the days the late penalty charges for: every day begun counts
+  private def charged_days(days_late: Double): Int = math.ceil(days_late).toInt
 
   // e.g. "1 day 2 hours", "45 minutes"
   private def describe_days(days: Double): String = {
@@ -268,7 +272,7 @@ object HtmlGen {
         earned,
         possible,
         days,
-        earned / possible * math.pow(0.9, days)
+        earned / possible * math.pow(0.9, charged_days(days).toDouble)
       )
     }
   }
@@ -556,7 +560,7 @@ object HtmlGen {
                   val late =
                     if (s.days_late == 0) ""
                     else
-                      f" × 0.9^${s.days_late}%.2f (${describe_days(s.days_late)} late)"
+                      s" × 0.9^${charged_days(s.days_late)} (${describe_days(s.days_late)} late)"
                   title := f"${s.earned}%.1f of ${s.possible} points$late = ${s.correctness}%.3f"
                 }
               )(score.fold("–")(s => f"${s.correctness}%.3f")),
@@ -642,9 +646,9 @@ object HtmlGen {
               case Phase.Latest => "all the weight"
               case Phase.One    => "phase 1's weight"
               case Phase.Two    => "phase 2's weight") +
-            " earned, times 0.9 per day the commit is past the " +
+            " earned, times 0.9 for each day (or part of a day) the commit is past the " +
             (if (d.phase == Phase.One) "phase 1" else "phase 2") +
-            " cutoff, pro-rated by the hour (0.9 ^ (hours late / 24))."
+            " cutoff."
         )
       )
 

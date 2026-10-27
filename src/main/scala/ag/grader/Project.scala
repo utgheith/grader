@@ -126,6 +126,23 @@ case class Project(course: Course, project_name: String)
     target(info)(p => p.test_cutoff)
   lazy val code_cutoff: Target[LocalDateTime] =
     target(info)(p => p.code_cutoff)
+  lazy val extensions: Target[Extensions] =
+    target(info)(p => p.extensions)
+
+  // `csid`'s deadline for `phase`, with any extension they have: phase 1's is
+  // the test cutoff, phase 2's the code cutoff; the latest results are late
+  // from the code cutoff too.
+  lazy val deadline: (CSID, Phase) => Target[LocalDateTime] = fun {
+    (csid, phase) =>
+      target(test_cutoff, code_cutoff, extensions) {
+        (first, second, extensions) =>
+          phase
+            .deadline(first, second)
+            .getOrElse(second)
+            .plusDays(extensions.days(csid, phase))
+            .nn
+      }
+  }
   lazy val test_extensions: Target[SortedSet[String]] =
     target(info)(p => SortedSet(p.test_extensions*))
 
@@ -385,8 +402,8 @@ case class Project(course: Course, project_name: String)
   // later and ask for a different commit to be graded.
   lazy val graded_commit: (CSID, Phase) => Target[Option[GradedCommit]] =
     fun { (csid, phase) =>
-      target(submission(csid), test_cutoff, code_cutoff) {
-        (submission_repo, test_cutoff, code_cutoff) =>
+      target(submission(csid), deadline(csid, phase)) {
+        (submission_repo, deadline) =>
           submission_repo.flatMap { submission_repo =>
             val repo = submission_repo.get_data_path
             def git(args: String*): Option[String] = {
@@ -411,8 +428,9 @@ case class Project(course: Course, project_name: String)
               }
             } yield (sha, CommitSource.FromFile(name, id))
             val chosen = named.orElse {
-              val sha = phase.deadline(test_cutoff, code_cutoff) match
-                case Some(deadline) =>
+              val sha =
+                if (phase == Phase.Latest) commit("master")
+                else
                   git(
                     "log",
                     "master",
@@ -426,7 +444,6 @@ case class Project(course: Course, project_name: String)
                     "--first-parent",
                     "--pretty=format:%H"
                   )
-                case None => commit("master")
               sha.map(_ -> CommitSource.Latest)
             }
             chosen.map { (sha, source) =>
@@ -525,68 +542,70 @@ case class Project(course: Course, project_name: String)
   }
 
   lazy val is_late: (CSID, Phase) => Target[Boolean] = fun { (csid, phase) =>
-    target(prepare_info(csid, phase), code_cutoff) { (info, code_cutoff) =>
-      info.forall(
-        _.commit_time.isAfter(
-          ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+    target(prepare_info(csid, phase), deadline(csid, phase)) {
+      (info, deadline) =>
+        info.forall(
+          _.commit_time.isAfter(
+            ZonedDateTime.of(deadline, ZoneId.systemDefault())
+          )
         )
-      )
     }
   }
 
-  // The commits on master after the code cutoff.
+  // The commits on master after the student's (phase 2) deadline.
   lazy val late_commits: CSID => Target[WithData[Seq[LateCommit]]] = fun {
     csid =>
-      target(submission(csid), code_cutoff) { (submission_repo, code_cutoff) =>
-        create_data(_.lastOpt.contains(".git")) { dir =>
-          submission_repo.toSeq.flatMap { submission_repo =>
-            val _ = os
-              .proc(
-                "git",
-                "clone",
-                "--shared",
-                "--template=",
-                "--no-checkout",
-                submission_repo.get_data_path,
-                dir
-              )
-              .run()
+      target(submission(csid), deadline(csid, Phase.Two)) {
+        (submission_repo, code_cutoff) =>
+          create_data(_.lastOpt.contains(".git")) { dir =>
+            submission_repo.toSeq.flatMap { submission_repo =>
+              val _ = os
+                .proc(
+                  "git",
+                  "clone",
+                  "--shared",
+                  "--template=",
+                  "--no-checkout",
+                  submission_repo.get_data_path,
+                  dir
+                )
+                .run()
 
-            val default_branch = "master"
+              val default_branch = "master"
 
-            val cutoff_time =
-              ZonedDateTime.of(code_cutoff, ZoneId.systemDefault).nn
-            val cutoff_string =
-              cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-            val lines = os
-              .proc(
-                "git",
-                "log",
-                default_branch,
-                "--since",
-                cutoff_string,
-                "--first-parent",
-                "--reverse",
-                "--pretty=format:%H%x00%ct%x00%s"
-              )
-              .lines(cwd = dir)
+              val cutoff_time =
+                ZonedDateTime.of(code_cutoff, ZoneId.systemDefault).nn
+              val cutoff_string =
+                cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+              val lines = os
+                .proc(
+                  "git",
+                  "log",
+                  default_branch,
+                  "--since",
+                  cutoff_string,
+                  "--first-parent",
+                  "--reverse",
+                  "--pretty=format:%H%x00%ct%x00%s"
+                )
+                .lines(cwd = dir)
 
-            lines.map(line => {
-              val (hash, commit_timestamp, message) =
-                line.split("\u0000") match
-                  case Array(hash, timestamp, message) =>
-                    (hash, timestamp, message)
-                  case Array(hash, timestamp) => (hash, timestamp, "")
+              lines.map(line => {
+                val (hash, commit_timestamp, message) =
+                  line.split("\u0000") match
+                    case Array(hash, timestamp, message) =>
+                      (hash, timestamp, message)
+                    case Array(hash, timestamp) => (hash, timestamp, "")
 
-              val commit_time = ZonedDateTime.ofInstant(
-                Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
-                ZoneOffset.UTC
-              )
-              val delay = Duration.between(cutoff_time, commit_time)
-              LateCommit(hash, commit_time, delay, message)
-            })
+                val commit_time = ZonedDateTime.ofInstant(
+                  Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
+                  ZoneOffset.UTC
+                )
+                val delay = Duration.between(cutoff_time, commit_time)
+                LateCommit(hash, commit_time, delay, message)
+              })
+            }
           }
-        }
       }
   }
 
@@ -867,7 +886,16 @@ case class Project(course: Course, project_name: String)
         ProjectState.at(LocalDateTime.now().nn, first, second)
     }
 
-  // No result emails after the second deadline.
+  // Whether `csid`'s deadline for `phase` has passed. Checked again every
+  // minute as time passes; what depends on it reruns only when it flips.
+  lazy val past_deadline: (CSID, Phase) => Target[Boolean] = fun {
+    (csid, phase) =>
+      target(deadline(csid, phase), periodic(60 * 1000)) { (deadline, _) =>
+        !LocalDateTime.now().nn.isBefore(deadline)
+      }
+  }
+
+  // No result emails after the student's second deadline.
   lazy val notify_student_results: CSID => Target[Unit] = fun { csid =>
     target(
       get_student_failures(
@@ -879,9 +907,9 @@ case class Project(course: Course, project_name: String)
         csid
       ),
       Config.can_send_mail,
-      state
+      past_deadline(csid, Phase.Two)
     ) {
-      case (_, _, _, _, _, ProjectState.AfterSecondDeadline) =>
+      case (_, _, _, _, _, true) =>
         say(
           s"no result emails after the second deadline: ${course.course_name}:$project_name:${csid.toString}"
         )
@@ -924,23 +952,19 @@ case class Project(course: Course, project_name: String)
               publish_student_results(keep_going, tests)(csid, n).track
             )
           else Nil
+        // lateness is from each student's own deadline for the phase
+        val deadlines = students.map(csid => deadline(csid, phase).track)
         val aliases = publish_aliases.track
         val can_push_repo = Config.can_push_repo.track
-        val first = test_cutoff.track
-        val second = code_cutoff.track
 
         run_if_needed {
           val repo_info_v = repo_info.block
-          // lateness is from the phase's own deadline (the latest results':
-          // the second)
-          val cutoff_v = ZonedDateTime
-            .of(
-              phase
-                .deadline(first.block, second.block)
-                .getOrElse(second.block),
-              ZoneId.systemDefault()
+          val deadline_of = students
+            .zip(Task.sequence(deadlines).block)
+            .map((csid, d) =>
+              csid -> ZonedDateTime.of(d, ZoneId.systemDefault()).nn
             )
-            .nn
+            .toMap
           update_data(_.lastOpt.contains(".git")) { dir =>
             repo_info_v.update(
               path = dir,
@@ -953,7 +977,7 @@ case class Project(course: Course, project_name: String)
               val data = (for {
                 r <- Task.sequence(results).block.flatten
                 alias <- aliases.block.value.get(r.csid).toSeq
-              } yield (alias, r.redacted(cutoff_v))).to(SortedMap)
+              } yield (alias, r.redacted(deadline_of(r.csid)))).to(SortedMap)
               os.write.over(
                 dir / phase.results_file,
                 upickle.default.write(data, indent = 2)
@@ -998,7 +1022,7 @@ case class Project(course: Course, project_name: String)
       target(
         submission(csid),
         test_extensions,
-        test_cutoff
+        deadline(csid, Phase.One)
       ) { (submission, test_extensions, test_cutoff) =>
         create_data(_.lastOpt.contains(".git")) { dir =>
           submission.flatMap { submission =>

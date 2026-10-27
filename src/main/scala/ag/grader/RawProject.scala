@@ -21,5 +21,25 @@ case class RawProject(
     bad_tests: Seq[String],
     docker_file: Option[String],
     test_extensions: Seq[String],
-    staff: Seq[CSID]
+    staff: Seq[CSID],
+    // optional in courses_config, so (unlike saved values) it has a default
+    extensions: Extensions = Extensions()
 ) derives ReadWriter
+
+// Deadline extensions: per phase, the whole days a student gets past that
+// phase's deadline. In courses_config, inside a project:
+//   "extensions": { "phase1": { "<csid>": 2, ... }, "phase2": { ... } }
+// Either phase may be left out.
+@upickle.implicits.allowUnknownKeys(false)
+case class Extensions(
+    phase1: Map[CSID, Int] = Map(),
+    phase2: Map[CSID, Int] = Map()
+) derives ReadWriter {
+  // the days `csid` gets for `phase`; the latest results are late from the
+  // code cutoff, so they take phase 2's
+  def days(csid: CSID, phase: Phase): Int =
+    (phase match
+      case Phase.One                => phase1
+      case Phase.Two | Phase.Latest => phase2
+    ).getOrElse(csid, 0)
+}
