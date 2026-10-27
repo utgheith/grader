@@ -204,10 +204,8 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   lazy val publish_site: Target[WithData[SortedSet[String]]] =
     complex_target {
       val repo_info = Gitolite.repo_info(site_repo_name).track
-      val pages = active_projects.guilty.values.toSeq.map { p =>
-        val g = HtmlGen(p)
-        (g.page_name, g.page.guilty)
-      }
+      val pages =
+        active_projects.guilty.values.toSeq.map(p => HtmlGen(p).page.guilty)
       val can_push_repo = Config.can_push_repo.track
 
       run_if_needed {
@@ -221,20 +219,27 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
             writers = Seq(),
             can_push_repo.block
           ) { _ =>
-            for ((name, page) <- pages) {
-              os.copy.over(page.get_data_path / name, dir / name)
+            val names = for {
+              page <- pages
+              f <- os.list(page.get_data_path)
+            } yield {
+              os.copy.over(f, dir / f.last)
+              f.last
             }
-            // the front page lists every page in the repo, including those
-            // of projects that are no longer active
+            // the front page lists every project's (latest) page in the repo,
+            // including those of projects that are no longer active
             val all_pages = os
               .list(dir)
               .map(_.last)
-              .filter(f => f.endsWith(".html") && f != "index.html")
+              .filter(f =>
+                f.endsWith(".html") && f != "index.html" && !HtmlGen
+                  .is_phase_page(f)
+              )
             os.write.over(
               dir / "index.html",
               HtmlGen.render_index(course_name, all_pages)
             )
-            pages.map(_._1).to(SortedSet)
+            names.to(SortedSet)
           }
         }
       }

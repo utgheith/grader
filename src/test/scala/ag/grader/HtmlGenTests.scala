@@ -28,7 +28,7 @@ class HtmlGenTests extends FunSuite {
         has_report = true,
         push_time = Some(commit.plusHours(2).toInstant.nn),
         commit_source =
-          if (from_file) CommitSource.FromFile("commit_id", "abc123")
+          if (from_file) CommitSource.FromFile("commit_id_2", "abc123")
           else CommitSource.Latest
       ).redacted(ZonedDateTime.of(cutoff, java.time.ZoneId.systemDefault()).nn),
       outcomes = outcomes
@@ -265,7 +265,53 @@ class HtmlGenTests extends FunSuite {
         """<a class="active" href="cs439t_f26_p5.html" aria-current="page">p5</a>"""
       )
     )
-    assert(!page.contains("<nav"), "no tab bar without tabs")
+    assert(
+      !page.contains("""aria-label="projects""""),
+      "no project tabs without tabs"
+    )
+  }
+
+  test("every page has a tab per phase, latest by default, its own marked") {
+    assert(
+      page.contains(
+        """<a class="active" href="cs439t_f26_p4.html" aria-current="page">latest</a>"""
+      )
+    )
+    assert(page.contains("""<a href="cs439t_f26_p4_phase1.html">phase 1</a>"""))
+    assert(page.contains("""<a href="cs439t_f26_p4_phase2.html">phase 2</a>"""))
+    assert(page.contains("""data-phase="latest""""))
+
+    val one = HtmlGen.render(data.copy(phase = Phase.One))
+    assert(
+      one.contains(
+        """<a class="active" href="cs439t_f26_p4_phase1.html" aria-current="page">phase 1</a>"""
+      )
+    )
+    assert(one.contains("""<a href="cs439t_f26_p4.html">latest</a>"""))
+    assert(one.contains("""data-phase="phase 1""""))
+  }
+
+  test("phase pages are named after the project, and kept off the index") {
+    assertEquals(HtmlGen.page_file("c_p4", Phase.Latest), "c_p4.html")
+    assertEquals(HtmlGen.page_file("c_p4", Phase.One), "c_p4_phase1.html")
+    assertEquals(HtmlGen.page_file("c_p4", Phase.Two), "c_p4_phase2.html")
+    assert(!HtmlGen.is_phase_page("c_p4.html"))
+    assert(HtmlGen.is_phase_page("c_p4_phase1.html"))
+    assert(HtmlGen.is_phase_page("c_p4_phase2.html"))
+  }
+
+  test("a phase's results are published once its deadline has passed") {
+    import ProjectState.*
+    assertEquals(
+      Seq(BeforeFirstDeadline, BetweenDeadlines, AfterSecondDeadline).map(s =>
+        Seq(Phase.Latest, Phase.One, Phase.Two).map(s.publishes)
+      ),
+      Seq(
+        Seq(true, false, false),
+        Seq(true, true, false),
+        Seq(true, true, true)
+      )
+    )
   }
 
   test("the heading is the project's name; the title stays the full name") {

@@ -1,7 +1,6 @@
 package ag.grader
 
 import munit.FunSuite
-import ag.grader.TestSet.given
 
 import java.time.LocalDateTime
 
@@ -23,7 +22,7 @@ class ProjectStateTests extends FunSuite {
     import ProjectState.*
     assertEquals(
       ProjectState.values.toList.map(s =>
-        (s, s.priority, s.keep_going, s.tests)
+        (s, s.priority, s.latest_keeps_going, s.latest_tests)
       ),
       List(
         (BeforeFirstDeadline, Priority.Medium, false, "all"),
@@ -31,19 +30,13 @@ class ProjectStateTests extends FunSuite {
         (AfterSecondDeadline, Priority.Low, true, "chosen")
       )
     )
-  }
-
-  test("--test-set values parse, with a helpful error") {
-    val reader = summon[mainargs.TokensReader.Simple[TestSet]]
-    assertEquals(reader.shortName, "all|good|chosen")
-    for (t <- Seq[TestSet]("all", "good", "chosen"))
-      assertEquals(reader.read(Seq(t)), Right[String, TestSet](t))
-    assert(
-      reader
-        .read(Seq("not-ignored"))
-        .left
-        .exists(_.contains("all, good or chosen"))
-    )
+    for (s <- ProjectState.values) {
+      assert(s.keeps_going(Phase.One) && s.keeps_going(Phase.Two))
+      assertEquals(s.keeps_going(Phase.Latest), s.latest_keeps_going)
+      assert(s.tests(Phase.One) == "phase1")
+      assert(s.tests(Phase.Two) == "phase2")
+      assert(s.tests(Phase.Latest) == s.latest_tests)
+    }
   }
 
   test("moving a deadline moves the state") {

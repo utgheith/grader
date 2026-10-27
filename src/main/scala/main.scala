@@ -8,16 +8,14 @@ import ag.common.{
 import ag.grader.{
   Priority,
   ProjectState,
-  TestSet,
   CSID,
   Course,
-  CutoffTime,
+  Phase,
   Gitolite,
   HtmlGen,
   Project,
   TestId
 }
-import ag.grader.TestSet.given
 import ag.r2.{Scope, State, Target, run_if_needed}
 import ag.task.Task
 import mainargs.{
@@ -69,14 +67,14 @@ given TokensReader.Simple[Regex] with {
   }
 }
 
-given TokensReader.Simple[CutoffTime] with {
-  override def shortName: String = "datetime"
-  override def allowEmpty: Boolean = true
-  override def alwaysRepeatable: Boolean = false
-
-  /** */
-  override def read(strings: Seq[String]): Either[String, CutoffTime] =
-    Right(CutoffTime.fromString(strings.headOption))
+given TokensReader.Simple[Phase] with {
+  override def shortName: String = "1|2"
+  override def read(strings: Seq[String]): Either[String, Phase] =
+    strings.headOption match {
+      case Some("1") => Right(Phase.One)
+      case Some("2") => Right(Phase.Two)
+      case s => Left(s"Invalid phase '${s.getOrElse("")}'; phases are 1 and 2")
+    }
 }
 
 enum AliasSortMode:
@@ -109,18 +107,12 @@ case class CommonArgs(
     tests_ : Regex = """.*""".r,
     @arg(short = 'n', doc = "how many iterations?")
     count: Int = 1,
-    @arg(short = 'o', doc = "restrict to chosen tests for a given phase")
-    chosen_phase_ : Option[Int] = None,
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     @arg(doc =
       "rebuild what this command asks for, even if its saved results are current (their inputs are reused)"
     )
     force: Flag = Flag(false),
-    @arg(doc =
-      "File name in submissions to determine which commit to use. Defaults to 'commit_id'"
-    )
-    commit_id_file: String = "commit_id",
     workspace: os.Path = os.pwd / "workspace"
 ) extends Scope(".") {
 
@@ -138,10 +130,6 @@ case class CommonArgs(
 
   lazy val tests: Target[Regex] = (this / tests_).target() {
     tests_
-  }
-
-  lazy val chosen_phase: Target[Option[Int]] = (this / chosen_phase_).target() {
-    chosen_phase_
   }
 
   // TODO: warn when no courses matched
@@ -401,6 +389,31 @@ object Main {
     }
   }
 
+  // What publish_results would run for each project in a phase, as things
+  // stand: the test set and keep-going the state and phase give, and the
+  // tests themselves.
+  @main
+  def phase_tests(
+      commonArgs: CommonArgs,
+      @arg(doc = "1 or 2 (default: the latest results)")
+      phase: Phase = Phase.Latest
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
+    for (p <- commonArgs.selected_projects.guilty) {
+      val state = state_of(p)
+      val tests = state.tests(phase)
+      val ids = p.test_ids_for(tests).guilty
+      println(
+        s"\n${p.course.course_name}_${p.project_name} (${HtmlGen.phase_label(phase)}): " +
+          s"${state.description}; " +
+          (if (state.publishes(phase)) "published" else "not published yet") +
+          s"; ${tests: String} tests (${ids.size}), keep-going ${
+              if (state.keeps_going(phase)) "on" else "off"
+            }"
+      )
+      for (id <- ids) println(s"  ${id.external_name}")
+    }
+  }
+
   @main
   def chosen_tests(
       commonArgs: CommonArgs
@@ -426,12 +439,10 @@ object Main {
   @main
   def prepare(
       commonArgs: CommonArgs,
-      @arg(
-        name = "code-cutoff",
-        doc =
-          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      @arg(doc =
+        "grade phase 1 or 2: the commit its commit_id_<n> file names, else the last before its deadline (default: the latest)"
       )
-      cutoff: CutoffTime,
+      phase: Phase = Phase.Latest,
       @arg(
         short = 'd',
         doc =
@@ -458,11 +469,11 @@ object Main {
           (csid, _) <- enrollment
           if commonArgs.students.track.block.matches(csid.value)
         } {
-          val prep = p.prepare(csid, cutoff, commonArgs.commit_id_file).guilty
+          val info = p.prepare_info(csid, phase).guilty
           val target_name = s"${c.course_name}_${pn}_${csid.toString}"
           val target_path = base / target_name
 
-          prep.value match {
+          info match {
             case Some(data) =>
               println(
                 s"${aliases.get(csid).map(_.toString).getOrElse("?")} $target_name ${data.commit_time
@@ -472,7 +483,7 @@ object Main {
                     .toString}"
               )
               os.copy.over(
-                from = prep.get_data_path,
+                from = p.prepare(csid, data.sha).guilty.get_data_path,
                 to = target_path,
                 followLinks = false,
                 replaceExisting = true,
@@ -502,12 +513,6 @@ object Main {
   def late_commits(
       commonArgs: CommonArgs,
       @arg(
-        name = "code-cutoff",
-        doc =
-          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
-      )
-      cutoff: CutoffTime,
-      @arg(
         short = 'd',
         doc = "Show repository names, commit hashes, and commit messages"
       )
@@ -532,7 +537,7 @@ object Main {
         val late_repos = enrollment
           .map((csid, _) => csid)
           .filter(csid => commonArgs.students.track.block.matches(csid.value))
-          .map(csid => (csid, p.late_commits(csid, cutoff).track.block.value))
+          .map(csid => (csid, p.late_commits(csid).track.block.value))
           .filter((_, late_commits) => late_commits.nonEmpty)
           .toSeq
 
@@ -677,20 +682,10 @@ object Main {
   @main
   def run(
       commonArgs: CommonArgs,
-      @arg(
-        name = "code-cutoff",
-        doc =
-          "The cutoff for the code; either an ISO-8601 datetime, 'default', or 'none'.  Defaults to 'none'."
+      @arg(doc =
+        "grade phase 1 or 2: the commit its commit_id_<n> file names, else the last before its deadline (default: the latest)"
       )
-      cutoff: CutoffTime,
-      @arg(
-        short = 'k',
-        doc =
-          "keep going after failure (default: only after the second deadline)"
-      )
-      keep_going: Flag = Flag(false),
-      @arg(name = "no-keep-going", doc = "stop retrying a test once it fails")
-      no_keep_going: Flag = Flag(false),
+      phase: Phase = Phase.Latest,
       @arg(
         name = "result-file",
         doc = "The json file to write the results summary out to"
@@ -698,19 +693,19 @@ object Main {
       result_file: Option[String]
   ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
     val runs = commonArgs.runs.track.block
+    // the phase's tests (as publish_results runs them), narrowed by -t
     val outs = Task.sequence {
-      for ((p, csid, test_id) <- runs)
-        yield p
-          .run_one(
-            keep_going_for(p, keep_going, no_keep_going),
-            commonArgs.count
-          )(
-            csid,
-            cutoff,
-            test_id,
-            commonArgs.commit_id_file
-          )
-          .track
+      for {
+        (p, csid, test_id) <- runs
+        if p.test_ids_for(state_of(p).tests(phase)).guilty.contains(test_id)
+        info <- p.prepare_info(csid, phase).guilty.toSeq
+      } yield p
+        .run_one(state_of(p).keeps_going(phase), commonArgs.count)(
+          csid,
+          info.sha,
+          test_id
+        )
+        .track
     }.block
 
     result_file.foreach(file_name => {
@@ -752,33 +747,9 @@ object Main {
   // A project's state (from its deadlines and the clock), announced once.
   private def state_of(p: Project)(using State): ProjectState = p.state.guilty
 
-  // -k / --no-keep-going if given, otherwise what the project's state says.
-  private def keep_going_for(p: Project, on: Flag, off: Flag)(using
-      State
-  ): Boolean =
-    if (on.value) true
-    else if (off.value) false
-    else state_of(p).keep_going
-
   @main
   def publish_results(
-      commonArgs: CommonArgs,
-      @arg(
-        short = 'k',
-        doc =
-          "keep going after failure (default: only after the second deadline)"
-      )
-      keep_going: Flag = Flag(false),
-      @arg(name = "no-keep-going", doc = "stop retrying a test once it fails")
-      no_keep_going: Flag = Flag(false),
-      @arg(
-        name = "test-set",
-        doc =
-          "which tests: all, good (not ignored) or chosen (default: all before the first deadline, good between the deadlines, chosen after)"
-      )
-      test_set: Option[TestSet] = None,
-      @arg(doc = "same as --test-set chosen")
-      chosen: Flag = Flag(false)
+      commonArgs: CommonArgs
   ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
     val candidates = commonArgs.selected_projects.guilty
     def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
@@ -798,21 +769,21 @@ object Main {
         picked
       }
     for (p <- projects) {
-      val kg = keep_going_for(p, keep_going, no_keep_going)
-      val which =
-        if (chosen.value) "chosen"
-        else test_set.getOrElse(state_of(p).tests)
-      println(
-        s"${name(p)}: ${state_of(p).description}; tests: ${which: String}, keep-going ${
-            if (kg) "on" else "off"
-          }"
-      )
-      val _ = p
-        .publish_results(kg, which)(
-          commonArgs.count,
-          commonArgs.commit_id_file
+      // the latest results, and each phase's once its deadline has passed;
+      // the state and the phase say which tests, and whether to keep going
+      for {
+        phase <- Seq(Phase.Latest, Phase.One, Phase.Two)
+        if state_of(p).publishes(phase)
+      } {
+        val tests = state_of(p).tests(phase)
+        val kg = state_of(p).keeps_going(phase)
+        println(
+          s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p).description}; tests: ${tests: String}, keep-going ${
+              if (kg) "on" else "off"
+            }"
         )
-        .guilty
+        val _ = p.publish_results(kg, tests)(phase, commonArgs.count).guilty
+      }
     }
   }
 
@@ -915,7 +886,10 @@ object Main {
   @main
   def compute_scores(
       commonArgs: CommonArgs,
-      cutoff_time: CutoffTime,
+      @arg(doc =
+        "grade phase 1 or 2: the commit its commit_id_<n> file names, else the last before its deadline (default: the latest)"
+      )
+      phase: Phase = Phase.Latest,
       minutes: Int = 1
   ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
     for (p <- commonArgs.selected_projects.guilty) {
@@ -933,11 +907,7 @@ object Main {
       val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
           (csid, passing) <- p
-            .compute_scores(
-              cutoff_time,
-              c,
-              commonArgs.commit_id_file
-            )
+            .compute_scores(phase, c)
             .guilty
             .toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum
@@ -959,7 +929,7 @@ object Main {
         (csid, raw_score) <- totals
       } {
         val is_late =
-          p.is_late(csid, cutoff_time, commonArgs.commit_id_file).guilty
+          p.is_late(csid, phase).guilty
         val score =
           if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(

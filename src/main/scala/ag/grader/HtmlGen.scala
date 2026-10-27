@@ -28,18 +28,43 @@ final case class ReportData(
     // the page's heading; the title if empty
     project_name: String = "",
     // shown instead of the summary when the results can't be shown
-    notice: Option[String] = None
+    notice: Option[String] = None,
+    // which results these are: the latest, or a phase's
+    phase: Phase = Phase.Latest
 )
 
 class HtmlGen(p: Project) {
 
-  // The page's file name, both in site_base and in the course's site repo.
-  lazy val page_name: String = s"${p.course.course_name}_${p.project_name}.html"
+  private val title = s"${p.course.course_name}_${p.project_name}"
 
-  // Renders the page into this target's data directory, as `page_name`.
+  // The latest results' page's file name, both in site_base and in the
+  // course's site repo; each phase's page is next to it (see page_file).
+  lazy val page_name: String = HtmlGen.page_file(title, Phase.Latest)
+
+  // every phase's results, and whether they're published yet
+  private lazy val results: Target[
+    Seq[
+      (
+          Phase,
+          Either[String, Option[SortedMap[Alias, RedactedStudentResults]]],
+          Boolean
+      )
+    ]
+  ] = p.target(
+    p.results(Phase.Latest),
+    p.results(Phase.One),
+    p.results(Phase.Two),
+    p.state
+  ) { (latest, one, two, state) =>
+    Seq(Phase.Latest -> latest, Phase.One -> one, Phase.Two -> two).map(
+      (phase, r) => (phase, r, state.publishes(phase))
+    )
+  }
+
+  // Renders every phase's page into this target's data directory.
   lazy val page: Target[WithData[Unit]] =
     p.target(
-      p.results,
+      results,
       p.phase1_tests,
       p.phase1_weight,
       p.phase2_tests,
@@ -73,47 +98,70 @@ class HtmlGen(p: Project) {
         create_data(_ => false) { dir =>
           val tab_names = (projects.keys.toSeq :+ p.project_name).distinct
             .sortBy(n => (n.length, n))
-          val data = ReportData(
-            title = s"${p.course.course_name}_${p.project_name}",
-            generated = LocalDateTime.now().nn,
-            test_cutoff = test_cutoff,
-            code_cutoff = code_cutoff,
-            enrollments = enrollment.size,
-            results = results.toOption.flatten.getOrElse(SortedMap()),
-            notice = results.left.toOption.map { why =>
-              say(
-                s"can't show ${p.course.course_name}_${p.project_name}'s results: $why"
-              )
-              "The results for this project are being updated; they'll be back shortly."
-            },
-            phase1_tests = phase1_tests,
-            phase1_weight = phase1_weight,
-            phase2_tests = phase2_tests,
-            phase2_weight = phase2_weight,
-            weights = weights,
-            bad_tests = bad_tests,
-            staff_aliases = anti_aliases.collect {
-              case (alias, csid)
-                  if course_staff.contains(csid) || project_staff.contains(
-                    csid
-                  ) =>
-                alias
-            }.toSet,
-            tabs = tab_names.map(n => n -> s"${p.course.course_name}_$n.html"),
-            project_name = p.project_name
-          )
-          os.write.over(dir / page_name, HtmlGen.render(data))
+          for ((phase, r, published) <- results) {
+            val deadline = phase.deadline(test_cutoff, code_cutoff)
+            val data = ReportData(
+              title = title,
+              generated = LocalDateTime.now().nn,
+              test_cutoff = test_cutoff,
+              code_cutoff = code_cutoff,
+              enrollments = enrollment.size,
+              results =
+                if (published) r.toOption.flatten.getOrElse(SortedMap())
+                else SortedMap(),
+              notice =
+                if (!published)
+                  Some(
+                    s"${HtmlGen.phase_label(phase).capitalize} results will be published after its deadline" +
+                      deadline.fold("")(d =>
+                        s", ${HtmlGen.display_format.format(d)}"
+                      ) + "."
+                  )
+                else
+                  r.left.toOption.map { why =>
+                    say(
+                      s"can't show $title's ${HtmlGen.phase_label(phase)} results: $why"
+                    )
+                    "The results for this project are being updated; they'll be back shortly."
+                  },
+              phase1_tests = phase1_tests,
+              phase1_weight = phase1_weight,
+              phase2_tests = phase2_tests,
+              phase2_weight = phase2_weight,
+              weights = weights,
+              bad_tests = bad_tests,
+              staff_aliases = anti_aliases.collect {
+                case (alias, csid)
+                    if course_staff.contains(csid) || project_staff.contains(
+                      csid
+                    ) =>
+                  alias
+              }.toSet,
+              tabs = tab_names.map(n =>
+                n -> HtmlGen
+                  .page_file(s"${p.course.course_name}_$n", Phase.Latest)
+              ),
+              project_name = p.project_name,
+              phase = phase
+            )
+            os.write.over(
+              dir / HtmlGen.page_file(title, phase),
+              HtmlGen.render(data)
+            )
+          }
         }
     }
 
-  // Copies the page into site_base, if there is one.
+  // Copies the pages into site_base, if there is one.
   val gen_html: Target[Unit] =
     p.target(page, Config.site_base) { (page, site_base) =>
       site_base.foreach { site_base =>
-        val f = os.Path(site_base) / page_name
-        say(s"  ${f.toString}")
-        os.copy.over(page.get_data_path / page_name, f, createFolders = true)
-        os.perms.set(f, os.PermSet.fromString("rwxr--r--"))
+        for (page_file <- os.list(page.get_data_path)) {
+          val f = os.Path(site_base) / page_file.last
+          say(s"  ${f.toString}")
+          os.copy.over(page_file, f, createFolders = true)
+          os.perms.set(f, os.PermSet.fromString("rwxr--r--"))
+        }
       }
     }
 
@@ -125,7 +173,22 @@ object HtmlGen {
   import scalatags.Text.all.*
   import scalatags.Text.tags2
 
-  private val display_format: DateTimeFormatter =
+  // a project's page for `phase`, by the project's title (<course>_<project>)
+  def page_file(title: String, phase: Phase): String = phase match
+    case Phase.Latest => s"$title.html"
+    case Phase.One    => s"${title}_phase1.html"
+    case Phase.Two    => s"${title}_phase2.html"
+
+  // Whether `file` is a phase's page (the index lists only the latest ones).
+  def is_phase_page(file: String): Boolean =
+    file.endsWith("_phase1.html") || file.endsWith("_phase2.html")
+
+  def phase_label(phase: Phase): String = phase match
+    case Phase.Latest => "latest"
+    case Phase.One    => "phase 1"
+    case Phase.Two    => "phase 2"
+
+  val display_format: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
 
   // commit and push times, both in the grader's time zone
@@ -146,7 +209,9 @@ object HtmlGen {
   // phase as in the "Selected test weights" table, and earns that weight
   // times the fraction of its tries that passed. The score is the earned
   // share of all the weight, times 0.9 per day (continuously: 0.9^(hours/24))
-  // the commit is past the phase 2 (code) cutoff.
+  // the commit is late. A phase's results count only that phase's weight,
+  // and are late from that phase's cutoff; the latest results count both,
+  // and are late from the phase 2 (code) cutoff.
 
   final case class Score(
       earned: Double, // weighted, before the late penalty
@@ -172,13 +237,21 @@ object HtmlGen {
   }
 
   def score_of(d: ReportData, r: RedactedStudentResults): Option[Score] =
-    score_with(compute_weights(d), r)
+    score_with(compute_weights(d), d.phase, r)
 
   private def score_with(
       weights: Weights,
+      phase: Phase,
       r: RedactedStudentResults
   ): Option[Score] = {
-    val possible = weights.phase1_total + weights.phase2_total
+    def counted(row: WeightRow): Int = phase match
+      case Phase.Latest => row.phase1 + row.phase2
+      case Phase.One    => row.phase1
+      case Phase.Two    => row.phase2
+    val possible = phase match
+      case Phase.Latest => weights.phase1_total + weights.phase2_total
+      case Phase.One    => weights.phase1_total
+      case Phase.Two    => weights.phase2_total
     Option.when(possible > 0) {
       val earned = weights.rows.map { row =>
         val runs = r.outcomes
@@ -188,7 +261,7 @@ object HtmlGen {
         val fraction =
           if (runs.isEmpty) 0.0
           else runs.count(_._1 == OutcomeStatus.pass).toDouble / runs.size
-        (row.phase1 + row.phase2) * fraction
+        counted(row) * fraction
       }.sum
       val days = r.prepare_info.days_late
       Score(
@@ -312,7 +385,7 @@ object HtmlGen {
     val weights = compute_weights(d)
     val scores: Map[Alias, Score] =
       rows
-        .flatMap((alias, r) => score_with(weights, r).map(alias -> _))
+        .flatMap((alias, r) => score_with(weights, d.phase, r).map(alias -> _))
         .toMap
 
     // Per submission, per test (in `tests` order): [result rank, passing
@@ -564,9 +637,14 @@ object HtmlGen {
         div(cls := "note")(
           span(cls := "exp")("experimental"),
           " Correctness (0 to 1) may change. Each test earns its weight times the fraction " +
-            "of its tries that passed; correctness is the share of all the weight earned, " +
-            "times 0.9 per day the commit is past the phase 2 cutoff, " +
-            "pro-rated by the hour (0.9 ^ (hours late / 24))."
+            "of its tries that passed; correctness is the share of " +
+            (d.phase match
+              case Phase.Latest => "all the weight"
+              case Phase.One    => "phase 1's weight"
+              case Phase.Two    => "phase 2's weight") +
+            " earned, times 0.9 per day the commit is past the " +
+            (if (d.phase == Phase.One) "phase 1" else "phase 2") +
+            " cutoff, pro-rated by the hour (0.9 ^ (hours late / 24))."
         )
       )
 
@@ -588,7 +666,10 @@ object HtmlGen {
         tags2.title(d.title),
         tags2.style(raw(css))
       ),
-      body(data("assignment") := d.title)(
+      body(
+        data("assignment") := d.title,
+        data("phase") := phase_label(d.phase)
+      )(
         header(cls := "top")(
           h1(if (d.project_name.nonEmpty) d.project_name else d.title),
           Option.when(d.tabs.nonEmpty)(
@@ -602,6 +683,16 @@ object HtmlGen {
                 )(tab)
               }
             )
+          ),
+          tags2.nav(cls := "phases", aria.label := "results")(
+            for (phase <- Seq(Phase.Latest, Phase.One, Phase.Two)) yield {
+              val here = phase == d.phase
+              a(
+                Option.when(here)(cls := "active"),
+                href := page_file(d.title, phase),
+                Option.when(here)(attr("aria-current") := "page")
+              )(phase_label(phase))
+            }
           ),
           dl(cls := "dates")(
             div(dt("generated"), dd(display_format.format(d.generated).nn)),
@@ -784,6 +875,14 @@ object HtmlGen {
     |nav.tabs a:hover { color: var(--accent); }
     |nav.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
     |nav.tabs a.active { color: var(--text); background: var(--surface); border-color: var(--border); }
+    |nav.phases { order: 4; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    |nav.phases a {
+    |  padding: 0.2rem 0.8rem; border: 1px solid var(--border); border-radius: 999px;
+    |  color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.85rem;
+    |}
+    |nav.phases a:hover { color: var(--accent); }
+    |nav.phases a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    |nav.phases a.active { color: var(--text); background: var(--surface); border-color: var(--accent); }
     |.dates div { display: flex; gap: 0.4rem; }
     |.dates dt::after { content: ":"; }
     |.dates dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -1333,7 +1432,8 @@ object HtmlGen {
     |      const doc = new DOMParser().parseFromString(await res.text(), "text/html");
     |      const v = version_of(doc);
     |      // (a tab switch may have happened while this was in flight)
-    |      const same = doc.body && doc.body.dataset.assignment === document.body.dataset.assignment;
+    |      const same = doc.body && doc.body.dataset.assignment === document.body.dataset.assignment &&
+    |        doc.body.dataset.phase === document.body.dataset.phase;
     |      if (same && v && v !== version_of(document)) swap_in(doc);
     |    } catch (e) {
     |      // offline or briefly unavailable: try again next time
@@ -1377,6 +1477,7 @@ object HtmlGen {
     |    loaded_path = location.pathname;
     |    document.title = doc.title;
     |    document.body.dataset.assignment = doc.body.dataset.assignment;
+    |    document.body.dataset.phase = doc.body.dataset.phase;
     |    document.querySelector('meta[name="report-version"]').content = version_of(doc);
     |    document.querySelector("header.top").replaceWith(document.adoptNode(header));
     |    document.querySelector("main").replaceWith(document.adoptNode(main));
@@ -1386,7 +1487,7 @@ object HtmlGen {
     |  }
     |
     |  document.addEventListener("click", (e) => {
-    |    const link = e.target.closest("nav.tabs a");
+    |    const link = e.target.closest("nav.tabs a, nav.phases a");
     |    // let new-tab / new-window clicks, and pages opened from disk, behave normally
     |    if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     |    if (location.protocol === "file:") return;

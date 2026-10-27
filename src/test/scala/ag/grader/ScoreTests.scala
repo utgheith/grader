@@ -109,6 +109,26 @@ class ScoreTests extends FunSuite {
     assertEqualsDouble(two_and_a_half.correctness, math.pow(0.9, 2.5), 1e-9)
   }
 
+  test("a phase's score counts only that phase's tests") {
+    // phase 1's results hold just its test, t0 (scaled to 4)
+    val one = HtmlGen
+      .score_of(
+        data.copy(phase = Phase.One),
+        results(cutoff.minusDays(1), "t0" -> Seq(pass))
+      )
+      .get
+    assertEquals((one.earned, one.possible), (4.0, 4))
+    assertEqualsDouble(one.correctness, 1.0, 1e-9)
+    // phase 2's: t1 (1) passes, t2 (3) fails
+    val two = HtmlGen
+      .score_of(
+        data.copy(phase = Phase.Two),
+        results(cutoff.minusDays(1), "t1" -> Seq(pass), "t2" -> Seq(failed))
+      )
+      .get
+    assertEquals((two.earned, two.possible), (1.0, 4))
+  }
+
   test("no weights, no score") {
     val none = data.copy(phase1_tests = SortedSet(), phase2_tests = SortedSet())
     assertEquals(HtmlGen.score_of(none, results(cutoff)), None)

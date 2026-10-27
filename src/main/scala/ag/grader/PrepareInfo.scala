@@ -5,14 +5,23 @@ import upickle.default.ReadWriter
 import java.time.{Duration, Instant, ZonedDateTime}
 import ag.common.{given_ReadWriter_Instant, given_ReadWriter_ZonedDateTime}
 
-// How `prepare` chose the commit it graded.
+// How `graded_commit` chose the commit it graded.
 enum CommitSource derives ReadWriter:
-  // The latest commit: last on master before the cutoff, or master itself.
-  // Also used when the commit named in a commit id file couldn't be checked
-  // out and prepare fell back to master.
+  // From master: the last commit before the phase's deadline, or master
+  // itself. Also used when a commit id file names no commit.
   case Latest
   // Named in the submission's commit id file; `sha` is the file's contents.
   case FromFile(file_name: String, sha: String)
+
+// The commit a submission is graded at, how it was chosen, and when it was
+// made and first pushed (see Project.graded_commit).
+@upickle.implicits.allowUnknownKeys(false)
+final case class GradedCommit(
+    sha: String,
+    source: CommitSource,
+    commit_time: ZonedDateTime,
+    push_time: Option[Instant]
+) derives ReadWriter
 
 // The commit graded, and how it was chosen. What may be published is
 // `redacted`.

@@ -20,7 +20,7 @@ import ag.r2.{
   Tracker,
   update_data
 }
-import ag.rules.{check, lines, run}
+import ag.rules.{lines, run}
 import ag.task.Task
 import upickle.default.ReadWriter
 
@@ -40,30 +40,38 @@ import scala.util.matching.Regex
 val limit = Runtime.getRuntime.nn.availableProcessors() - 1
 val governor = new Semaphore(limit)
 
-enum CutoffTime:
-  case Manual(cutoff: ZonedDateTime)
-  case Default
-  case None
+// The commit a submission is graded at: the latest on master, or -- for
+// results as of a phase, once its deadline has passed -- the last one on
+// master before that phase's deadline, unless the phase's commit id file
+// (commit_id_<n>) names another.
+enum Phase derives ReadWriter:
+  case Latest, One, Two
 
-  private def label: String = this match
-    case Manual(time) =>
-      time
-        .withZoneSameInstant(ZoneId.systemDefault)
-        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        .replace(":", "_")
-    case Default => "deadline"
-    case None    => "latest"
+  // the file in a submission that can name the commit to grade, if any
+  def commit_id_file: Option[String] = this match
+    case Latest => None
+    case One    => Some("commit_id_1")
+    case Two    => Some("commit_id_2")
 
-object CutoffTime:
-  def fromString(s: Option[String]): CutoffTime = s match
-    case Some("default") | Some("deadline") => CutoffTime.Default
-    case Some("none") | scala.None          => CutoffTime.None
-    case Some(t)                            =>
-      CutoffTime.Manual(
-        ZonedDateTime.of(LocalDateTime.parse(t), ZoneId.systemDefault)
-      )
+  // the phase's results, in the project's results repo
+  def results_file: String = this match
+    case Latest => "results.json"
+    case One    => "results_phase1.json"
+    case Two    => "results_phase2.json"
 
-  given ToRelPath[CutoffTime] = { c => os.RelPath(c.label) }
+  // the commits graded are those before this, if anything
+  def deadline(test_cutoff: LocalDateTime, code_cutoff: LocalDateTime) =
+    this match
+      case Latest => None
+      case One    => Some(test_cutoff)
+      case Two    => Some(code_cutoff)
+
+object Phase:
+  given ToRelPath[Phase] = {
+    case Phase.Latest => os.RelPath("latest")
+    case Phase.One    => os.RelPath("phase1")
+    case Phase.Two    => os.RelPath("phase2")
+  }
 
 private val started_runs = AtomicLong(0)
 private val finished_runs = AtomicLong(0)
@@ -368,204 +376,167 @@ case class Project(course: Course, project_name: String)
     }
   }
 
-  lazy val prepare
-      : (CSID, CutoffTime, String) => Target[WithData[Option[PrepareInfo]]] =
-    fun { (csid, cutoff, commit_id_file_name) =>
-      target(
-        submission(csid),
-        has_student_report(
-          csid
-        ),
-        publish_override_repo,
-        test_extensions,
-        code_cutoff
-      ) {
-        (
-            submission_repo,
-            has_student_report,
-            override_repo,
-            test_extensions,
-            code_cutoff
-        ) =>
-          create_data(_ => false) { dir =>
-            submission_repo.map { submission_repo =>
-              // (1) prepare code, no checkout
-              val _ = os
-                .proc(
-                  "git",
-                  "clone",
-                  "--shared",
-                  "--template=",
-                  "--no-checkout",
-                  submission_repo.get_data_path,
-                  dir
+  // The commit graded for `phase`: the one its commit id file names, if it
+  // names one; else the last on master before the phase's deadline (by commit
+  // time; --first-parent skips commits merged in from other branches after
+  // it), or master itself for Phase.Latest. None if there's no submission,
+  // or no commit before the deadline. The commit id file is read as it is
+  // now, not as of the deadline, on purpose: a student can change their mind
+  // later and ask for a different commit to be graded.
+  lazy val graded_commit: (CSID, Phase) => Target[Option[GradedCommit]] =
+    fun { (csid, phase) =>
+      target(submission(csid), test_cutoff, code_cutoff) {
+        (submission_repo, test_cutoff, code_cutoff) =>
+          submission_repo.flatMap { submission_repo =>
+            val repo = submission_repo.get_data_path
+            def git(args: String*): Option[String] = {
+              val r = os
+                .proc("git" +: args)
+                .call(cwd = repo, check = false, stderr = os.Pipe)
+              Option.when(r.exitCode == 0)(r.out.trim()).filter(_.nonEmpty)
+            }
+            def commit(rev: String): Option[String] =
+              git("rev-parse", "-q", "--verify", s"$rev^{commit}")
+
+            val named = for {
+              name <- phase.commit_id_file
+              file = repo / name
+              if os.isFile(file)
+              id <- os.read.lines(file).headOption.map(_.trim.nn)
+              if id.nonEmpty
+              sha <- {
+                val sha = commit(id)
+                if (sha.isEmpty) say(s"$name names no commit ('$id'): ignored")
+                sha
+              }
+            } yield (sha, CommitSource.FromFile(name, id))
+            val chosen = named.orElse {
+              val sha = phase.deadline(test_cutoff, code_cutoff) match
+                case Some(deadline) =>
+                  git(
+                    "log",
+                    "master",
+                    "-n",
+                    "1",
+                    "--before",
+                    ZonedDateTime
+                      .of(deadline, ZoneId.systemDefault)
+                      .nn
+                      .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                    "--first-parent",
+                    "--pretty=format:%H"
+                  )
+                case None => commit("master")
+              sha.map(_ -> CommitSource.Latest)
+            }
+            chosen.map { (sha, source) =>
+              GradedCommit(
+                sha = sha,
+                source = source,
+                commit_time = ZonedDateTime.ofInstant(
+                  Instant.ofEpochSecond(
+                    git("show", "-s", "--format=%ct", sha).get.toLong
+                  ),
+                  ZoneOffset.UTC
+                ),
+                // the server's push hook notes it, in refs/notes/push_time
+                // (older repos: "PushTime: <secs>" lines in the default notes)
+                push_time = PrepareInfo.push_time_from(
+                  (git("notes", "--ref", "push_time", "show", sha).toSeq ++
+                    git("show", "-s", "--format=%N", sha).toSeq)
+                    .flatMap(_.linesIterator)
                 )
-                .run()
-
-              // fetch notes (e.g. PushTime)
-              os.proc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
-                .check(cwd = dir)
-
-              val default_branch = "master"
-
-              // (2) what commit should we use
-              val commit_id_file =
-                submission_repo.get_data_path / commit_id_file_name
-              val cutoff_time = cutoff match
-                case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-                case CutoffTime.Default             =>
-                  Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
-                case CutoffTime.None => None
-              val from_file: Option[String] =
-                if (
-                  os.exists(commit_id_file) && (os
-                    .stat(commit_id_file)
-                    .size != 0)
-                ) {
-                  Some(os.read.lines(commit_id_file).head.trim.nn)
-                } else {
-                  None
-                }
-              val commit_id =
-                from_file.getOrElse {
-                  cutoff_time match
-                    case Some(cutoff_time) =>
-                      // Find the last commit in the main branch before the cutoff time.
-                      // Example: git log master --first-parent --before="2024-09-12 16:00" --pretty=format:"%H %cI %f"
-
-                      // Note that git log shows author time by default, not commit time; this can
-                      // lead to cases where it looks like this fails to select a commit before the
-                      // date. Add --pretty=fuller to make git log show both times.
-
-                      // --first-parent is used to prevent this from using commits from other branches
-                      // that were merged into master after the cutoff point.
-
-                      val cutoff_string =
-                        cutoff_time.format(
-                          DateTimeFormatter.ISO_OFFSET_DATE_TIME
-                        )
-                      os.proc(
-                        "git",
-                        "log",
-                        default_branch,
-                        "--before",
-                        cutoff_string,
-                        "--first-parent",
-                        "--pretty=format:%H"
-                      ).lines(cwd = dir)
-                        .head
-                        .trim
-                        .nn
-                    case None => default_branch
-                }
-
-              // (3) checkout the correct commit_id
-              val checked_out =
-                try {
-                  val _ = os.proc("git", "checkout", commit_id).run(cwd = dir)
-                  true
-                } catch {
-                  case ex: Throwable =>
-                    ex.printStackTrace()
-                    say(
-                      s"??????????????? checking out '$commit_id' failed, trying 'master'"
-                    )
-                    val _ = os.proc("git", "checkout", "master").run(cwd = dir)
-                    false
-                }
-
-              val commit_source = from_file match
-                case Some(sha) if checked_out =>
-                  CommitSource.FromFile(commit_id_file_name, sha)
-                case _ => CommitSource.Latest
-
-              val git_sha =
-                os.proc("git", "rev-parse", "HEAD")
-                  .lines(cwd = dir)
-                  .head
-                  .trim
-                  .nn
-
-              // commit time
-              val commit_time = os
-                .proc("git", "show", "-s", "--format=%ct")
-                .lines(cwd = dir)
-                .head
-                .trim
-                .nn
-                .toLong
-              val zdt = ZonedDateTime.ofInstant(
-                Instant.ofEpochSecond(commit_time),
-                ZoneOffset.UTC
               )
-
-              // push time: the server's push hook notes it on HEAD, in
-              // refs/notes/push_time (older repos: "PushTime: <secs>" lines
-              // in the default notes)
-              val push_time = PrepareInfo.push_time_from(
-                os.proc("git", "notes", "--ref", "push_time", "show", "HEAD")
-                  .call(cwd = dir, check = false, stderr = os.Pipe)
-                  .out
-                  .lines() ++
-                  os.proc("git", "show", "-s", "--format=%N").lines(cwd = dir)
-              )
-
-              // (4) override
-              os.copy(
-                override_repo.get_data_path,
-                dir,
-                followLinks = false,
-                replaceExisting = true,
-                createFolders = true,
-                mergeFolders = true
-              )
-
-              // (5) remove all tests
-              for {
-                p <- os.list(dir)
-                if test_extensions.contains(p.ext)
-              } os.remove.all(p)
-
-              // (6) remove .git
-              os.remove.all(dir / ".git")
-
-              // (7) write commit info to file
-              val late_message = cutoff_time match
-                case Some(cutoff_time) if zdt.isAfter(cutoff_time) => "late"
-                case _                                             => "onTime"
-              os.write.over(
-                dir / "prepared_commit",
-                s"$git_sha\n${zdt.toString}\n$late_message\n"
-              )
-
-              PrepareInfo(
-                commit_time = zdt,
-                sha = git_sha,
-                has_report = has_student_report,
-                push_time = push_time,
-                commit_source = commit_source
-              )
-
             }
           }
       }
     }
 
-  lazy val is_late: (CSID, CutoffTime, String) => Target[Boolean] = fun {
-    (csid, cutoff_time, commit_id_file) =>
-      target(prepare(csid, cutoff_time, commit_id_file), code_cutoff) {
-        (prepare, code_cutoff) =>
-          prepare.value.forall { info =>
-            info.commit_time.isAfter(
-              ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+  // A commit's code, ready to test: the course's overrides on top, its tests
+  // and git history removed. Keyed by sha, so every phase grading the same
+  // commit shares it (and its runs).
+  lazy val prepare: (CSID, String) => Target[WithData[Unit]] =
+    fun { (csid, sha) =>
+      target(submission(csid), publish_override_repo, test_extensions) {
+        (submission_repo, override_repo, test_extensions) =>
+          create_data(_ => false) { dir =>
+            val repo = submission_repo.getOrElse(
+              throw IllegalStateException(s"${csid.value} has no submission")
             )
+            // (1) the commit
+            val _ = os
+              .proc(
+                "git",
+                "clone",
+                "--shared",
+                "--template=",
+                "--no-checkout",
+                repo.get_data_path,
+                dir
+              )
+              .run()
+            val _ = os.proc("git", "checkout", sha).run(cwd = dir)
+            val commit_time =
+              os.proc("git", "show", "-s", "--format=%cI")
+                .call(cwd = dir)
+                .out
+                .trim()
+
+            // (2) override
+            os.copy(
+              override_repo.get_data_path,
+              dir,
+              followLinks = false,
+              replaceExisting = true,
+              createFolders = true,
+              mergeFolders = true
+            )
+
+            // (3) remove all tests
+            for {
+              p <- os.list(dir)
+              if test_extensions.contains(p.ext)
+            } os.remove.all(p)
+
+            // (4) remove .git
+            os.remove.all(dir / ".git")
+
+            // (5) which commit this is
+            os.write.over(dir / "prepared_commit", s"$sha\n$commit_time\n")
           }
+      }
+    }
+
+  // What's graded for `phase`, and how it was chosen. None: nothing to grade.
+  lazy val prepare_info: (CSID, Phase) => Target[Option[PrepareInfo]] = fun {
+    (csid, phase) =>
+      target(graded_commit(csid, phase), has_student_report(csid)) {
+        (graded, has_report) =>
+          graded.map(g =>
+            PrepareInfo(
+              commit_time = g.commit_time,
+              sha = g.sha,
+              has_report = has_report,
+              push_time = g.push_time,
+              commit_source = g.source
+            )
+          )
       }
   }
 
-  lazy val late_commits
-      : (CSID, CutoffTime) => Target[WithData[Seq[LateCommit]]] = fun {
-    (csid, cutoff) =>
+  lazy val is_late: (CSID, Phase) => Target[Boolean] = fun { (csid, phase) =>
+    target(prepare_info(csid, phase), code_cutoff) { (info, code_cutoff) =>
+      info.forall(
+        _.commit_time.isAfter(
+          ZonedDateTime.of(code_cutoff, ZoneId.systemDefault())
+        )
+      )
+    }
+  }
+
+  // The commits on master after the code cutoff.
+  lazy val late_commits: CSID => Target[WithData[Seq[LateCommit]]] = fun {
+    csid =>
       target(submission(csid), code_cutoff) { (submission_repo, code_cutoff) =>
         create_data(_.lastOpt.contains(".git")) { dir =>
           submission_repo.toSeq.flatMap { submission_repo =>
@@ -583,45 +554,37 @@ case class Project(course: Course, project_name: String)
 
             val default_branch = "master"
 
-            val cutoff_time = cutoff match
-              case CutoffTime.Manual(cutoff_time) => Some(cutoff_time)
-              case CutoffTime.Default             =>
-                Some(ZonedDateTime.of(code_cutoff, ZoneId.systemDefault))
-              case CutoffTime.None => None
+            val cutoff_time =
+              ZonedDateTime.of(code_cutoff, ZoneId.systemDefault).nn
+            val cutoff_string =
+              cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val lines = os
+              .proc(
+                "git",
+                "log",
+                default_branch,
+                "--since",
+                cutoff_string,
+                "--first-parent",
+                "--reverse",
+                "--pretty=format:%H%x00%ct%x00%s"
+              )
+              .lines(cwd = dir)
 
-            cutoff_time match
-              case Some(cutoff_time) =>
-                val cutoff_string =
-                  cutoff_time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                val lines = os
-                  .proc(
-                    "git",
-                    "log",
-                    default_branch,
-                    "--since",
-                    cutoff_string,
-                    "--first-parent",
-                    "--reverse",
-                    "--pretty=format:%H%x00%ct%x00%s"
-                  )
-                  .lines(cwd = dir)
+            lines.map(line => {
+              val (hash, commit_timestamp, message) =
+                line.split("\u0000") match
+                  case Array(hash, timestamp, message) =>
+                    (hash, timestamp, message)
+                  case Array(hash, timestamp) => (hash, timestamp, "")
 
-                lines.map(line => {
-                  val (hash, commit_timestamp, message) =
-                    line.split("\u0000") match
-                      case Array(hash, timestamp, message) =>
-                        (hash, timestamp, message)
-                      case Array(hash, timestamp) => (hash, timestamp, "")
-
-                  val commit_time = ZonedDateTime.ofInstant(
-                    Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
-                    ZoneOffset.UTC
-                  )
-                  val delay = Duration.between(cutoff_time, commit_time)
-                  LateCommit(hash, commit_time, delay, message)
-                })
-
-              case None => Seq()
+              val commit_time = ZonedDateTime.ofInstant(
+                Instant.ofEpochSecond(commit_timestamp.trim.nn.toLong),
+                ZoneOffset.UTC
+              )
+              val delay = Duration.between(cutoff_time, commit_time)
+              LateCommit(hash, commit_time, delay, message)
+            })
           }
         }
       }
@@ -658,12 +621,12 @@ case class Project(course: Course, project_name: String)
   def run_one(
       keep_going: Boolean,
       n: Int
-  ): (CSID, CutoffTime, TestId, String) => Target[WithData[Outcome]] = fun {
-    (csid, cutoff, test_id, commit_id_file) =>
+  ): (CSID, String, TestId) => Target[WithData[Outcome]] = fun {
+    (csid, sha, test_id) =>
       complex_target {
         val test_info_f = test_info(test_id).track
         val test_extensions_f = test_extensions.track
-        val prepared_f = prepare(csid, cutoff, commit_id_file).track
+        val prepared_f = prepare(csid, sha).track
         val cores_f = cores.track
         val docker_image_f = docker_image.track
 
@@ -711,7 +674,7 @@ case class Project(course: Course, project_name: String)
                     project = this,
                     test_id = test_id,
                     csid = csid,
-                    commit_id = prepared.value.map(_.sha),
+                    commit_id = Some(sha),
                     outcomes = history :+ res
                   )
                 }
@@ -725,39 +688,65 @@ case class Project(course: Course, project_name: String)
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
+  // A student's results for `phase`: their graded commit for the phase, run
+  // on `tests`. None if there's nothing to grade.
+  private def student_results(
+      keep_going: Boolean,
+      tests: TestSet
+  ): (CSID, Phase, Int) => Target[Option[StudentResults]] = fun {
+    (csid, phase, n) =>
+      complex_target {
+        val info = prepare_info(csid, phase).guilty
+        val outcomes = for {
+          info <- info.toSeq
+          id <- test_ids_for(tests).guilty.toSeq
+        } yield run_one(keep_going, n)(csid, info.sha, id).track
+        val alias = csid_to_alias(csid).track
+        val has_test = csid_has_test(csid).track
+        run_if_needed {
+          info.map(info =>
+            StudentResults(
+              csid = csid,
+              alias = alias.block,
+              has_test = has_test.block,
+              prepare_info = info,
+              // keyed by alias: a student test's internal name is its
+              // author's CSID
+              outcomes = Task
+                .sequence(outcomes)
+                .block
+                .map(o => o.value.test_id.redacted -> o.value.redacted)
+                .to(SortedMap)
+            )
+          )
+        }
+      }
+  }
+
+  // A student's latest results, with each test's output, in their own results
+  // repo (which the result emails are made from).
   private def publish_student_results(
       keep_going: Boolean,
       tests: TestSet
-  ): (CSID, Int, String) => Target[WithData[StudentResults]] = fun {
-    (csid, n, commit_id_file) =>
+  ): (CSID, Int) => Target[WithData[Option[StudentResults]]] = fun {
+    (csid, n) =>
       complex_target {
-        val prepared = prepare(csid, CutoffTime.None, commit_id_file).track
+        val results =
+          student_results(keep_going, tests)(csid, Phase.Latest, n).guilty
+        // the same runs, for their output files
+        val outcomes = for {
+          r <- results.toSeq
+          id <- test_ids_for(tests).guilty.toSeq
+        } yield run_one(keep_going, n)(csid, r.prepare_info.sha, id).track
         val repo_info =
           Gitolite.repo_info(student_results_repo_name(csid)).track
         // rewrite the_results.json if it stops being readable
         val _ = student_results_readable(csid).track
-        val alias = csid_to_alias(csid).track
-        val has_test = csid_has_test(csid).track
         val can_push_repo = Config.can_push_repo.track
 
-        val ids = test_ids_for(tests)
-        val outcomes = ids.guilty.toSeq.map { test_id =>
-          run_one(keep_going, n)(
-            csid,
-            CutoffTime.None,
-            test_id,
-            commit_id_file
-          ).track
-        }
-
         run_if_needed {
-          val prepared_v = prepared.block
           val student_results_repo = repo_info.block
           val outcomes_v = Task.sequence(outcomes).block
-          val alias_v = alias.block
-          val has_test_v = has_test.block
-          val can_push_repo_v = can_push_repo.block
-
           update_data(_.lastOpt.contains(".git")) { dir =>
             student_results_repo.update(
               path = dir,
@@ -765,42 +754,20 @@ case class Project(course: Course, project_name: String)
               msg = "updated results",
               readers = Seq(csid.value, course.staff_group_name),
               writers = Seq(),
-              can_push_repo_v
+              can_push_repo.block
             ) { _ =>
               for {
                 f <- os.list(dir)
                 if !f.last.startsWith(".")
-              } {
-                os.remove.all(f)
-              }
-
-              for (outcome <- outcomes_v) {
-                copy_results(
-                  outcome.get_data_path,
-                  dir,
-                  outcome.value.test_id
+              } os.remove.all(f)
+              for (outcome <- outcomes_v)
+                copy_results(outcome.get_data_path, dir, outcome.value.test_id)
+              for (r <- results)
+                os.write.over(
+                  dir / "the_results.json",
+                  upickle.default.write(r)
                 )
-              }
-              val pairs = for {
-                outcome <- outcomes_v
-              } yield (outcome.value.test_id, outcome.value)
-
-              val res = StudentResults(
-                csid = csid,
-                alias = alias_v,
-                has_test = has_test_v,
-                prepare_info = prepared_v.value.get,
-                // keyed by alias: a student test's internal name is its
-                // author's CSID
-                outcomes = pairs
-                  .map((id, outcome) => id.redacted -> outcome.redacted)
-                  .to(SortedMap)
-              )
-              os.write.over(
-                dir / "the_results.json",
-                upickle.default.write(res)
-              )
-              res
+              results
             }
           }
         }
@@ -844,12 +811,13 @@ case class Project(course: Course, project_name: String)
       }
   }
 
-  private lazy val results_readable: Target[Boolean] =
+  private lazy val results_readable: Phase => Target[Boolean] = fun { phase =>
     target(Gitolite.mirror(project_results_repo_name)) { repo =>
       repo.value && readable[SortedMap[Alias, RedactedStudentResults]](
-        repo.get_data_path / "results.json"
+        repo.get_data_path / phase.results_file
       )
     }
+  }
 
   lazy val get_student_results: CSID => Target[Option[StudentResults]] =
     fun { csid =>
@@ -932,50 +900,62 @@ case class Project(course: Course, project_name: String)
   lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"
 
+  // Every student's results for `phase`, by alias, in the project's results
+  // repo (phase.results_file), for the report. Publishing the latest results
+  // also updates each student's own results repo.
   def publish_results(
       keep_going: Boolean,
       tests: TestSet
-  ): (Int, String) => Target[
+  ): (Phase, Int) => Target[
     WithData[SortedMap[Alias, RedactedStudentResults]]
   ] =
-    fun { (n, commit_id_file) =>
+    fun { (phase, n) =>
       complex_target {
         val repo_info = Gitolite.repo_info(project_results_repo_name).track
-        // rewrite results.json if it stops being readable
-        val _ = results_readable.track
-        val results = students_with_submission.guilty.toSeq.map { csid =>
-          publish_student_results(keep_going, tests)(
-            csid,
-            n,
-            commit_id_file
-          ).track
-            .map(r => (csid, r))
-        }
-
+        // rewrite the file if it stops being readable
+        val _ = results_readable(phase).track
+        val students = students_with_submission.guilty.toSeq
+        val results = students.map(csid =>
+          student_results(keep_going, tests)(csid, phase, n).track
+        )
+        val _ =
+          if (phase == Phase.Latest)
+            students.map(csid =>
+              publish_student_results(keep_going, tests)(csid, n).track
+            )
+          else Nil
         val aliases = publish_aliases.track
         val can_push_repo = Config.can_push_repo.track
-        val cutoff = code_cutoff.track
+        val first = test_cutoff.track
+        val second = code_cutoff.track
 
         run_if_needed {
           val repo_info_v = repo_info.block
-          val cutoff_v =
-            ZonedDateTime.of(cutoff.block, ZoneId.systemDefault()).nn
+          // lateness is from the phase's own deadline (the latest results':
+          // the second)
+          val cutoff_v = ZonedDateTime
+            .of(
+              phase
+                .deadline(first.block, second.block)
+                .getOrElse(second.block),
+              ZoneId.systemDefault()
+            )
+            .nn
           update_data(_.lastOpt.contains(".git")) { dir =>
             repo_info_v.update(
               path = dir,
               fork_from = Some("empty"),
-              msg = "update results",
+              msg = s"update ${phase.results_file}",
               readers = Seq("@all"),
               writers = Seq(),
               can_push_repo.block
             ) { _ =>
               val data = (for {
-                (csid, student_results) <- Task.sequence(results).block
-                alias <- aliases.block.value.get(csid).toSeq
-              } yield (alias, student_results.value.redacted(cutoff_v)))
-                .to(SortedMap)
+                r <- Task.sequence(results).block.flatten
+                alias <- aliases.block.value.get(r.csid).toSeq
+              } yield (alias, r.redacted(cutoff_v))).to(SortedMap)
               os.write.over(
-                dir / "results.json",
+                dir / phase.results_file,
                 upickle.default.write(data, indent = 2)
               )
               data
@@ -985,17 +965,17 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  // The published results, for the report page: Right(None) if there are
-  // none yet, Left(why) if results.json isn't readable by this version of the
+  // A phase's published results, for the report page: Right(None) if there
+  // are none yet, Left(why) if its file isn't readable by this version of the
   // grader. The page shows a notice for that project instead of failing the
   // whole course site, until publish_results rewrites the file.
-  lazy val results: Target[
+  lazy val results: Phase => Target[
     Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
-  ] =
+  ] = fun { phase =>
     target(
       Gitolite.mirror(project_results_repo_name)
     ) { results_repo =>
-      val f = results_repo.get_data_path / "results.json"
+      val f = results_repo.get_data_path / phase.results_file
       if (!results_repo.value || !os.exists(f)) Right(None)
       else
         Try(
@@ -1007,6 +987,7 @@ case class Project(course: Course, project_name: String)
           .map(e => String.valueOf(e.getMessage))
           .map(Some(_))
     }
+  }
 
   ///////////////////
   // student tests //
@@ -1349,10 +1330,18 @@ case class Project(course: Course, project_name: String)
       (phase1, phase2, good) => (phase1 ++ phase2).intersect(good)
     }
 
+  // each phase's chosen tests, less the ignored ones
+  private lazy val good_phase1_test_ids: Target[SortedSet[TestId]] =
+    target(phase1_test_ids, good_test_ids)(_.intersect(_))
+  private lazy val good_phase2_test_ids: Target[SortedSet[TestId]] =
+    target(phase2_test_ids, good_test_ids)(_.intersect(_))
+
   def test_ids_for(tests: TestSet): Target[SortedSet[TestId]] = tests match {
     case "all"    => test_ids
     case "good"   => good_test_ids
     case "chosen" => chosen_test_ids
+    case "phase1" => good_phase1_test_ids
+    case "phase2" => good_phase2_test_ids
   }
 
   lazy val test_info: TestId => Target[WithData[TestInfo]] = fun { test_id =>
@@ -1454,13 +1443,13 @@ case class Project(course: Course, project_name: String)
   ////////////
 
   private lazy val compute_student_scores
-      : (CSID, CutoffTime, Int, String) => Target[SortedSet[TestId]] = fun {
-    (csid, cutoff_time, n, commit_id_file) =>
+      : (CSID, Phase, Int) => Target[SortedSet[TestId]] = fun {
+    (csid, phase, n) =>
       complex_target {
-        val ids = phase2_test_ids.guilty
-        val outs = ids.toSeq.map(id =>
-          run_one(true, n)(csid, cutoff_time, id, commit_id_file).track
-        )
+        val outs = for {
+          info <- prepare_info(csid, phase).guilty.toSeq
+          id <- phase2_test_ids.guilty.toSeq
+        } yield run_one(true, n)(csid, info.sha, id).track
         run_if_needed {
           val outs_v = Task.sequence(outs).block
           (for {
@@ -1472,13 +1461,13 @@ case class Project(course: Course, project_name: String)
       }
   }
 
-  lazy val compute_scores: (CutoffTime, Int, String) => Target[
+  lazy val compute_scores: (Phase, Int) => Target[
     SortedMap[CSID, SortedSet[TestId]]
-  ] = fun { (cutoff_time, n, commit_id_file) =>
+  ] = fun { (phase, n) =>
     complex_target {
       val csids = students_with_submission.guilty
       val pairs = csids.toSeq.map { csid =>
-        compute_student_scores(csid, cutoff_time, n, commit_id_file).track
+        compute_student_scores(csid, phase, n).track
           .map(g => (csid, g))
       }
 

@@ -40,7 +40,7 @@ class PrepareInfoTests extends FunSuite {
 
   test("FromFile round-trips with its file name and sha") {
     val pinned =
-      info.copy(commit_source = CommitSource.FromFile("commit_id", "deadbeef"))
+      info.copy(commit_source = CommitSource.FromFile("commit_id_2", "deadbeef"))
     assertEquals(read[PrepareInfo](write(pinned)), pinned)
   }
 
