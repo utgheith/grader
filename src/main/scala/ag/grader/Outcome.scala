@@ -27,6 +27,15 @@ trait OutcomeApi {
     (!outcomes.isEmpty) && outcomes.forall(_._1.isHappy)
 
   lazy val last: Option[OutcomeStatus] = outcomes.lastOption.map(_._1)
+
+  // The worst of the tries: a fail in any try is a fail, then a timeout;
+  // a pass only if every try passed. None if it never ran.
+  lazy val worst: Option[OutcomeStatus] = {
+    val all = outcomes.map(_._1)
+    Seq(OutcomeStatus.fail, OutcomeStatus.timeout, OutcomeStatus.unknown)
+      .find(all.contains)
+      .orElse(all.headOption)
+  }
 }
 
 @upickle.implicits.allowUnknownKeys(false)

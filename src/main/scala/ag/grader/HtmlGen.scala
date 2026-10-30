@@ -277,7 +277,8 @@ object HtmlGen {
     }
   }
 
-  // How a test's last run is shown: css class, glyph, word, sort rank
+  // How a test's worst try is shown (see OutcomeApi.worst): css class,
+  // glyph, word, sort rank
   private def status_of(
       o: Option[OutcomeStatus]
   ): (String, String, String, Int) = o match {
@@ -370,10 +371,10 @@ object HtmlGen {
     val rows: Seq[(Alias, RedactedStudentResults)] =
       d.results.toSeq.filter(_._2.alias.isDefined)
 
-    // last status of every test, per row
+    // worst status of every test, per row
     val statuses: Map[Alias, Map[String, Option[OutcomeStatus]]] =
       rows.map { (alias, r) =>
-        alias -> r.outcomes.map((k, v) => k.external_name -> v.last).toMap
+        alias -> r.outcomes.map((k, v) => k.external_name -> v.worst).toMap
       }.toMap
 
     def passed(alias: Alias, among: Seq[String]): Int =
@@ -568,17 +569,31 @@ object HtmlGen {
                 val o = r.outcomes.get(RedactedTestId(t))
                 val (status_cls, glyph, word, rank) =
                   status_of(statuses(alias).get(t).flatten)
-                val tries = o.map(_.outcomes.size).filter(_ > 0)
+                val runs = o.map(_.outcomes).getOrElse(Nil)
+                val passed = runs.count(_._1 == OutcomeStatus.pass)
+                val tries = Option.when(runs.nonEmpty) {
+                  val n = runs.size
+                  val rate = math.round(100.0 * passed / n)
+                  s"$passed of $n ${
+                      if (n == 1) "try" else "tries"
+                    } passed ($rate%)"
+                }
+                // passed some tries but not all: a bar shows the pass rate
+                val flaky = passed > 0 && passed < runs.size
                 val times = o.flatMap(_.min_max).map { (lo, hi) =>
                   if (lo == hi) f"$lo%.2fs" else f"$lo%.2f–$hi%.2fs"
                 }
                 td(
-                  cls := (s"cell $status_cls" + (if (chosen.contains(t)) ""
-                                                 else " opt")),
+                  cls := (s"cell $status_cls" +
+                    (if (flaky) " flaky" else "") +
+                    (if (chosen.contains(t)) "" else " opt")),
+                  Option.when(flaky)(
+                    style := f"--rate: ${passed.toDouble / runs.size}%.3f"
+                  ),
                   data("col") := i.toString,
                   data("r") := rank.toString,
                   title := (List(s"$t: $word") ++
-                    tries.map(n => s"$n ${if (n == 1) "try" else "tries"}") ++
+                    tries ++
                     times).mkString(" · ")
                 )(glyph)
               }
@@ -593,6 +608,10 @@ object HtmlGen {
         li(span(cls := "cell fail")("✗"), " fail"),
         li(span(cls := "cell timeout")("T"), " timeout"),
         li(span(cls := "cell unknown")("?"), " didn't run"),
+        li(
+          span(cls := "cell fail flaky", style := "--rate: 0.6")("✗"),
+          " passed some tries (bar: pass rate)"
+        ),
         li(span(cls := "swatch chosen")(""), " chosen test"),
         li(span(cls := "mark late")("*"), " late commit"),
         li(span(cls := "mark")("†"), " commit chosen by a commit id file"),
@@ -969,6 +988,12 @@ object HtmlGen {
     |.legend .fail, .cmp .fail, .flag.bad { background: var(--fail-bg); color: var(--fail-fg); }
     |.legend .timeout, .cmp .timeout, .flag.warn { background: var(--timeout-bg); color: var(--timeout-fg); }
     |.legend .unknown, .cmp .unknown { background: var(--unknown-bg); color: var(--unknown-fg); }
+    |/* passed some tries: a bar along the bottom, green for the pass rate */
+    |/* (after the status colors, whose `background` would reset it) */
+    |.results td.cell.flaky, .legend .cell.flaky {
+    |  background-image: linear-gradient(to right, var(--pass-fg) calc(var(--rate) * 100%), var(--fail-fg) 0);
+    |  background-size: 100% 3px; background-position: bottom; background-repeat: no-repeat;
+    |}
     |
     |.compare-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; margin-bottom: 0.75rem; }
     |.compare-head h2 { margin: 0; }

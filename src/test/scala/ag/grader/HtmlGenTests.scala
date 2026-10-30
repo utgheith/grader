@@ -120,7 +120,8 @@ class HtmlGenTests extends FunSuite {
         id -> o.copy(outcomes =
           o.outcomes.map((st, _) =>
             (
-              st,
+              // some passing tests are flaky
+              if (st == pass && rnd.nextInt(12) == 0) failed else st,
               Some(
                 base(id.external_name) * speed * (0.9 + rnd.nextDouble() * 0.2)
               )
@@ -192,8 +193,34 @@ class HtmlGenTests extends FunSuite {
     assert(!page.contains("abc123"), "commit id file contents")
   }
 
-  test("tooltips show tries and times") {
-    assert(page.contains("t0: pass · 2 tries · 1.50–2.25s"))
+  test("tooltips show the success rate and times") {
+    assert(page.contains("t0: pass · 2 of 2 tries passed (100%) · 1.50–2.25s"))
+  }
+
+  test("a test that fails in any try shows as failing") {
+    val (alias, r) = student(1, false, false, "t0" -> pass)
+    val flaky = r.copy(outcomes =
+      r.outcomes.map((id, o) =>
+        id -> o.copy(outcomes = Seq((pass, Some(1.0)), (failed, Some(2.0))))
+      )
+    )
+    val p = HtmlGen.render(data.copy(results = SortedMap(alias -> flaky)))
+    assert(p.contains("t0: fail · 1 of 2 tries passed (50%)"))
+    assert(p.contains("""data-alias="001" data-chosen="0" data-all="0""""))
+    // ... with a bar for its pass rate; tests that always pass or fail have none
+    assert(p.contains("""class="cell fail flaky" style="--rate: 0.500""""))
+    assert(!page.contains("""class="cell pass flaky""""))
+    assert(!"""<td class="cell[^"]* flaky""".r.findFirstIn(page).isDefined)
+  }
+
+  test("a try's worst status wins: fail, then timeout, then didn't run") {
+    def worst(s: OutcomeStatus*) =
+      RedactedOutcome(project, RedactedTestId("t"), s.map(_ -> None)).worst
+    assertEquals(worst(pass, timeout, failed), Some(failed))
+    assertEquals(worst(timeout, pass), Some(timeout))
+    assertEquals(worst(pass, unknown), Some(unknown))
+    assertEquals(worst(pass, pass), Some(pass))
+    assertEquals(worst(), None)
   }
 
   private def version_of(page: String): String =
