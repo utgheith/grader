@@ -928,6 +928,50 @@ case class Project(course: Course, project_name: String)
   lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"
 
+  // Whether publishing `phase`'s results with `n` tries has tests to run, as
+  // far as the published results tell: a student's graded commit isn't in
+  // them, they don't cover the phase's tests, or a test has tries to go (as
+  // run_one decides). Missing or unreadable results are work too. The state
+  // picks the tests and keep-going, as it does for publish_results.
+  lazy val has_work: (Phase, Int) => Target[Boolean] = fun { (phase, n) =>
+    complex_target {
+      val state_v = state.guilty
+      val keep_going = state_v.keeps_going(phase)
+      val published_f = results(phase).track
+      val ids_f = test_ids_for(state_v.tests(phase)).track
+      val students = students_with_submission.guilty.toSeq
+      val infos_f = students.map(csid => prepare_info(csid, phase).track)
+      val aliases_f = students.map(csid => csid_to_alias(csid).track)
+      run_if_needed {
+        val ids = ids_f.block.map(_.redacted)
+        published_f.block.toOption.flatten match {
+          case None            => true
+          case Some(published) =>
+            Task
+              .sequence(infos_f)
+              .block
+              .zip(Task.sequence(aliases_f).block)
+              .exists {
+                // publish_results leaves out students without an alias
+                case (Some(info), Some(alias)) =>
+                  published.get(alias) match {
+                    case None    => true
+                    case Some(r) =>
+                      r.prepare_info.sha != info.sha ||
+                      r.outcomes.keySet != ids ||
+                      r.outcomes.values.exists { o =>
+                        o.outcomes.size < n &&
+                        (keep_going || o.outcomes
+                          .forall(_._1 == OutcomeStatus.pass))
+                      }
+                  }
+                case _ => false
+              }
+        }
+      }
+    }
+  }
+
   // Every student's results for `phase`, by alias, in the project's results
   // repo (phase.results_file), for the report. Publishing the latest results
   // also updates each student's own results repo.

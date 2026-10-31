@@ -4,26 +4,15 @@ import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
 
-// How likely a project is to be the one `publish_results` grades when no
-// project is named: picked with probability proportional to `weight`, each
-// level twice as likely as the one below.
-enum Priority(val weight: Int):
-  case High extends Priority(4)
-  case Medium extends Priority(2)
-  case Low extends Priority(1)
-
+// Which project `publish_results` grades when none is named: a live one
+// (its second deadline hasn't passed) if there is one, then the lowest
+// numbered (p1 before p2, p9 before p10).
 object Priority {
-  // One of `items`, each with probability weight / total weight; `draw` is
-  // uniform in [0, 1). None if there are none.
-  def pick[A](items: Seq[(A, Priority)], draw: Double): Option[A] = {
-    val total = items.map(_._2.weight).sum
-    val target = draw * total
+  // `items`: (item, project name, is live). None if there are none.
+  def pick[A](items: Seq[(A, String, Boolean)]): Option[A] =
     items
-      .scanLeft((Option.empty[A], 0.0)) { case ((_, upto), (a, p)) =>
-        (Some(a), upto + p.weight)
-      }
-      .collectFirst { case (Some(a), upto) if target < upto => a }
-  }
+      .minByOption((_, name, live) => (!live, name.length, name))
+      .map(_._1)
 }
 
 // Which of a project's tests a grading run covers:
@@ -39,7 +28,6 @@ type TestSet = "all" | "good" | "chosen" | "phase1" | "phase2"
 // clock on every run, so moving a deadline takes effect right away.
 enum ProjectState(
     val description: String,
-    val priority: Priority,
     // for the latest results: keep running a test after it fails?
     val latest_keeps_going: Boolean,
     // for the latest results: which tests
@@ -48,24 +36,24 @@ enum ProjectState(
   case BeforeFirstDeadline
       extends ProjectState(
         "before the first deadline",
-        Priority.Medium,
         false,
         "all"
       )
   case BetweenDeadlines
       extends ProjectState(
         "between the deadlines",
-        Priority.High,
         false,
         "good"
       )
   case AfterSecondDeadline
       extends ProjectState(
         "after the second deadline",
-        Priority.Low,
         true,
         "chosen"
       )
+
+  // Whether the project is still taking submissions for its second deadline
+  def is_live: Boolean = this != AfterSecondDeadline
 
   // Whether to keep running a test after it fails when grading `phase`: a
   // phase's commits are fixed (its results come after its deadline), so it

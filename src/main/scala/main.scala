@@ -14,7 +14,8 @@ import ag.grader.{
   Gitolite,
   HtmlGen,
   Project,
-  TestId
+  TestId,
+  TestSet
 }
 import ag.r2.{Scope, State, Target, run_if_needed}
 import ag.task.Task
@@ -753,30 +754,41 @@ object Main {
   ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
     val candidates = commonArgs.selected_projects.guilty
     def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
-    // with no -p, grade one project, picked by priority (see Priority)
+    // the phases a project publishes, each with its test set and keep-going
+    def phases(p: Project): Seq[(Phase, TestSet, Boolean)] = for {
+      phase <- Seq(Phase.Latest, Phase.One, Phase.Two)
+      state = state_of(p)
+      if state.publishes(phase)
+    } yield (phase, state.tests(phase), state.keeps_going(phase))
+    // with no -p, grade one project with work to do, picked by priority (see
+    // Priority)
     val named = commonArgs.projects_.regex != ".*"
     val projects =
       if (named || candidates.size <= 1) candidates
       else {
-        val weighted = candidates.map(p => p -> state_of(p).priority)
-        for ((p, prio) <- weighted)
-          println(
-            s"${name(p)}: ${state_of(p).description}; ${prio.toString.toLowerCase} priority"
+        val busy = candidates.filter { p =>
+          val work = phases(p).exists((phase, _, _) =>
+            p.has_work(phase, commonArgs.count).guilty
           )
-        val picked =
-          Priority.pick(weighted, scala.util.Random.nextDouble()).toSeq
+          println(
+            s"${name(p)}: ${state_of(p).description}; ${
+                if (work) "work to do"
+                else "up to date"
+              }"
+          )
+          work
+        }
+        val picked = Priority
+          .pick(busy.map(p => (p, p.project_name, state_of(p).is_live)))
+          .toSeq
+        if (picked.isEmpty) println("nothing to do")
         picked.foreach(p => println(s"picked ${name(p)}"))
         picked
       }
     for (p <- projects) {
       // the latest results, and each phase's once its deadline has passed;
       // the state and the phase say which tests, and whether to keep going
-      for {
-        phase <- Seq(Phase.Latest, Phase.One, Phase.Two)
-        if state_of(p).publishes(phase)
-      } {
-        val tests = state_of(p).tests(phase)
-        val kg = state_of(p).keeps_going(phase)
+      phases(p).foreach { (phase, tests, kg) =>
         println(
           s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p).description}; tests: ${tests: String}, keep-going ${
               if (kg) "on" else "off"

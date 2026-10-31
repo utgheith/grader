@@ -18,16 +18,16 @@ class ProjectStateTests extends FunSuite {
     assertEquals(at(second), ProjectState.AfterSecondDeadline)
   }
 
-  test("each state's priority, keep-going default and tests") {
+  test("each state's liveness, keep-going default and tests") {
     import ProjectState.*
     assertEquals(
       ProjectState.values.toList.map(s =>
-        (s, s.priority, s.latest_keeps_going, s.latest_tests)
+        (s, s.is_live, s.latest_keeps_going, s.latest_tests)
       ),
       List(
-        (BeforeFirstDeadline, Priority.Medium, false, "all"),
-        (BetweenDeadlines, Priority.High, false, "good"),
-        (AfterSecondDeadline, Priority.Low, true, "chosen")
+        (BeforeFirstDeadline, true, false, "all"),
+        (BetweenDeadlines, true, false, "good"),
+        (AfterSecondDeadline, false, true, "chosen")
       )
     )
     for (s <- ProjectState.values) {
@@ -56,28 +56,14 @@ class ProjectStateTests extends FunSuite {
     )
   }
 
-  test("each priority is twice as likely to be picked as the one below") {
-    assertEquals(Priority.High.weight, 2 * Priority.Medium.weight)
-    assertEquals(Priority.Medium.weight, 2 * Priority.Low.weight)
-  }
-
-  test("a project is picked in proportion to its priority's weight") {
-    val items =
-      Seq("p1" -> Priority.Low, "p4" -> Priority.Medium, "p5" -> Priority.High)
-    val draws = (0 until 700).map(_ / 700.0) // uniform over [0, 1)
-    val counts = draws
-      .flatMap(Priority.pick(items, _))
-      .groupBy(identity)
-      .view
-      .mapValues(_.size)
-      .toMap
-    // weights 1 : 2 : 4 of a total of 7
-    assertEquals(counts, Map("p1" -> 100, "p4" -> 200, "p5" -> 400))
-  }
-
-  test("picking from nothing picks nothing; from one, always that one") {
-    assertEquals(Priority.pick(Seq.empty[(String, Priority)], 0.5), None)
-    assertEquals(Priority.pick(Seq("p0" -> Priority.Low), 0.99), Some("p0"))
+  test("a live project goes first, then the lowest numbered") {
+    def pick(items: (String, Boolean)*) =
+      Priority.pick(items.map((n, live) => (n, n, live)))
+    assertEquals(pick("p1" -> false, "p3" -> true, "p2" -> false), Some("p3"))
+    assertEquals(pick("p4" -> true, "p3" -> true, "p1" -> false), Some("p3"))
+    assertEquals(pick("p2" -> false, "p1" -> false), Some("p1"))
+    assertEquals(pick("p10" -> false, "p9" -> false), Some("p9"))
+    assertEquals(pick(), None)
   }
 
   test("a state survives the cache") {
