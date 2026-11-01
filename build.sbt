@@ -11,8 +11,8 @@ scalacOptions ++= Seq(
   "-feature",
   "-deprecation",
   "-unchecked",
-  "-Yexplicit-nulls"
-  //"-experimental"
+  "-Yexplicit-nulls",
+  "-experimental" // for saferExceptions (ag.k2)
 )
 
 Compile / mainClass := Some("Main")
@@ -20,6 +20,18 @@ nativeImageVersion := "25.0.2"
 nativeImageJvm := "graalvm-community"
 //nativeImageOptions += "-H:-UseServiceLoaderFeature"
 testFrameworks += TestFramework("munit.Framework")
+// the classpath tests compile snippets against (ag.k2.Snippets)
+Test / resourceGenerators += Def.task {
+  val file = (Test / resourceManaged).value / "snippet-classpath.txt"
+  val converter = fileConverter.value
+  IO.write(
+    file,
+    (Test / dependencyClasspath).value
+      .map(a => converter.toPath(a.data).toString)
+      .mkString(java.io.File.pathSeparator)
+  )
+  Seq(file)
+}.taskValue
 
 nativeImageOptions ++= Seq(
       "--no-fallback",
@@ -38,7 +50,10 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalameta" %% "munit" % "1.3.6" % Test
+  "org.scalameta" %% "munit" % "1.3.6" % Test,
+  // to compile snippets in tests: some errors (capture checking) come only
+  // after the typer, where munit's compileErrors stops
+  "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test
 )
 
 enablePlugins(NativeImagePlugin)
