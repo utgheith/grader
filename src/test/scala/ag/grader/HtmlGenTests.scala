@@ -150,6 +150,18 @@ class HtmlGenTests extends FunSuite {
     os.write.over(os.Path(f), HtmlGen.render(big))
   }
 
+  test("a page's version ignores when it was generated, and can be read back") {
+    val later = data.copy(generated = data.generated.plusHours(1).nn)
+    assertEquals(HtmlGen.version(later), HtmlGen.version(data))
+    assertNotEquals(HtmlGen.render(later), page)
+    assertEquals(HtmlGen.version_of(page), Some(HtmlGen.version(data)))
+    assertNotEquals(
+      HtmlGen.version(data.copy(title = "other")),
+      HtmlGen.version(data)
+    )
+    assertEquals(HtmlGen.version_of("<html></html>"), None)
+  }
+
   test("one row per submission, with the staff row marked") {
     assertEquals("""<tr class="staff"""".r.findAllIn(page).size, 1)
     assertEquals("data-alias=\"".r.findAllIn(page).size, 3)

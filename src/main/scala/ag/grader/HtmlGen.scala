@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.{create_data, say, Target, WithData}
+import ag.r2.{say, Target, update_data, WithData}
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -61,7 +61,11 @@ class HtmlGen(p: Project) {
     )
   }
 
-  // Renders every phase's page into this target's data directory.
+  // Renders every phase's page into this target's data directory. A page
+  // whose content is unchanged (the same version; see HtmlGen.render) is
+  // left as it was, generated time and all: the pages' bytes change only
+  // when what they show does, and so only then does the site (and its
+  // deploy to Cloudflare) change.
   lazy val page: Target[WithData[Unit]] =
     p.target(
       results,
@@ -95,10 +99,10 @@ class HtmlGen(p: Project) {
           project_staff,
           projects
       ) =>
-        create_data(_ => false) { dir =>
+        update_data(_ => false) { dir =>
           val tab_names = (projects.keys.toSeq :+ p.project_name).distinct
             .sortBy(n => (n.length, n))
-          for ((phase, r, published) <- results) {
+          val written = for ((phase, r, published) <- results) yield {
             val deadline = phase.deadline(test_cutoff, code_cutoff)
             val data = ReportData(
               title = title,
@@ -144,11 +148,15 @@ class HtmlGen(p: Project) {
               project_name = p.project_name,
               phase = phase
             )
-            os.write.over(
-              dir / HtmlGen.page_file(title, phase),
-              HtmlGen.render(data)
-            )
+            val f = dir / HtmlGen.page_file(title, phase)
+            val version = HtmlGen.version(data)
+            val same =
+              os.isFile(f) && HtmlGen.version_of(os.read(f)).contains(version)
+            if (!same) os.write.over(f, HtmlGen.render_with(data, version))
+            f.last
           }
+          // (pages this target no longer makes)
+          for (f <- os.list(dir) if !written.contains(f.last)) os.remove.all(f)
         }
     }
 
@@ -348,14 +356,20 @@ object HtmlGen {
   // A page's version: a hash of everything it shows except the time it was
   // generated, so regenerating unchanged results doesn't look like a change.
   // The page polls for itself and swaps in a copy whose version differs.
-  def render(d: ReportData): String = {
+  def render(d: ReportData): String = render_with(d, version(d))
+
+  def version(d: ReportData): String = {
     val digest = java.security.MessageDigest.getInstance("SHA-256").nn
     val bytes = render_with(d.copy(generated = LocalDateTime.MIN.nn), "")
       .getBytes("UTF-8")
-    val version =
-      digest.digest(bytes).nn.take(8).map(b => f"${b & 0xff}%02x").mkString
-    render_with(d, version)
+    digest.digest(bytes).nn.take(8).map(b => f"${b & 0xff}%02x").mkString
   }
+
+  // the version a rendered page carries, if it's one of these pages
+  def version_of(page: String): Option[String] =
+    """<meta name="report-version" content="([0-9a-f]+)"""".r
+      .findFirstMatchIn(page)
+      .map(_.group(1).nn)
 
   private def render_with(d: ReportData, version: String): String = {
     val chosen: Set[String] = (d.phase1_tests ++ d.phase2_tests).toSet
