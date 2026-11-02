@@ -96,6 +96,21 @@ given TokensReader.Simple[AliasSortMode] with {
         Left(s"Invalid sort mode '$s'; possible modes are 'alias' or 'csid'")
 }
 
+given TokensReader.Simple[ag.k2.Language] with {
+  override def shortName: String = "language"
+  override def allowEmpty: Boolean = false
+  override def alwaysRepeatable: Boolean = false
+
+  override def read(strings: Seq[String]): Either[String, ag.k2.Language] =
+    ag.k2.Language.values.find(_.toString.toLowerCase == strings.head) match
+      case Some(l) => Right(l)
+      case None    =>
+        val all = ag.k2.Language.values.map(_.toString.toLowerCase)
+        Left(
+          s"Invalid language '${strings.head}'; languages are ${all.mkString(", ")}"
+        )
+}
+
 //@main
 case class CommonArgs(
     @arg(name = "courses", short = 'c', doc = "courses to consider (regex)")
@@ -225,6 +240,25 @@ object CommonArgs {
 }
 
 object Main {
+  // Code for reading and writing grader's events (ag.grader.Events) in
+  // another language. (To a file: ./run's output is sbt's too.)
+  @main
+  def binding(
+      @arg(doc = "the language to generate: python")
+      language: ag.k2.Language,
+      @arg(doc = "where to write it (default: bindings/<language>/...)")
+      out: Option[os.Path] = None
+  ): Unit = {
+    val file =
+      out.getOrElse(os.pwd / "bindings" / ag.k2.Bindings.file_of(language))
+    os.write.over(
+      file,
+      ag.k2.Bindings(language, ag.grader.Events.kinds.all),
+      createFolders = true
+    )
+    println(s"wrote ${file.toString}")
+  }
+
   @main
   def dropbox(commonArgs: CommonArgs): Unit =
     in_workspace(commonArgs.workspace, commonArgs.force.value) {

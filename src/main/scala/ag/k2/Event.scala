@@ -51,11 +51,15 @@ object EventId {
 // change to an event's fields adds an upgrade, it never breaks old ones.
 // Upgrades are pure functions (`->`, checked): an old event reads the same
 // wherever and whenever it's read.
+//
+// Its current version's Schema is derived at compile time, from E (so E has
+// to be portable; see Schema), for bindings in other languages.
 final class EventKind[E <: Event](
     val name: String,
     val upgrades: Seq[ujson.Value -> ujson.Value] = Nil
-)(using rw: ReadWriter[E]) {
+)(using rw: ReadWriter[E], described: Schema.Of[E]) {
   val version: Int = upgrades.size + 1
+  val schema: Schema = described.schema
 
   def encode(e: Event): ujson.Value =
     upickle.default.writeJs(e.asInstanceOf[E])
@@ -69,12 +73,12 @@ final class EventKind[E <: Event](
 }
 
 // The event kinds a consumer understands, by name.
-final class EventKinds(kinds: EventKind[? <: Event]*) {
+final class EventKinds(val all: EventKind[? <: Event]*) {
   private val by_name: Map[String, EventKind[? <: Event]] = {
     val dups =
-      kinds.groupBy(_.name).collect { case (n, ks) if ks.size > 1 => n }
+      all.groupBy(_.name).collect { case (n, ks) if ks.size > 1 => n }
     require(dups.isEmpty, s"event kinds named twice: ${dups.mkString(", ")}")
-    kinds.map(k => (k.name, k)).toMap
+    all.map(k => (k.name, k)).toMap
   }
 
   def get(name: String): Option[EventKind[? <: Event]] = by_name.get(name)

@@ -33,6 +33,9 @@ data only.
 1. [Plaintext in the types](01-plaintext-in-the-types.md): checked exceptions
    and capture checking. Opened values carry their key store in their type,
    so the compiler keeps them out of events and other sinks.
+2. [Events described for other languages](02-event-bindings.md): a schema
+   derived from the Scala types, a portable subset of types, a check that
+   every event is registered, and generated bindings (Python first).
 
 ## Planned
 

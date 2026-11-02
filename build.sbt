@@ -53,7 +53,9 @@ libraryDependencies ++= Seq(
   "org.scalameta" %% "munit" % "1.3.6" % Test,
   // to compile snippets in tests: some errors (capture checking) come only
   // after the typer, where munit's compileErrors stops
-  "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test
+  "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test,
+  // to find every Event class (ag.grader.EventsTests)
+  "org.scala-lang" %% "scala3-tasty-inspector" % scalaVersion.value % Test
 )
 
 enablePlugins(NativeImagePlugin)
