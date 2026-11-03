@@ -6,6 +6,7 @@ import ag.common.{
   timed
 }
 import ag.grader.{
+  Band,
   Priority,
   ProjectState,
   CSID,
@@ -106,8 +107,6 @@ case class CommonArgs(
     students_ : Regex = """.*""".r,
     @arg(short = 't', doc = "tests to consider (regex)")
     tests_ : Regex = """.*""".r,
-    @arg(short = 'n', doc = "how many iterations?")
-    count: Int = 1,
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     @arg(doc =
@@ -701,7 +700,7 @@ object Main {
         if p.test_ids_for(state_of(p).tests(phase)).guilty.contains(test_id)
         info <- p.prepare_info(csid, phase).guilty.toSeq
       } yield p
-        .run_one(state_of(p).keeps_going(phase), commonArgs.count)(
+        .run_one(state_of(p).keeps_going(phase), p.iterations.guilty.max)(
           csid,
           info.sha,
           test_id
@@ -760,32 +759,43 @@ object Main {
       state = state_of(p)
       if state.publishes(phase)
     } yield (phase, state.tests(phase), state.keeps_going(phase))
+    // the band of `p`'s work and the tries it runs to, if it has work to do
+    // (see Priority); the tries come from the project's iterations
+    def work(p: Project): Option[(Band, Int)] =
+      Priority.band(
+        state_of(p).is_live,
+        p.iterations.guilty,
+        n => phases(p).exists((phase, _, _) => p.has_work(phase, n).guilty)
+      )
+    def report(p: Project, w: Option[(Band, Int)]): Unit =
+      println(
+        s"${name(p)}: ${state_of(p).description}; ${w.fold("up to date")(
+            (band, n) => s"work to do (${band.description}, to $n tries)"
+          )}"
+      )
     // with no -p, grade one project with work to do, picked by priority (see
-    // Priority)
+    // Priority); named projects are graded as far as their work goes
     val named = commonArgs.projects_.regex != ".*"
-    val projects =
-      if (named || candidates.size <= 1) candidates
-      else {
-        val busy = candidates.filter { p =>
-          val work = phases(p).exists((phase, _, _) =>
-            p.has_work(phase, commonArgs.count).guilty
-          )
-          println(
-            s"${name(p)}: ${state_of(p).description}; ${
-                if (work) "work to do"
-                else "up to date"
-              }"
-          )
-          work
+    val projects: Seq[(Project, Int)] =
+      if (named || candidates.size <= 1)
+        for (p <- candidates.toSeq) yield {
+          val w = work(p)
+          report(p, w)
+          (p, w.fold(p.iterations.guilty.max)(_._2))
         }
-        val picked = Priority
-          .pick(busy.map(p => (p, p.project_name, state_of(p).is_live)))
-          .toSeq
+      else {
+        val busy = for {
+          p <- candidates.toSeq
+          w = work(p)
+          _ = report(p, w)
+          (band, n) <- w
+        } yield ((p, n), p.project_name, band)
+        val picked = Priority.pick(busy).toSeq
         if (picked.isEmpty) println("nothing to do")
-        picked.foreach(p => println(s"picked ${name(p)}"))
+        picked.foreach((p, n) => println(s"picked ${name(p)}, to $n tries"))
         picked
       }
-    for (p <- projects) {
+    for ((p, n) <- projects) {
       // the latest results, and each phase's once its deadline has passed;
       // the state and the phase say which tests, and whether to keep going
       phases(p).foreach { (phase, tests, kg) =>
@@ -794,7 +804,7 @@ object Main {
               if (kg) "on" else "off"
             }"
         )
-        val _ = p.publish_results(kg, tests)(phase, commonArgs.count).guilty
+        val _ = p.publish_results(kg, tests)(phase, n).guilty
       }
     }
   }
@@ -898,6 +908,8 @@ object Main {
   @main
   def compute_scores(
       commonArgs: CommonArgs,
+      @arg(short = 'n', doc = "how many scoring rounds")
+      count: Int = 1,
       @arg(doc =
         "grade phase 1 or 2: the commit its commit_id_<n> file names, else the last before its deadline (default: the latest)"
       )
@@ -916,7 +928,7 @@ object Main {
 
       val max_weight = test_weights.values.sum
 
-      val (n, outs) = loop(1 to commonArgs.count, minutes, Seq()) { (c, acc) =>
+      val (n, outs) = loop(1 to count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
           (csid, passing) <- p
             .compute_scores(phase, c)

@@ -122,6 +122,9 @@ case class Project(course: Course, project_name: String)
   private lazy val cores: Target[Int] =
     target(info)(p => p.cores)
 
+  lazy val iterations: Target[Iterations] =
+    target(info)(p => p.iterations)
+
   lazy val test_cutoff: Target[LocalDateTime] =
     target(info)(p => p.test_cutoff)
   lazy val code_cutoff: Target[LocalDateTime] =

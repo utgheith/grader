@@ -56,14 +56,37 @@ class ProjectStateTests extends FunSuite {
     )
   }
 
-  test("a live project goes first, then the lowest numbered") {
-    def pick(items: (String, Boolean)*) =
-      Priority.pick(items.map((n, live) => (n, n, live)))
-    assertEquals(pick("p1" -> false, "p3" -> true, "p2" -> false), Some("p3"))
-    assertEquals(pick("p4" -> true, "p3" -> true, "p1" -> false), Some("p3"))
-    assertEquals(pick("p2" -> false, "p1" -> false), Some("p1"))
-    assertEquals(pick("p10" -> false, "p9" -> false), Some("p9"))
+  test("the most urgent band goes first, then the lowest numbered") {
+    import Band.*
+    def pick(items: (String, Band)*) =
+      Priority.pick(items.map((n, band) => (n, n, band)))
+    assertEquals(pick("p1" -> Other, "p3" -> LiveFirst, "p2" -> Other), Some("p3"))
+    assertEquals(pick("p4" -> LiveFirst, "p3" -> LiveFirst, "p1" -> Other), Some("p3"))
+    // a live project's remaining tries wait for everything else
+    assertEquals(pick("p3" -> LiveRest, "p2" -> Other), Some("p2"))
+    assertEquals(pick("p3" -> LiveRest, "p4" -> LiveFirst), Some("p4"))
+    assertEquals(pick("p4" -> LiveRest, "p3" -> LiveRest), Some("p3"))
+    assertEquals(pick("p2" -> Other, "p1" -> Other), Some("p1"))
+    assertEquals(pick("p10" -> Other, "p9" -> Other), Some("p9"))
     assertEquals(pick(), None)
+  }
+
+  test("a project's band and tries come from its iterations and its work") {
+    val its = Iterations(min = 10, max = 100)
+    // has work below `tries`
+    def below(tries: Int)(n: Int) = n > tries
+    assertEquals(Priority.band(true, its, below(3)), Some((Band.LiveFirst, 10)))
+    assertEquals(Priority.band(true, its, below(10)), Some((Band.LiveRest, 100)))
+    assertEquals(Priority.band(true, its, below(100)), None)
+    assertEquals(Priority.band(false, its, below(3)), Some((Band.Other, 100)))
+    assertEquals(Priority.band(false, its, below(100)), None)
+  }
+
+  test("iterations default to 10 and 100, and need 1 <= min <= max") {
+    assertEquals(upickle.default.read[Iterations]("{}"), Iterations(10, 100))
+    assertEquals(upickle.default.read[Iterations]("""{"max": 20}"""), Iterations(10, 20))
+    val _ = intercept[IllegalArgumentException](Iterations(min = 0))
+    val _ = intercept[IllegalArgumentException](Iterations(min = 20, max = 10))
   }
 
   test("a state survives the cache") {

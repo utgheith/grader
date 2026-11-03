@@ -4,15 +4,43 @@ import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
 
-// Which project `publish_results` grades when none is named: a live one
-// (its second deadline hasn't passed) if there is one, then the lowest
-// numbered (p1 before p2, p9 before p10).
+// How urgent a project's grading work is, most urgent first:
+//   LiveFirst: a live project's (second deadline not passed) first tries,
+//              up to its iterations.min: quick feedback
+//   Other:     a project that isn't live, up to its iterations.max
+//   LiveRest:  a live project's remaining tries, up to its iterations.max
+enum Band {
+  case LiveFirst, Other, LiveRest
+
+  def description: String = this match {
+    case LiveFirst => "live, first tries"
+    case Other     => "not live"
+    case LiveRest  => "live, remaining tries"
+  }
+}
+
+// Which project `publish_results` grades when none is named, and how many
+// tries: the most urgent band's (see Band), then the lowest numbered (p1
+// before p2, p9 before p10).
 object Priority {
-  // `items`: (item, project name, is live). None if there are none.
-  def pick[A](items: Seq[(A, String, Boolean)]): Option[A] =
+  // `items`: (item, project name, band). None if there are none.
+  def pick[A](items: Seq[(A, String, Band)]): Option[A] =
     items
-      .minByOption((_, name, live) => (!live, name.length, name))
+      .minByOption((_, name, band) => (band.ordinal, name.length, name))
       .map(_._1)
+
+  // A project's band, and the tries to run its tests to, if it has work to
+  // do: `has_work(n)` says whether it has tests with fewer than n tries.
+  def band(
+      live: Boolean,
+      iterations: Iterations,
+      has_work: Int => Boolean
+  ): Option[(Band, Int)] =
+    if (live) {
+      if (has_work(iterations.min)) Some((Band.LiveFirst, iterations.min))
+      else if (has_work(iterations.max)) Some((Band.LiveRest, iterations.max))
+      else None
+    } else Option.when(has_work(iterations.max))((Band.Other, iterations.max))
 }
 
 // Which of a project's tests a grading run covers:
