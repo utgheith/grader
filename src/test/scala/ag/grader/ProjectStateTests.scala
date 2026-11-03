@@ -82,10 +82,13 @@ class ProjectStateTests extends FunSuite {
     assertEquals(Priority.band(false, its, below(100)), None)
   }
 
-  test("iterations default to 10 and 100, and need 1 <= min <= max") {
-    assertEquals(upickle.default.read[Iterations]("{}"), Iterations(10, 100))
-    assertEquals(upickle.default.read[Iterations]("""{"max": 20}"""), Iterations(10, 20))
-    val _ = intercept[IllegalArgumentException](Iterations(min = 0))
+  test("iterations need both min and max, with 1 <= min <= max") {
+    assertEquals(
+      upickle.default.read[Iterations]("""{"min": 5, "max": 20}"""),
+      Iterations(5, 20)
+    )
+    assert(scala.util.Try(upickle.default.read[Iterations]("""{"max": 20}""")).isFailure)
+    val _ = intercept[IllegalArgumentException](Iterations(min = 0, max = 10))
     val _ = intercept[IllegalArgumentException](Iterations(min = 20, max = 10))
   }
 

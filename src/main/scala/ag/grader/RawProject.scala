@@ -8,8 +8,6 @@ import java.time.LocalDateTime
 case class RawProject(
     active: Boolean,
     cores: Int,
-    // TODO: drop this default once every project in courses.json lists it
-    score_iterations: Int = 100,
     code_cutoff: LocalDateTime,
     test_cutoff: LocalDateTime,
     ignore_tests: Boolean,
@@ -22,20 +20,18 @@ case class RawProject(
     docker_file: Option[String],
     test_extensions: Seq[String],
     staff: Seq[CSID],
-    // optional in courses_config, so (unlike saved values) it has a default
-    extensions: Extensions = Extensions(),
-    // how many times each test runs on a submission (see Priority); optional
-    // in courses_config
-    iterations: Iterations = Iterations()
+    extensions: Extensions,
+    // how many times each test runs on a submission (see Priority)
+    iterations: Iterations
 ) derives ReadWriter
 
 // How many tries each test gets on a submission. In courses_config, inside a
-// project (either may be left out):
+// project:
 //   "iterations": { "min": 10, "max": 100 }
 // A live project gets its first `min` tries before any other work, and the
 // rest (up to `max`) after all other work; other projects get up to `max`.
 @upickle.implicits.allowUnknownKeys(false)
-case class Iterations(min: Int = 10, max: Int = 100) derives ReadWriter {
+case class Iterations(min: Int, max: Int) derives ReadWriter {
   require(
     min >= 1 && max >= min,
     s"iterations: need 1 <= min <= max, got min $min and max $max"
@@ -45,11 +41,10 @@ case class Iterations(min: Int = 10, max: Int = 100) derives ReadWriter {
 // Deadline extensions: per phase, the whole days a student gets past that
 // phase's deadline. In courses_config, inside a project:
 //   "extensions": { "phase1": { "<csid>": 2, ... }, "phase2": { ... } }
-// Either phase may be left out.
 @upickle.implicits.allowUnknownKeys(false)
 case class Extensions(
-    phase1: Map[CSID, Int] = Map(),
-    phase2: Map[CSID, Int] = Map()
+    phase1: Map[CSID, Int],
+    phase2: Map[CSID, Int]
 ) derives ReadWriter {
   // the days `csid` gets for `phase`; the latest results are late from the
   // code cutoff, so they take phase 2's
