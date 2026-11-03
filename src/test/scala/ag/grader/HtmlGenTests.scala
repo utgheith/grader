@@ -79,8 +79,8 @@ class HtmlGenTests extends FunSuite {
   )
   // ... and two sibling project pages with tabs, into a directory
   private val tabs = Seq(
-    "p4" -> "cs439t_f26_p4.html",
-    "p5" -> "cs439t_f26_p5.html"
+    "p4" -> "cs439t_f26_p4",
+    "p5" -> "cs439t_f26_p5"
   )
   sys.env.get("REPORT_SAMPLE_TABS").foreach { d =>
     os.write.over(
@@ -271,6 +271,16 @@ class HtmlGenTests extends FunSuite {
     )
   }
 
+  test("a course's front page sends visitors on to the latest project") {
+    val index = HtmlGen.render_index(
+      "cs439c_f26",
+      Seq("cs439c_f26_p10.html", "cs439c_f26_p2.html", "cs439c_f26_p1.html")
+    )
+    assert(index.contains("""location.replace("cs439c_f26_p10.html")"""), index)
+    assert(index.contains("""has("all")"""), index)
+    assert(!HtmlGen.render_index("cs439c_f26", Nil).contains("location.replace"))
+  }
+
   private def report_data(page: String): ujson.Value =
     ujson.read(
       """(?s)<script type="application/json" id="report-data">(.*?)</script>""".r
@@ -307,6 +317,19 @@ class HtmlGenTests extends FunSuite {
     assert(
       !page.contains("""aria-label="projects""""),
       "no project tabs without tabs"
+    )
+  }
+
+  test("switching projects keeps the phase") {
+    val p5 = HtmlGen.render(
+      data.copy(title = "cs439t_f26_p5", tabs = tabs, phase = Phase.One)
+    )
+    assert(p5.contains("""<a href="cs439t_f26_p4_phase1.html">p4</a>"""), p5)
+    assert(
+      p5.contains(
+        """<a class="active" href="cs439t_f26_p5_phase1.html" aria-current="page">p5</a>"""
+      ),
+      p5
     )
   }
 
