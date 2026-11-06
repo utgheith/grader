@@ -2,11 +2,8 @@ package ag.r2
 
 import ag.common.Logging
 
-import scala.annotation.implicitNotFound
-
 // A producer is a context that produces a value of type A
 
-@implicitNotFound("no given Producer")
 trait Producer[A] extends Context[A] with Logging {
 
   // What does it produce?

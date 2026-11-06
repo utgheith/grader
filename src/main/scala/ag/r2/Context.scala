@@ -5,13 +5,12 @@ import language.experimental.captureChecking
 import ag.common.down
 
 import java.util.concurrent.Semaphore
-import scala.annotation.implicitNotFound
 
 //
 // Context for a running computations
 //
 // A context is created by the environment as a computation is about
-// to start and is implicitly passed around (as a context argument)
+// to start, and is passed around as an explicit argument.
 //
 // It has 2 jobs:
 //    - carries information about the target being computed (state, target, ...)
@@ -74,7 +73,6 @@ object Context {
   }
 }
 
-@implicitNotFound("no given Context")
 trait Context[A] extends caps.SharedCapability {
   val route: Seq[Target[?]]
   val depth: Int

@@ -6,11 +6,11 @@ object ForceThings extends Scope("force") {
   val runs = new AtomicInteger(0)
 
   // no dependencies: re-evaluated every time, but its value never changes
-  val input: Target[Int] = target() { 1 }
+  val input: Target[Int] = target(EmptyTuple) {(_, _) =>  1 }
 
-  val counted: Target[Int] = target(input) { i =>
+  val counted: Target[Int] = target((i = input)) { (_, deps) =>
     val _ = runs.incrementAndGet()
-    i
+    deps.i
   }
 }
 
@@ -18,23 +18,23 @@ object RootThings extends Scope("force_roots") {
   val leaf_runs = new AtomicInteger(0)
   val top_runs = new AtomicInteger(0)
 
-  val input: Target[Int] = target() { 1 }
-  val leaf: Target[Int] = target(input) { i =>
+  val input: Target[Int] = target(EmptyTuple) {(_, _) =>  1 }
+  val leaf: Target[Int] = target((i = input)) { (_, deps) =>
     val _ = leaf_runs.incrementAndGet()
-    i
+    deps.i
   }
-  val top: Target[Int] = target(leaf) { i =>
+  val top: Target[Int] = target((i = leaf)) { (_, deps) =>
     val _ = top_runs.incrementAndGet()
-    i + 1
+    deps.i + 1
   }
 }
 
 class ForceTests extends munit.FunSuite {
   test("force makes a cached target run again, once") {
     def run_once(force: Boolean = false): Int = {
-      given State = State(config.get_test_dir)
-      if (force) summon[State].force(ForceThings.counted)
-      ForceThings.counted.track.block
+      val root = State(config.get_test_dir)
+      if (force) root.force(ForceThings.counted)
+      root.track(ForceThings.counted).block
     }
 
     assertEquals(run_once(), 1)
@@ -53,8 +53,8 @@ class ForceTests extends munit.FunSuite {
 
   test("force_roots rebuilds what's tracked directly, not its inputs") {
     def run_once(force_roots: Boolean): Int =
-      State.run(config.get_test_dir, force_roots) {
-        RootThings.top.track.block
+      State.run(config.get_test_dir, force_roots) { root =>
+        root.track(RootThings.top).block
       }
 
     assertEquals(run_once(false), 2)

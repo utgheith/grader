@@ -27,29 +27,31 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   private lazy val raw: Target[RawCourse] = Gitolite.raw_course(course_name)
 
   lazy val notifications: Target[NotificationConfig] =
-    target(raw)(_.notifications)
+    target((c = raw))((_, deps) => deps.c.notifications)
 
   lazy val projects: Target[SortedMap[String, Project]] =
-    target(raw) { rc =>
+    target((rc = raw)) { (_, deps) =>
       val s = for {
-        pn <- rc.projects.keySet.toSeq
+        pn <- deps.rc.projects.keySet.toSeq
       } yield (pn, Project(this, pn))
       SortedMap(s*)
     }
 
-  lazy val active: Target[Boolean] = target(raw) { rc =>
-    rc.active
+  lazy val active: Target[Boolean] = target((rc = raw)) { (_, deps) =>
+    deps.rc.active
   }
 
-  lazy val staff: Target[SortedSet[CSID]] = target(raw) { rc => rc.staff }
+  lazy val staff: Target[SortedSet[CSID]] = target((rc = raw)) { (_, deps) =>
+    deps.rc.staff
+  }
 
   lazy val active_projects: Target[SortedMap[String, Project]] =
-    complex_target {
-      val ps = projects.guilty
+    complex_target { tracker =>
+      val ps = tracker.guilty(projects)
       val active_flags = for {
-        active_flags <- ps.values.map(_.active.guilty)
+        active_flags <- ps.values.map(it => tracker.guilty(it.active))
       } yield active_flags
-      run_if_needed {
+      run_if_needed(tracker) { _ =>
         ps.values
           .zip(active_flags)
           .filter(_._2)
@@ -63,8 +65,8 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   // Get a sorted list of csids in the dropbox
   lazy val dropbox: Target[SortedMap[CSID, String]] =
-    target(periodic(60000), Config.dropbox_path) {
-      case (_, Some(dropbox)) =>
+    target((periodic = periodic(60000), dropbox_path = Config.dropbox_path)) {
+      case (_, (_, Some(dropbox))) =>
         val base = os.home / dropbox / course_name
         val pairs = for {
           f <- os.list(base)
@@ -80,7 +82,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
           (CSID(id), os.read(f).trim.nn)
         }
         pairs.to(SortedMap)
-      case (_, None) =>
+      case (_, (_, None)) =>
         SortedMap()
     }
 
@@ -93,28 +95,30 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val publish_keys: Target[WithData[SortedMap[CSID, String]]] =
     target(
-      Gitolite.repo_info(
-        "gitolite-admin"
-      ),
-      dropbox,
-      notifications.peek,
-      Config.can_send_mail,
-      Config.can_push_repo
-    ) { (g, dropbox, notifications, can_send_mail, can_push_repo) =>
-      create_data(skip = _.lastOpt.contains(".git")) { dir =>
-        val added = g.update(
+      (
+        g = Gitolite.repo_info(
+          "gitolite-admin"
+        ),
+        dropbox = dropbox,
+        notifications = notifications.peek,
+        can_send_mail = Config.can_send_mail,
+        can_push_repo = Config.can_push_repo
+      )
+    ) { (producer, deps) =>
+      create_data(producer)(skip = _.lastOpt.contains(".git")) { dir =>
+        val added = deps.g.update(
           path = dir,
           fork_from = None,
           msg = "updated keys",
           readers = Seq(),
           writers = Seq(),
-          can_push_repo
+          deps.can_push_repo
         ) { _ =>
           val added = mutable.SortedSet[CSID]()
 
           for {
             // all keys in dropbox
-            (csid, new_key) <- dropbox.toSeq
+            (csid, new_key) <- deps.dropbox.toSeq
             key_file_name = s"${csid.toString}.pub"
             key_file_path = dir / "keydir" / key_file_name
             // if the key doesn't exist or is different
@@ -133,10 +137,15 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
         }
 
         for (csid <- added) {
-          notifications.send_key_update(this, csid, g.server, can_send_mail)
+          deps.notifications.send_key_update(
+            this,
+            csid,
+            deps.g.server,
+            deps.can_send_mail
+          )
         }
 
-        dropbox
+        deps.dropbox
       }
 
     }
@@ -147,15 +156,15 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   // read the enrollment repo
 
   lazy val enrollment: Target[SortedMap[CSID, String]] =
-    target(Gitolite.mirror(enrollment_repo_name)) { sp =>
-      if (sp.value) {
-        val f = enrollment_file(sp.get_data_path)
+    target((sp = Gitolite.mirror(enrollment_repo_name))) { (producer, deps) =>
+      if (deps.sp.value) {
+        val f = enrollment_file(deps.sp.get_data_path(producer))
         if (os.isFile(f)) {
           upickle.default.read[SortedMap[CSID, String]](
-            os.read(enrollment_file(sp.get_data_path))
+            os.read(enrollment_file(deps.sp.get_data_path(producer)))
           )
         } else {
-          say(s"enrollment file ${f.toString} doesn't exist")
+          say(producer, s"enrollment file ${f.toString} doesn't exist")
           SortedMap()
         }
       } else {
@@ -163,36 +172,39 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
       }
     }
 
-  lazy val enrolled_csids: Target[SortedSet[CSID]] = target(enrollment) {
-    enrollment => enrollment.keySet
-  }
+  lazy val enrolled_csids: Target[SortedSet[CSID]] =
+    target((enrollment = enrollment)) { (_, deps) =>
+      deps.enrollment.keySet
+    }
 
   // create/update the enrollment repo
   lazy val publish_enrollment: Target[WithData[SortedMap[CSID, String]]] =
     target(
-      Gitolite.repo_info(
-        enrollment_repo_name
-      ),
-      publish_keys,
-      Config.can_push_repo
-    ) { (g, keys, can_push_repo) =>
-      update_data[SortedMap[CSID, String]](skip = {
+      (
+        g = Gitolite.repo_info(
+          enrollment_repo_name
+        ),
+        keys = publish_keys,
+        can_push_repo = Config.can_push_repo
+      )
+    ) { (producer, deps) =>
+      update_data[SortedMap[CSID, String]](producer)(skip = {
         _.lastOpt.contains(".git")
       }) { dir =>
-        g.update(
+        deps.g.update(
           path = dir,
           fork_from = Some("empty"),
           msg = "enrolling students",
           readers = Seq(staff_group_name),
           writers = Seq(),
-          can_push_repo
+          deps.can_push_repo
         ) { _ =>
           os.write.over(
             enrollment_file(dir),
-            upickle.default.write(keys.value, indent = 2)
+            upickle.default.write(deps.keys.value, indent = 2)
           )
         }
-        keys.value
+        deps.keys.value
       }
     }
 
@@ -202,15 +214,19 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   // site is under source control: each change is a commit, and history is
   // preserved. Pages of projects that are no longer active stay in the repo.
   lazy val publish_site: Target[WithData[SortedSet[String]]] =
-    complex_target {
-      val repo_info = Gitolite.repo_info(site_repo_name).track
+    complex_target { tracker =>
+      val repo_info = tracker.track(Gitolite.repo_info(site_repo_name))
       val pages =
-        active_projects.guilty.values.toSeq.map(p => HtmlGen(p).page.guilty)
-      val can_push_repo = Config.can_push_repo.track
+        tracker
+          .guilty(active_projects)
+          .values
+          .toSeq
+          .map(p => tracker.guilty(HtmlGen(p).page))
+      val can_push_repo = tracker.track(Config.can_push_repo)
 
-      run_if_needed {
+      run_if_needed(tracker) { producer =>
         val repo_info_v = repo_info.block
-        update_data(_.lastOpt.contains(".git")) { dir =>
+        update_data(producer)(_.lastOpt.contains(".git")) { dir =>
           repo_info_v.update(
             path = dir,
             fork_from = Some("empty"),
@@ -221,7 +237,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
           ) { _ =>
             val names = for {
               page <- pages
-              f <- os.list(page.get_data_path)
+              f <- os.list(page.get_data_path(producer))
             } yield {
               os.copy.over(f, dir / f.last)
               f.last
@@ -257,25 +273,27 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   // deployed; the value is the site's address, or None if not deployed.
   lazy val push_to_cloudflare: Target[WithData[Option[String]]] =
     target(
-      publish_site,
-      Config.cloudflare_enabled,
-      Config.cloudflare_domain
-    ) { (site, enabled, domain) =>
-      create_data(_ => false) { dir =>
+      (
+        site = publish_site,
+        enabled = Config.cloudflare_enabled,
+        domain = Config.cloudflare_domain
+      )
+    ) { (producer, deps) =>
+      create_data(producer)(_ => false) { dir =>
         // the deployed files: the repo's, minus .git and other dot-files;
         // wrangler runs from `dir`, so its own .wrangler cache stays out
         val site_dir = dir / "site"
         os.makeDir.all(site_dir)
         for {
-          f <- os.list(site.get_data_path)
+          f <- os.list(deps.site.get_data_path(producer))
           if !f.last.startsWith(".")
         } os.copy.into(f, site_dir)
 
-        Config.cloudflare.filter(_ => enabled) match {
+        Config.cloudflare.filter(_ => deps.enabled) match {
           case Some(cf) =>
-            say(s"deploying ${site_repo_name} to $cloudflare_project")
+            say(producer, s"deploying ${site_repo_name} to $cloudflare_project")
             cf.deploy(site_dir, cloudflare_project)
-            val host = domain match {
+            val host = deps.domain match {
               case Some(zone) =>
                 val host = s"$cloudflare_project.$zone"
                 cf.ensure_domain(cloudflare_project, host, zone)
@@ -284,7 +302,10 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
             }
             Some(s"https://$host")
           case None =>
-            say("cloudflare is not enabled in config.json, not deploying")
+            say(
+              producer,
+              "cloudflare is not enabled in config.json, not deploying"
+            )
             None
         }
       }
@@ -294,17 +315,19 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val create_grades_repo: Target[WithData[Unit]] =
     target(
-      Gitolite.repo_info(grades_repo_name),
-      Config.can_push_repo
-    ) { (g, can_push_repo) =>
-      create_data(skip = _.lastOpt.contains(".git")) { dir =>
-        g.update(
+      (
+        g = Gitolite.repo_info(grades_repo_name),
+        can_push_repo = Config.can_push_repo
+      )
+    ) { (producer, deps) =>
+      create_data(producer)(skip = _.lastOpt.contains(".git")) { dir =>
+        deps.g.update(
           path = dir,
           fork_from = Some("empty"),
           msg = "creating grades repo",
           readers = Seq(staff_group_name),
           writers = Seq(staff_group_name),
-          can_push_repo
+          deps.can_push_repo
         ) { newly_created =>
           if newly_created then {
             os.write(
@@ -327,16 +350,16 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 object Course extends Scope(os.RelPath(".")) {
   given Ordering[Course] = Ordering.by(_.course_name)
 
-  lazy val all: Target[Seq[Course]] = target(Gitolite.course_names) {
-    course_names =>
-      course_names.toSeq.map(name => Course(name))
-  }
+  lazy val all: Target[Seq[Course]] =
+    target((course_names = Gitolite.course_names)) { (_, deps) =>
+      deps.course_names.toSeq.map(name => Course(name))
+    }
 
-  lazy val active_courses: Target[Seq[Course]] = complex_target {
-    val all_courses: Seq[Course] = all.guilty
-    val active_flag_tasks = all_courses.map(_.active.track)
+  lazy val active_courses: Target[Seq[Course]] = complex_target { tracker =>
+    val all_courses: Seq[Course] = tracker.guilty(all)
+    val active_flag_tasks = all_courses.map(it => tracker.track(it.active))
 
-    run_if_needed {
+    run_if_needed(tracker) { _ =>
       val active_flags = Task.sequence(active_flag_tasks).block
       all_courses.zip(active_flags).filter(_._2).map(_._1)
     }

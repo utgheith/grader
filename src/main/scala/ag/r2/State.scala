@@ -39,9 +39,7 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
-  def track[A](
-      target: Target[A]
-  )(using tracker: Tracker[?]): Task[A] = {
+  def resolve[A](target: Target[A], tracker: Tracker[?]): Task[A] = {
     tracker.check_phase(tracker.Phase.Open)
     if (tracker.route.map(_.path).contains(target.path)) {
       throw new Exception(
@@ -58,7 +56,7 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
               Some(tracker),
               s"miss for ${target.path.toString} in ${this.toString}"
             )
-            target.make(using
+            target.make(
               new Tracker {
                 override val depth: Int = tracker.depth + 1
 
@@ -85,9 +83,6 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 
 object State {
   def run[A](path: os.Path, force_roots: Boolean = false)(
-      f: State ?=> A
-  ): A = {
-    given State = new State(path, force_roots)
-    f
-  }
+      f: State => A
+  ): A = f(new State(path, force_roots))
 }

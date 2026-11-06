@@ -52,14 +52,18 @@ class HtmlGen(p: Project) {
       )
     ]
   ] = p.target(
-    p.results(Phase.Latest),
-    p.results(Phase.One),
-    p.results(Phase.Two),
-    p.state
-  ) { (latest, one, two, state) =>
-    Seq(Phase.Latest -> latest, Phase.One -> one, Phase.Two -> two).map(
-      (phase, r) => (phase, r, state.publishes(phase))
+    (
+      latest = p.results(Phase.Latest),
+      one = p.results(Phase.One),
+      two = p.results(Phase.Two),
+      state = p.state
     )
+  ) { (_, deps) =>
+    Seq(
+      Phase.Latest -> deps.latest,
+      Phase.One -> deps.one,
+      Phase.Two -> deps.two
+    ).map((phase, r) => (phase, r, deps.state.publishes(phase)))
   }
 
   // Renders every phase's page into this target's data directory. A page
@@ -69,102 +73,91 @@ class HtmlGen(p: Project) {
   // deploy to Cloudflare) change.
   lazy val page: Target[WithData[Unit]] =
     p.target(
-      results,
-      p.phase1_tests,
-      p.phase1_weight,
-      p.phase2_tests,
-      p.phase2_weight,
-      p.test_weights,
-      p.bad_tests,
-      p.test_cutoff,
-      p.code_cutoff,
-      p.course.enrollment,
-      p.anti_aliases,
-      p.course.staff,
-      p.staff,
-      p.course.active_projects
-    ) {
       (
-          results,
-          phase1_tests,
-          phase1_weight,
-          phase2_tests,
-          phase2_weight,
-          weights,
-          bad_tests,
-          test_cutoff,
-          code_cutoff,
-          enrollment,
-          anti_aliases,
-          course_staff,
-          project_staff,
-          projects
-      ) =>
-        update_data(_ => false) { dir =>
-          val tab_names = (projects.keys.toSeq :+ p.project_name).distinct
-            .sortBy(n => (n.length, n))
-          val written = for ((phase, r, published) <- results) yield {
-            val deadline = phase.deadline(test_cutoff, code_cutoff)
-            val data = ReportData(
-              title = title,
-              generated = LocalDateTime.now().nn,
-              test_cutoff = test_cutoff,
-              code_cutoff = code_cutoff,
-              enrollments = enrollment.size,
-              results =
-                if (published) r.toOption.flatten.getOrElse(SortedMap())
-                else SortedMap(),
-              notice =
-                if (!published)
-                  Some(
-                    s"${HtmlGen.phase_label(phase).capitalize} results will be published after its deadline" +
-                      deadline.fold("")(d =>
-                        s", ${HtmlGen.display_format.format(d)}"
-                      ) + "."
+        results = results,
+        phase1_tests = p.phase1_tests,
+        phase1_weight = p.phase1_weight,
+        phase2_tests = p.phase2_tests,
+        phase2_weight = p.phase2_weight,
+        weights = p.test_weights,
+        bad_tests = p.bad_tests,
+        test_cutoff = p.test_cutoff,
+        code_cutoff = p.code_cutoff,
+        enrollment = p.course.enrollment,
+        anti_aliases = p.anti_aliases,
+        course_staff = p.course.staff,
+        project_staff = p.staff,
+        projects = p.course.active_projects
+      )
+    ) { (producer, deps) =>
+      update_data(producer)(_ => false) { dir =>
+        val tab_names = (deps.projects.keys.toSeq :+ p.project_name).distinct
+          .sortBy(n => (n.length, n))
+        val written = for ((phase, r, published) <- deps.results) yield {
+          val deadline = phase.deadline(deps.test_cutoff, deps.code_cutoff)
+          val data = ReportData(
+            title = title,
+            generated = LocalDateTime.now().nn,
+            test_cutoff = deps.test_cutoff,
+            code_cutoff = deps.code_cutoff,
+            enrollments = deps.enrollment.size,
+            results =
+              if (published) r.toOption.flatten.getOrElse(SortedMap())
+              else SortedMap(),
+            notice =
+              if (!published)
+                Some(
+                  s"${HtmlGen.phase_label(phase).capitalize} results will be published after its deadline" +
+                    deadline.fold("")(d =>
+                      s", ${HtmlGen.display_format.format(d)}"
+                    ) + "."
+                )
+              else
+                r.left.toOption.map { why =>
+                  say(
+                    producer,
+                    s"can't show $title's ${HtmlGen.phase_label(phase)} results: $why"
                   )
-                else
-                  r.left.toOption.map { why =>
-                    say(
-                      s"can't show $title's ${HtmlGen.phase_label(phase)} results: $why"
-                    )
-                    "The results for this project are being updated; they'll be back shortly."
-                  },
-              phase1_tests = phase1_tests,
-              phase1_weight = phase1_weight,
-              phase2_tests = phase2_tests,
-              phase2_weight = phase2_weight,
-              weights = weights,
-              bad_tests = bad_tests,
-              staff_aliases = anti_aliases.collect {
-                case (alias, csid)
-                    if course_staff.contains(csid) || project_staff.contains(
+                  "The results for this project are being updated; they'll be back shortly."
+                },
+            phase1_tests = deps.phase1_tests,
+            phase1_weight = deps.phase1_weight,
+            phase2_tests = deps.phase2_tests,
+            phase2_weight = deps.phase2_weight,
+            weights = deps.weights,
+            bad_tests = deps.bad_tests,
+            staff_aliases = deps.anti_aliases.collect {
+              case (alias, csid)
+                  if deps.course_staff.contains(csid) || deps.project_staff
+                    .contains(
                       csid
                     ) =>
-                  alias
-              }.toSet,
-              tabs = tab_names.map(n => n -> s"${p.course.course_name}_$n"),
-              project_name = p.project_name,
-              phase = phase
-            )
-            val f = dir / HtmlGen.page_file(title, phase)
-            val version = HtmlGen.version(data)
-            val same =
-              os.isFile(f) && HtmlGen.version_of(os.read(f)).contains(version)
-            if (!same) os.write.over(f, HtmlGen.render_with(data, version))
-            f.last
-          }
-          // (pages this target no longer makes)
-          for (f <- os.list(dir) if !written.contains(f.last)) os.remove.all(f)
+                alias
+            }.toSet,
+            tabs = tab_names.map(n => n -> s"${p.course.course_name}_$n"),
+            project_name = p.project_name,
+            phase = phase
+          )
+          val f = dir / HtmlGen.page_file(title, phase)
+          val version = HtmlGen.version(data)
+          val same =
+            os.isFile(f) && HtmlGen.version_of(os.read(f)).contains(version)
+          if (!same) os.write.over(f, HtmlGen.render_with(data, version))
+          f.last
         }
+        // (pages this target no longer makes)
+        for (f <- os.list(dir) if !written.contains(f.last)) os.remove.all(f)
+      }
     }
 
   // Copies the pages into site_base, if there is one.
   val gen_html: Target[Unit] =
-    p.target(page, Config.site_base) { (page, site_base) =>
+    p.target((page = page, site_base = Config.site_base)) { (producer, deps) =>
+      val site_base = deps.site_base
       site_base.foreach { site_base =>
-        for (page_file <- os.list(page.get_data_path)) {
+        for (page_file <- os.list(deps.page.get_data_path(producer))) {
           val f = os.Path(site_base) / page_file.last
-          say(s"  ${f.toString}")
+          say(producer, s"  ${f.toString}")
           os.copy.over(page_file, f, createFolders = true)
           os.perms.set(f, os.PermSet.fromString("rwxr--r--"))
         }

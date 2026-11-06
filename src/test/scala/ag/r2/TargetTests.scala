@@ -3,17 +3,17 @@ package ag.r2
 import ag.task.Task
 
 object Things extends Scope(".") {
-  val a: Target[WithData[Int]] = target() {
-    create_data(_ => false) { path =>
+  val a: Target[WithData[Int]] = target(EmptyTuple) {(producer, _) => 
+    create_data(producer)(_ => false) { path =>
       os.write(path / "xyz", "hello\n")
       10
     }
   }
 
   val b: (String, Int) => Target[Int] = fun { (s, i) =>
-    target(a) { a =>
-      println(s"running $s $i, a:${a.toString}")
-      a.value + i
+    target((a = a)) { (_, deps) =>
+      println(s"running $s $i, a:${deps.a.toString}")
+      deps.a.value + i
     }
   }
 }
@@ -28,25 +28,25 @@ object RaceThings extends Scope("race") {
   // just compare against, and keep, its old saved state.
   val run_number = new java.util.concurrent.atomic.AtomicInteger(0)
 
-  val roots: Target[Seq[Int]] = target() {
+  val roots: Target[Seq[Int]] = target(EmptyTuple) {(_, _) => 
     if (run_number.incrementAndGet() == 1) Seq(1, 2) else Seq(1, 2, 3)
   }
 
   val elem: Int => Target[Boolean] = fun { (i: Int) =>
-    target() { i % 2 == 0 }
+    target(EmptyTuple) {(_, _) =>  i % 2 == 0 }
   }
 
-  lazy val combined: Target[Seq[Boolean]] = complex_target {
-    val all_task: Task[Seq[Int]] = roots.track
+  lazy val combined: Target[Seq[Boolean]] = complex_target { tracker =>
+    val all_task: Task[Seq[Int]] = tracker.track(roots)
     val flags_task: Task[Seq[Boolean]] =
       all_task.flatMap { all =>
         // stand-in for the non-trivial work of turning each element into
         // its target and kicking off tracking; widens the race window so
         // the bug below reproduces reliably instead of only occasionally
         Thread.sleep(50)
-        Task.sequence(all.map(elem(_).track))
+        Task.sequence(all.map(it => tracker.track(elem(it))))
       }
-    run_if_needed {
+    run_if_needed(tracker) { _ =>
       flags_task.block
     }
   }
@@ -55,11 +55,11 @@ object RaceThings extends Scope("race") {
 class TargetTests extends munit.FunSuite {
   test("basic tracking") {
     def doit(d: Int): Unit = {
-      given State = State(config.get_test_dir)
+      val root = State(config.get_test_dir)
 
-      val a = Things.a.track.block
+      val a = root.track(Things.a).block
       assertEquals(a.value, 10)
-      val b = Things.b("thing", d).track.block
+      val b = root.track(Things.b("thing", d)).block
       assertEquals(b, 10 + d)
 
       assertEquals(a.value + b, 20 + d)
@@ -72,7 +72,7 @@ class TargetTests extends munit.FunSuite {
   // KNOWN BUG: Tracker.dependencies is a `lazy val` that gets forced (and
   // memoized) the first time it's read. On a target's *first* run there's
   // no saved.json, so it's only forced after the whole computation Task
-  // completes -- by which point every `.track` call the body made,
+  // completes -- by which point every `tracker.track` call the body made,
   // including asynchronous ones, has already registered its dependency.
   //
   // But on a *later* run, `run`'s old-state check reads saved.json and
@@ -81,15 +81,15 @@ class TargetTests extends munit.FunSuite {
   // before any dependency that's only discovered asynchronously (i.e.
   // after some other tracked Task completes, as with `RaceThings.combined`
   // above) has had a chance to register itself. That closes the tracker's
-  // phase before the deferred `elem(i).track` calls run, so they blow up.
+  // phase before the deferred `tracker.track(elem(i))` calls run, so they blow up.
   test(
     "KNOWN BUG: dependencies discovered asynchronously after a restart race Tracker.dependencies"
   ) {
     // first run: nothing to race against yet (no saved.json), so the
     // dependency set comes out correct
     locally {
-      given State = State(config.get_test_dir)
-      assertEquals(RaceThings.combined.track.block, Seq(false, true))
+      val root = State(config.get_test_dir)
+      assertEquals(root.track(RaceThings.combined).block, Seq(false, true))
     }
 
     // second run: saved.json now exists, so the old-state check forces
@@ -98,9 +98,9 @@ class TargetTests extends munit.FunSuite {
     // to actually recompute rather than just compare against, and keep,
     // its old state.
     locally {
-      given State = State(config.get_test_dir)
+      val root = State(config.get_test_dir)
       intercept[IllegalStateException] {
-        RaceThings.combined.track.block
+        root.track(RaceThings.combined).block
       }
     }
   }

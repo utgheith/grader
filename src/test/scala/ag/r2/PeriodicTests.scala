@@ -8,20 +8,20 @@ object Timed extends Scope("timed") {
   val fast_runs = new AtomicInteger(0)
   val slow_runs = new AtomicInteger(0)
 
-  val fast: Target[Long] = target(periodic(1)) { t =>
+  val fast: Target[Long] = target((t = periodic(1))) { (_, deps) =>
     val _ = fast_runs.incrementAndGet()
-    t
+    deps.t
   }
 
-  val slow: Target[Long] = target(periodic(24L * 60 * 60 * 1000)) { t =>
+  val slow: Target[Long] = target((t = periodic(24L * 60 * 60 * 1000))) { (_, deps) =>
     val _ = slow_runs.incrementAndGet()
-    t
+    deps.t
   }
 }
 
 class PeriodicTests extends munit.FunSuite {
   private def run_once[A](t: Target[A]): A =
-    State.run(config.get_test_dir)(t.track.block)
+    State.run(config.get_test_dir)(root => root.track(t).block)
 
   test("a target depending on periodic reruns once its period has passed") {
     val _ = run_once(Timed.fast)

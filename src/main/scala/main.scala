@@ -116,106 +116,120 @@ case class CommonArgs(
     workspace: os.Path = os.pwd / "workspace"
 ) extends Scope(".") {
 
-  lazy val courses: Target[Regex] = (this / courses_).target() {
-    courses_
+  lazy val courses: Target[Regex] = (this / courses_).target(EmptyTuple) {
+    (_, _) =>
+      courses_
   }
 
-  lazy val projects: Target[Regex] = (this / projects_).target() {
-    projects_
+  lazy val projects: Target[Regex] = (this / projects_).target(EmptyTuple) {
+    (_, _) =>
+      projects_
   }
 
-  lazy val students: Target[Regex] = (this / students_).target() {
-    students_
+  lazy val students: Target[Regex] = (this / students_).target(EmptyTuple) {
+    (_, _) =>
+      students_
   }
 
-  lazy val tests: Target[Regex] = (this / tests_).target() {
+  lazy val tests: Target[Regex] = (this / tests_).target(EmptyTuple) { (_, _) =>
     tests_
   }
 
   // TODO: warn when no courses matched
   lazy val selected_courses: Target[Seq[Course]] =
-    target(Course.active_courses, courses) { (active_courses, courses) =>
-      active_courses
-        .filter(course => courses.matches(course.course_name))
-        .sorted
+    target((active_courses = Course.active_courses, courses = courses)) {
+      (_, deps) =>
+        deps.active_courses
+          .filter(course => deps.courses.matches(course.course_name))
+          .sorted
     }
 
   // TODO: warn when no projects matched
   lazy val selected_projects: Target[Seq[Project]] =
-    target(Project.active_projects, courses, projects) {
-      (active_projects, courses, projects) =>
-        for {
-          p <- active_projects.toSeq
-          if projects.matches(p.project_name)
-          if courses.matches(p.course.course_name)
-        } yield p
+    target(
+      (
+        active_projects = Project.active_projects,
+        courses = courses,
+        projects = projects
+      )
+    ) { (_, deps) =>
+      for {
+        p <- deps.active_projects.toSeq
+        if deps.projects.matches(p.project_name)
+        if deps.courses.matches(p.course.course_name)
+      } yield p
     }
 
   lazy val submissions: Target[Seq[(Project, CSID)]] = complex_target {
-    val ps: Seq[Project] = selected_projects.guilty
-    val csids_seq: Seq[SortedSet[CSID]] = {
-      for { p <- ps } yield p.students_with_submission.guilty
-    }
-    val s = students.guilty
+    tracker =>
+      val ps: Seq[Project] = tracker.guilty(selected_projects)
+      val csids_seq: Seq[SortedSet[CSID]] = {
+        for { p <- ps } yield tracker.guilty(p.students_with_submission)
+      }
+      val s = tracker.guilty(students)
 
-    run_if_needed {
-      for {
-        (p, csids) <- ps.zip(csids_seq)
-        csid <- csids
-        if s.matches(csid.value)
-      } yield (p, csid)
+      run_if_needed(tracker) { _ =>
+        for {
+          (p, csids) <- ps.zip(csids_seq)
+          csid <- csids
+          if s.matches(csid.value)
+        } yield (p, csid)
 
-    }
+      }
 
   }
 
   lazy val test_ids: Target[Seq[(Project, TestId)]] = complex_target {
-    val ps: Seq[Project] = selected_projects.guilty
+    tracker =>
+      val ps: Seq[Project] = tracker.guilty(selected_projects)
 
-    val per_project_test_ids: Seq[SortedSet[TestId]] = for {
-      p <- ps
-    } yield p.test_ids.guilty
+      val per_project_test_ids: Seq[SortedSet[TestId]] = for {
+        p <- ps
+      } yield tracker.guilty(p.test_ids)
 
-    val ts = tests.guilty
+      val ts = tracker.guilty(tests)
 
-    run_if_needed {
-
-      // run less often, we can afford to work harder here
-      for {
-        (p, test_ids) <- ps.zip(per_project_test_ids)
-        test_id <- test_ids
-        if ts.matches(test_id.external_name) || ts.matches(
-          test_id.internal_name
-        )
-      } yield (p, test_id)
-    }
+      run_if_needed(tracker) { _ =>
+        // run less often, we can afford to work harder here
+        for {
+          (p, test_ids) <- ps.zip(per_project_test_ids)
+          test_id <- test_ids
+          if ts.matches(test_id.external_name) || ts.matches(
+            test_id.internal_name
+          )
+        } yield (p, test_id)
+      }
   }
 
   lazy val runs: Target[Seq[(Project, CSID, TestId)]] = complex_target {
-    val ps: Seq[Project] = selected_projects.guilty
+    tracker =>
+      val ps: Seq[Project] = tracker.guilty(selected_projects)
 
-    val per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] =
-      for {
-        p: Project <- ps
-      } yield (p.students_with_submission.guilty, p.test_ids.guilty)
-
-    val the_students = students.guilty
-    val the_tests = tests.guilty
-
-    run_if_needed {
-      for {
-        (p, (csids, test_ids)) <- ps.zip(per_project_ids)
-        the_test_ids = test_ids.filter(id =>
-          the_tests.matches(id.external_name) || the_tests.matches(
-            id.internal_name
-          )
+      val per_project_ids: Seq[(SortedSet[CSID], SortedSet[TestId])] =
+        for {
+          p: Project <- ps
+        } yield (
+          tracker.guilty(p.students_with_submission),
+          tracker.guilty(p.test_ids)
         )
-        if the_test_ids.nonEmpty
-        csid <- csids.toSeq
-        if the_students.matches(csid.value)
-        test_id <- the_test_ids
-      } yield (p, csid, test_id)
-    }
+
+      val the_students = tracker.guilty(students)
+      val the_tests = tracker.guilty(tests)
+
+      run_if_needed(tracker) { _ =>
+        for {
+          (p, (csids, test_ids)) <- ps.zip(per_project_ids)
+          the_test_ids = test_ids.filter(id =>
+            the_tests.matches(id.external_name) || the_tests.matches(
+              id.internal_name
+            )
+          )
+          if the_test_ids.nonEmpty
+          csid <- csids.toSeq
+          if the_students.matches(csid.value)
+          test_id <- the_test_ids
+        } yield (p, csid, test_id)
+      }
   }
 }
 
@@ -226,21 +240,21 @@ object CommonArgs {
 object Main {
   @main
   def dropbox(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(s"\n------ ${c.course_name} -------")
-        println(upickle.default.write(c.dropbox.track.block, indent = 2))
+        println(upickle.default.write(root.track(c.dropbox).block, indent = 2))
       }
     }
 
   @main
   def bad_tests(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
       val r = (for {
-        p <- commonArgs.selected_projects.track.block
-        s <- p.course.enrollment.track.block.keySet.toSeq
-        if commonArgs.students.guilty.matches(s.value)
-        r <- p.get_student_results(s).track.block.toSeq
+        p <- root.track(commonArgs.selected_projects).block
+        s <- root.track(p.course.enrollment).block.keySet.toSeq
+        if root.guilty(commonArgs.students).matches(s.value)
+        r <- root.track(p.get_student_results(s)).block.toSeq
         (test, outcome) <- r.outcomes.toSeq
       } yield (p, s, test, outcome)).groupMapReduce { case (p, _, test, _) =>
         (p, test)
@@ -255,90 +269,90 @@ object Main {
 
   @main
   def publish_keys(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(s"\n------ ${c.course_name} -------")
         println(
           upickle.default
-            .write(c.publish_keys.track.block.value.size, indent = 2)
+            .write(root.track(c.publish_keys).block.value.size, indent = 2)
         )
       }
     }
 
   @main
   def publish_enrollment(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(s"\n------ ${c.course_name} -------")
-        println(c.publish_enrollment.track.block.value.size)
+        println(root.track(c.publish_enrollment).block.value.size)
         // println(upickle.default.write(c.publish_enrollment.value, indent=2))
       }
     }
 
   @main
   def enrollment(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(s"\n------ ${c.course_name} -------")
-        println(c.enrollment.track.block.size)
+        println(root.track(c.enrollment).block.size)
         // println(upickle.default.write(c.publish_enrollment.value, indent=2))
       }
     }
 
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(s"Creating ${c.course_name}__grades")
-        val _ = c.create_grades_repo.track.block
+        val _ = root.track(c.create_grades_repo).block
       }
     }
 
   @main
   def courses(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      println(commonArgs.selected_courses.track.block)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      println(root.track(commonArgs.selected_courses).block)
     }
 
   @main
   def history(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      Gitolite.history.track.block.foreach(println)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      root.track(Gitolite.history).block.foreach(println)
     }
 
   @main
   def info(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      Gitolite.info.track.block.foreach(println)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      root.track(Gitolite.info).block.foreach(println)
     }
 
   @main
   def projects(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      pprint.pprintln(commonArgs.selected_projects.track.block)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      pprint.pprintln(root.track(commonArgs.selected_projects).block)
     }
 
   @main
   def overrides(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (p <- commonArgs.selected_projects.track.block) {
-        println(p.publish_override_repo.track.block)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (p <- root.track(commonArgs.selected_projects).block) {
+        println(root.track(p.publish_override_repo).block)
       }
     }
 
   @main
   def work_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         for {
-          (pn, p) <- c.active_projects.track.block
-          if commonArgs.projects.track.block.matches(pn)
+          (pn, p) <- root.track(c.active_projects).block
+          if root.track(commonArgs.projects).block.matches(pn)
         } {
           for {
-            (csid, _) <- c.enrollment.guilty
-            if commonArgs.students.track.block.matches(csid.value)
+            (csid, _) <- root.guilty(c.enrollment)
+            if root.track(commonArgs.students).block.matches(csid.value)
           } {
-            println(p.work_repo(csid).guilty)
+            println(root.guilty(p.work_repo(csid)))
           }
         }
       }
@@ -352,21 +366,23 @@ object Main {
         doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'."
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
     val sort = sortMode match
       case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
 
-    for (c <- commonArgs.selected_courses.guilty) {
-      val enrollment = c.enrollment.guilty
+    for (c <- root.guilty(commonArgs.selected_courses)) {
+      val enrollment = root.guilty(c.enrollment)
 
       for {
-        (pn, p) <- c.active_projects.guilty
-        if commonArgs.projects.guilty.matches(pn)
+        (pn, p) <- root.guilty(c.active_projects)
+        if root.guilty(commonArgs.projects).matches(pn)
       } {
-        val aliases = p.get_aliases.guilty
+        val aliases = root.guilty(p.get_aliases)
         val csids = enrollment.keys
-          .filter((id: CSID) => commonArgs.students.guilty.matches(id.value))
+          .filter((id: CSID) =>
+            root.guilty(commonArgs.students).matches(id.value)
+          )
           .toIndexedSeq
         val sorted =
           if (sort) csids.sortBy(aliases.get(_).map(_.value)) else csids
@@ -397,11 +413,11 @@ object Main {
       commonArgs: CommonArgs,
       @arg(doc = "1 or 2 (default: the latest results)")
       phase: Phase = Phase.Latest
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
-      val state = state_of(p)
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    for (p <- root.guilty(commonArgs.selected_projects)) {
+      val state = state_of(p, root)
       val tests = state.tests(phase)
-      val ids = p.test_ids_for(tests).guilty
+      val ids = root.guilty(p.test_ids_for(tests))
       println(
         s"\n${p.course.course_name}_${p.project_name} (${HtmlGen.phase_label(phase)}): " +
           s"${state.description}; " +
@@ -417,10 +433,10 @@ object Main {
   @main
   def chosen_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    for (p <- root.guilty(commonArgs.selected_projects)) {
       println(s"\n${p.course.course_name}_${p.project_name}:")
-      for (test_id <- p.phase2_test_ids.guilty) {
+      for (test_id <- root.guilty(p.phase2_test_ids)) {
         println(test_id.external_name)
       }
     }
@@ -429,10 +445,10 @@ object Main {
   @main
   def publish_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    for (p <- root.guilty(commonArgs.selected_projects)) {
       println(s"-- publishing tests for ${p.project_name}")
-      pprint.pprintln(p.publish_tests.guilty)
+      pprint.pprintln(root.guilty(p.publish_tests))
     }
   }
 
@@ -449,27 +465,27 @@ object Main {
           "Directory to copy prepared submissions into. Defaults to 'prepared'"
       )
       destination: os.Path = os.pwd / "prepared"
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
     val base = destination
 
-    for (c <- commonArgs.selected_courses.track.block) {
+    for (c <- root.track(commonArgs.selected_courses).block) {
 
-      val enrollment = c.enrollment.track.block
+      val enrollment = root.track(c.enrollment).block
 
       for {
-        (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.track.block.matches(pn)
+        (pn, p) <- root.track(c.active_projects).block
+        if root.track(commonArgs.projects).block.matches(pn)
       } {
 
-        val aliases = p.get_aliases.guilty
-        val tests = p.publish_tests.guilty
-        val test_extensions = p.test_extensions.guilty
+        val aliases = root.guilty(p.get_aliases)
+        val tests = root.guilty(p.publish_tests)
+        val test_extensions = root.guilty(p.test_extensions)
 
         for {
           (csid, _) <- enrollment
-          if commonArgs.students.track.block.matches(csid.value)
+          if root.track(commonArgs.students).block.matches(csid.value)
         } {
-          val info = p.prepare_info(csid, phase).guilty
+          val info = root.guilty(p.prepare_info(csid, phase))
           val target_name = s"${c.course_name}_${pn}_${csid.toString}"
           val target_path = base / target_name
 
@@ -483,7 +499,8 @@ object Main {
                     .toString}"
               )
               os.copy.over(
-                from = p.prepare(csid, data.sha).guilty.get_data_path,
+                from =
+                  root.guilty(p.prepare(csid, data.sha)).get_data_path(root),
                 to = target_path,
                 followLinks = false,
                 replaceExisting = true,
@@ -495,7 +512,7 @@ object Main {
               } {
                 p.copy_test(
                   test_info.id,
-                  tests.get_data_path,
+                  tests.get_data_path(root),
                   target_path,
                   test_extensions
                 )
@@ -521,23 +538,26 @@ object Main {
         doc = "Sort all commits by date rather than grouping commits by repo"
       )
       sort: Flag
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
     val show_details = details.value
 
-    for (c <- commonArgs.selected_courses.track.block) {
-      val enrollment = c.enrollment.track.block
+    for (c <- root.track(commonArgs.selected_courses).block) {
+      val enrollment = root.track(c.enrollment).block
 
       for {
-        (pn, p) <- c.active_projects.track.block
-        if commonArgs.projects.track.block.matches(pn)
+        (pn, p) <- root.track(c.active_projects).block
+        if root.track(commonArgs.projects).block.matches(pn)
       } {
-        val project_deadline = p.code_cutoff.track.block.format(datetime_format)
+        val project_deadline =
+          root.track(p.code_cutoff).block.format(datetime_format)
 
         val late_repos = enrollment
           .map((csid, _) => csid)
-          .filter(csid => commonArgs.students.track.block.matches(csid.value))
-          .map(csid => (csid, p.late_commits(csid).track.block.value))
+          .filter(csid =>
+            root.track(commonArgs.students).block.matches(csid.value)
+          )
+          .map(csid => (csid, root.track(p.late_commits(csid)).block.value))
           .filter((_, late_commits) => late_commits.nonEmpty)
           .toSeq
 
@@ -602,20 +622,20 @@ object Main {
 
   @main
   def publish_work_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(c.course_name)
         for {
-          (pn, p) <- c.active_projects.track.block
-          if commonArgs.projects.track.block.matches(pn)
+          (pn, p) <- root.track(c.active_projects).block
+          if root.track(commonArgs.projects).block.matches(pn)
         } {
           println(s"    $pn")
           var count = 0
           for {
-            (csid, _) <- c.enrollment.guilty
-            if commonArgs.students.track.block.matches(csid.value)
+            (csid, _) <- root.guilty(c.enrollment)
+            if root.track(commonArgs.students).block.matches(csid.value)
           } {
-            val _ = p.publish_work_repo(csid).guilty
+            val _ = root.guilty(p.publish_work_repo(csid))
             count = count + 1
           }
           println(s"            $count")
@@ -625,8 +645,8 @@ object Main {
 
   @main
   def submissions(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      pprint.pprintln(commonArgs.submissions.guilty)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      pprint.pprintln(root.guilty(commonArgs.submissions))
       // for ((p, csid) <- commonArgs.submissions.guilty) {
       //  println(s"$p $csid")
       // }
@@ -634,8 +654,8 @@ object Main {
 
   @main
   def test_ids(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for ((p, test_id) <- commonArgs.test_ids.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for ((p, test_id) <- root.track(commonArgs.test_ids).block) {
         println(s"${p.toString} ${test_id.toString}")
       }
 
@@ -644,8 +664,8 @@ object Main {
   @main
   def latest(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    Gitolite.latest.track.block.foreach(println)
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    root.track(Gitolite.latest).block.foreach(println)
 
   }
 
@@ -691,21 +711,27 @@ object Main {
         doc = "The json file to write the results summary out to"
       )
       result_file: Option[String]
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    val runs = commonArgs.runs.track.block
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    val runs = root.track(commonArgs.runs).block
     // the phase's tests (as publish_results runs them), narrowed by -t
     val outs = Task.sequence {
       for {
         (p, csid, test_id) <- runs
-        if p.test_ids_for(state_of(p).tests(phase)).guilty.contains(test_id)
-        info <- p.prepare_info(csid, phase).guilty.toSeq
-      } yield p
-        .run_one(state_of(p).keeps_going(phase), p.iterations.guilty.max)(
-          csid,
-          info.sha,
-          test_id
-        )
-        .track
+        if root
+          .guilty(p.test_ids_for(state_of(p, root).tests(phase)))
+          .contains(test_id)
+        info <- root.guilty(p.prepare_info(csid, phase)).toSeq
+      } yield root.track(
+        p
+          .run_one(
+            state_of(p, root).keeps_going(phase),
+            root.guilty(p.iterations).max
+          )(
+            csid,
+            info.sha,
+            test_id
+          )
+      )
     }.block
 
     result_file.foreach(file_name => {
@@ -745,31 +771,33 @@ object Main {
   }
 
   // A project's state (from its deadlines and the clock), announced once.
-  private def state_of(p: Project)(using State): ProjectState = p.state.guilty
+  private def state_of(p: Project, root: State): ProjectState =
+    root.guilty(p.state)
 
   @main
   def publish_results(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    val candidates = commonArgs.selected_projects.guilty
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    val candidates = root.guilty(commonArgs.selected_projects)
     def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
     // the phases a project publishes, each with its test set and keep-going
     def phases(p: Project): Seq[(Phase, TestSet, Boolean)] = for {
       phase <- Seq(Phase.Latest, Phase.One, Phase.Two)
-      state = state_of(p)
+      state = state_of(p, root)
       if state.publishes(phase)
     } yield (phase, state.tests(phase), state.keeps_going(phase))
     // the band of `p`'s work and the tries it runs to, if it has work to do
     // (see Priority); the tries come from the project's iterations
     def work(p: Project): Option[(Band, Int)] =
       Priority.band(
-        state_of(p).is_live,
-        p.iterations.guilty,
-        n => phases(p).exists((phase, _, _) => p.has_work(phase, n).guilty)
+        state_of(p, root).is_live,
+        root.guilty(p.iterations),
+        n =>
+          phases(p).exists((phase, _, _) => root.guilty(p.has_work(phase, n)))
       )
     def report(p: Project, w: Option[(Band, Int)]): Unit =
       println(
-        s"${name(p)}: ${state_of(p).description}; ${w.fold("up to date")(
+        s"${name(p)}: ${state_of(p, root).description}; ${w.fold("up to date")(
             (band, n) => s"work to do (${band.description}, to $n tries)"
           )}"
       )
@@ -781,7 +809,7 @@ object Main {
         for (p <- candidates.toSeq) yield {
           val w = work(p)
           report(p, w)
-          (p, w.fold(p.iterations.guilty.max)(_._2))
+          (p, w.fold(root.guilty(p.iterations).max)(_._2))
         }
       else {
         val busy = for {
@@ -800,11 +828,11 @@ object Main {
       // the state and the phase say which tests, and whether to keep going
       phases(p).foreach { (phase, tests, kg) =>
         println(
-          s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p).description}; tests: ${tests: String}, keep-going ${
+          s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p, root).description}; tests: ${tests: String}, keep-going ${
               if (kg) "on" else "off"
             }"
         )
-        val _ = p.publish_results(kg, tests)(phase, n).guilty
+        val _ = root.guilty(p.publish_results(kg, tests)(phase, n))
       }
     }
   }
@@ -812,10 +840,10 @@ object Main {
   @main
   def student_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    for (p <- root.guilty(commonArgs.selected_projects)) {
       val _ =
-        val out = p.student_tests_by_csid.guilty
+        val out = root.guilty(p.student_tests_by_csid)
         pprint.pprintln(out)
       // println(upickle.default.write(results, indent=2))
     }
@@ -823,19 +851,19 @@ object Main {
 
   @main
   def get_results(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         println(c.course_name)
         for {
-          (pn, p) <- c.active_projects.guilty
-          if commonArgs.projects.guilty.matches(pn)
+          (pn, p) <- root.guilty(c.active_projects)
+          if root.guilty(commonArgs.projects).matches(pn)
         } {
           println(s"${c.course_name}:$pn")
           for {
-            (csid, _) <- c.enrollment.guilty
-            if commonArgs.students.guilty.matches(csid.value)
+            (csid, _) <- root.guilty(c.enrollment)
+            if root.guilty(commonArgs.students).matches(csid.value)
           } {
-            val res = p.get_student_results(csid).guilty
+            val res = root.guilty(p.get_student_results(csid))
             res.foreach { res =>
               val count = res.outcomes.size
               val pass =
@@ -851,18 +879,18 @@ object Main {
 
   @main
   def notify_results(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.track.block) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.track(commonArgs.selected_courses).block) {
         for {
-          (pn, p) <- c.active_projects.guilty
-          if commonArgs.projects.guilty.matches(pn)
+          (pn, p) <- root.guilty(c.active_projects)
+          if root.guilty(commonArgs.projects).matches(pn)
         } {
           for {
-            (csid, _) <- c.enrollment.guilty
-            if commonArgs.students.guilty.matches(csid.value)
+            (csid, _) <- root.guilty(c.enrollment)
+            if root.guilty(commonArgs.students).matches(csid.value)
           } {
             // say(s"---> ${c.course_name}:$pn:$csid")
-            p.notify_student_results(csid).guilty
+            root.guilty(p.notify_student_results(csid))
           }
         }
       }
@@ -870,14 +898,14 @@ object Main {
 
   @main
   def gen_html(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.guilty) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.guilty(commonArgs.selected_courses)) {
         for {
-          (pn, p) <- c.active_projects.guilty
-          if commonArgs.projects.guilty.matches(pn)
+          (pn, p) <- root.guilty(c.active_projects)
+          if root.guilty(commonArgs.projects).matches(pn)
         } {
 
-          HtmlGen(p).gen_html.guilty
+          root.guilty(HtmlGen(p).gen_html)
 
         }
       }
@@ -885,10 +913,10 @@ object Main {
 
   @main
   def publish_site(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.guilty) {
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.guilty(commonArgs.selected_courses)) {
         println(
-          s"${c.site_repo_name}: ${c.publish_site.guilty.value.mkString(" ")}"
+          s"${c.site_repo_name}: ${root.guilty(c.publish_site).value.mkString(" ")}"
         )
       }
     }
@@ -897,10 +925,10 @@ object Main {
   // With --force, also rebuilds the site repo (an input of the deploy), so
   // a change to how the site is put together reaches Cloudflare.
   def push_to_cloudflare(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      for (c <- commonArgs.selected_courses.guilty) {
-        if (commonArgs.force.value) summon[State].force(c.publish_site)
-        val url = c.push_to_cloudflare.guilty.value
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      for (c <- root.guilty(commonArgs.selected_courses)) {
+        if (commonArgs.force.value) root.force(c.publish_site)
+        val url = root.guilty(c.push_to_cloudflare).value
         println(s"${c.course_name}: ${url.getOrElse("not deployed")}")
       }
     }
@@ -915,10 +943,10 @@ object Main {
       )
       phase: Phase = Phase.Latest,
       minutes: Int = 1
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) {
-    for (p <- commonArgs.selected_projects.guilty) {
-      val chosen = p.test_ids.guilty
-      val weights = p.test_weights.guilty
+  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    for (p <- root.guilty(commonArgs.selected_projects)) {
+      val chosen = root.guilty(p.test_ids)
+      val weights = root.guilty(p.test_weights)
       val test_weights = (for {
         c <- chosen
         w <- weights
@@ -930,9 +958,11 @@ object Main {
 
       val (n, outs) = loop(1 to count, minutes, Seq()) { (c, acc) =>
         val scores = (for {
-          (csid, passing) <- p
-            .compute_scores(phase, c)
-            .guilty
+          (csid, passing) <- root
+            .guilty(
+              p
+                .compute_scores(phase, c)
+            )
             .toSeq
           score = passing.toSeq.map(t => test_weights(t)).sum
         } yield (csid, score)).to(SortedMap)
@@ -953,7 +983,7 @@ object Main {
         (csid, raw_score) <- totals
       } {
         val is_late =
-          p.is_late(csid, phase).guilty
+          root.guilty(p.is_late(csid, phase))
         val score =
           if (is_late) raw_score.toDouble / 2.0 else raw_score.toDouble
         println(
@@ -967,9 +997,11 @@ object Main {
   }
 
   class Export(commonArgs: CommonArgs) {
-    given State = State(commonArgs.workspace, commonArgs.force.value)
-    def courses: Array[Course] = commonArgs.selected_courses.guilty.toArray
-    def projects: Array[Project] = commonArgs.selected_projects.guilty.toArray
+    val root = State(commonArgs.workspace, commonArgs.force.value)
+    def courses: Array[Course] =
+      root.guilty(commonArgs.selected_courses).toArray
+    def projects: Array[Project] =
+      root.guilty(commonArgs.selected_projects).toArray
   }
 
   /*
@@ -997,14 +1029,14 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) {
-      pprint.pprintln(Gitolite.mirror("courses_config").guilty)
+    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+      pprint.pprintln(root.guilty(Gitolite.mirror("courses_config")))
     }
 
   @main
   def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit =
-    in_workspace(workspace) {
-      pprint.pprintln(PlTools(prefix).fstar.guilty)
+    in_workspace(workspace) { root =>
+      pprint.pprintln(root.guilty(PlTools(prefix).fstar))
     }
 
   // the command line, for telling a second run who holds the lock
@@ -1013,7 +1045,7 @@ object Main {
   // Every command works in its workspace holding the workspace's lock: two
   // runs sharing a workspace would corrupt each other's state.
   private def in_workspace[A](workspace: os.Path, force: Boolean = false)(
-      f: State ?=> A
+      f: State => A
   ): A = {
     os.makeDir.all(workspace)
     RunLock(workspace, command_line) {

@@ -4,12 +4,10 @@ import ag.common.{Signature, Signer}
 import ag.task.Task
 import upickle.default.{ReadWriter, read, write}
 
-import scala.annotation.implicitNotFound
 import scala.collection.{mutable, SortedMap}
 import scala.collection.concurrent.TrieMap
 import scala.util.control.NonFatal
 
-@implicitNotFound("no given Tracker")
 trait Tracker[A] extends Context[A] {
 
   enum Phase {
@@ -35,6 +33,12 @@ trait Tracker[A] extends Context[A] {
   def check_phase(desired: Phase*): Unit = {
     phase.check(desired*)
   }
+
+  // `target`'s current value, making it a dependency of the target this tracks
+  // (of nothing, for the program's top level: its State)
+  def track[B](target: Target[B]): Task[B] = state.resolve(target, this)
+
+  def guilty[B](target: Target[B]): B = track(target).block
 
   def add_dependency(d: TargetBase, fr: Task[Result[?]]): Unit = {
     phase.check(Phase.Open, Phase.Closing)
@@ -71,9 +75,9 @@ trait Tracker[A] extends Context[A] {
   }
 
   def run(
-      f: Producer[A] ?=> Option[Result[A]] => Some[Result[A]] | (() => Task[A])
+      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => Task[A])
   )(using ReadWriter[A]): Task[Result[A]] = {
-    given producer: Producer[A] = new Producer[A] {
+    val producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val route = Tracker.this.route
       override val producing: Target[A] = Tracker.this.producing_opt.get
@@ -84,7 +88,7 @@ trait Tracker[A] extends Context[A] {
 
     // check if we have a failed update
     if (os.exists(producer.dirty_path)) {
-      say(s"removing dirty ${producer.target_path.toString}")
+      say(producer, s"removing dirty ${producer.target_path.toString}")
       os.remove.all(producer.target_path)
     }
 
@@ -93,7 +97,7 @@ trait Tracker[A] extends Context[A] {
       // (1) let's find out if we have a saved value
       if (os.isFile(producer.saved_path)) {
         try {
-          say("loading old state")
+          say(producer, "loading old state")
           val old = read[Saved[A]](os.read(producer.saved_path))
           // a null means an older format: treat it like any unreadable state
           val _ = ag.common.NoNulls.check(
@@ -105,13 +109,14 @@ trait Tracker[A] extends Context[A] {
           // old has the dependency at the time the value was saved
 
           say(
+            producer,
             s"depends on ${upickle.default.write(old.depends_on.toString, indent = 2)}"
           )
 
-          say("checking dependencies")
+          say(producer, "checking dependencies")
           if (old.depends_on.isEmpty) {
             // special case: no dependenices => always recompute
-            say("no dependencies, force recompute")
+            say(producer, "no dependencies, force recompute")
             None
           } else {
             if (
@@ -119,38 +124,38 @@ trait Tracker[A] extends Context[A] {
               Tracker.this.dependencies
                 .forall((p, s) => old.depends_on.get(p).contains(s))
             ) {
-              say("keeping old state")
+              say(producer, "keeping old state")
               Some(old.result)
             } else {
-              say("dependencies changed for old state")
+              say(producer, "dependencies changed for old state")
               None
             }
           }
         } catch {
           case NonFatal(e) =>
-            say(s"load error ${e.toString}")
+            say(producer, s"load error ${e.toString}")
             os.remove.all(producer.saved_path)
             None
         }
       } else {
-        say(s"no old state")
+        say(producer, s"no old state")
         None
       }
 
     }
 
-    f(old_state) match {
+    f(producer, old_state) match {
       case Some(ra) =>
         Task.successful(ra)
       case ffa: (() => Task[A]) =>
         // remove the old result
-        // say("removing old result")
+        // say(producer, "removing old result")
         // os.remove.all(producer.target_path)
 
         // Make a backup copy of the old result. This is useful if the computation fails
         // and we want to restore the old result
         if (os.exists(producer.target_path)) {
-          say(s"marking ${producer.producing.path.toString} as dirty")
+          say(producer, s"marking ${producer.producing.path.toString} as dirty")
           os.write(producer.dirty_path, "", createFolders = true)
         }
 
@@ -162,7 +167,7 @@ trait Tracker[A] extends Context[A] {
           // We have a new result, store it on disk
           val new_result = Result(new_value, Signer.sign(new_value))
           val new_saved = Saved(new_result, Tracker.this.dependencies)
-          say("writing new state")
+          say(producer, "writing new state")
           os.write.over(
             producer.saved_path,
             write(new_saved, indent = 2),
@@ -170,7 +175,7 @@ trait Tracker[A] extends Context[A] {
           )
 
           os.remove.all(producer.dirty_path)
-          say(s"${producer.producing.path.toString} done")
+          say(producer, s"${producer.producing.path.toString} done")
           new_result
         }
     }
@@ -180,21 +185,21 @@ trait Tracker[A] extends Context[A] {
   // pre-condition: ctx is populated with dependencies for this target
   // The simplest way to achieve this is to write code that looks like this:
   //  Target
-  //       a.track
-  //       b.track
-  //       run_if_needed { ... } // depends on a and b
+  //       tracker.track(a)
+  //       tracker.track(b)
+  //       run_if_needed(tracker) { ... } // depends on a and b
   //
 
   def run_if_needed(
-      f: Producer[A] ?=> Task[A]
+      f: Producer[A] => Task[A]
   )(using ReadWriter[A]): Task[Result[A]] = {
     run {
-      case sra @ Some(_) =>
+      case (_, sra @ Some(_)) =>
         sra
-      case _ =>
+      case (producer, _) =>
         // We either didn't find a result on disk or we found one with changed dependencies.
         // In either case, we forget the old result and evaluate again
-        () => f.apply
+        () => f(producer)
     }
   }
 

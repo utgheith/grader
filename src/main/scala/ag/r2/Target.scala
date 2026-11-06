@@ -5,14 +5,16 @@ import ag.task.Task
 
 import upickle.default.ReadWriter
 
+import scala.NamedTuple.NamedTuple
+
 @upickle.implicits.allowUnknownKeys(false)
 case class WithData[A](
     value: A,
     target_name: os.RelPath,
     data_signature: Signature
 ) {
-  def get_data_path(using p: Context[?]): os.Path =
-    p.state.data_path(target_name)
+  def get_data_path(ctx: Context[?]): os.Path =
+    ctx.state.data_path(target_name)
 }
 
 object WithData {
@@ -43,19 +45,13 @@ trait Target[A] extends TargetBase {
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make(using Tracker[A]): Task[Result[A]]
-
-  // returns our current value (used by the value consumer)
-  def track(using ctx: Tracker[?]): Task[A] = {
-    ctx.state.track(this)
-  }
-
-  def guilty(using ctx: Tracker[?]): A = track.block
+  def make(tracker: Tracker[A]): Task[Result[A]]
 
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
 
-    override def make(using Tracker[A]): Task[Result[A]] = outer.make
+    override def make(tracker: Tracker[A]): Task[Result[A]] =
+      outer.make(tracker)
 
     override val is_peek: Boolean = outer.is_peek
   }
@@ -65,7 +61,8 @@ trait Target[A] extends TargetBase {
     new Target[A] {
       override val path: os.RelPath = outer.path
 
-      override def make(using Tracker[A]): Task[Result[A]] = outer.make
+      override def make(tracker: Tracker[A]): Task[Result[A]] =
+        outer.make(tracker)
 
       override val is_peek: Boolean = true
     }
@@ -73,12 +70,18 @@ trait Target[A] extends TargetBase {
 }
 
 object Target {
+  // the value of a Target
+  type Value[T] = T match { case Target[a] => a }
+
+  // the values of a named tuple of Targets, under the same names
+  type Values[N <: Tuple, V <: Tuple] = NamedTuple[N, Tuple.Map[V, Value]]
+
   def apply[A](
       p: os.RelPath
-  )(f: Tracker[A] ?=> Task[Result[A]]): Target[A] = new Target[A] { outer =>
+  )(f: Tracker[A] => Task[Result[A]]): Target[A] = new Target[A] { outer =>
     override val path: os.RelPath = p
-    override def make(using Tracker[A]): Task[Result[A]] =
-      f
+    override def make(tracker: Tracker[A]): Task[Result[A]] =
+      f(tracker)
     override val is_peek: Boolean = false
   }
 }

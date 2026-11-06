@@ -5,8 +5,6 @@ import ag.task.Task
 
 import upickle.default.ReadWriter
 
-import scala.compiletime.summonFrom
-
 object Noise {
   private var noise: Boolean = false
 
@@ -26,31 +24,34 @@ inline def force_task[A](v: A | Task[A]): Task[A] = v match {
   case v           => Task.successful(v.asInstanceOf[A])
 }
 
-inline def say(inline msg: => Any): Unit = {
-  summonFrom[Context[?]] {
-    case ctx: Context[?] => Context.say(Some(ctx), msg)
-    case _               => Context.say(None, msg)
-  }
+def say(ctx: Context[?], msg: => Any): Unit = Context.say(Some(ctx), msg)
+
+// for code that isn't part of any target's computation
+def say(msg: => Any): Unit = Context.say(None, msg)
+
+def shout(ctx: Context[?], msg: => Any): Unit = {
+  say(ctx, msg)
+  println(msg)
 }
 
-inline def shout(inline msg: => Any): Unit = {
+def shout(msg: => Any): Unit = {
   say(msg)
   println(msg)
 }
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
-def run_if_needed[A: ReadWriter](
-    f: Producer[A] ?=> A | Task[A]
-)(using tracker: Tracker[A]): Task[Result[A]] =
-  tracker.run_if_needed(force_task(f))
+def run_if_needed[A: ReadWriter](tracker: Tracker[A])(
+    f: Producer[A] => A | Task[A]
+): Task[Result[A]] =
+  tracker.run_if_needed(producer => force_task(f(producer)))
 
-def create_data[A](skip: os.RelPath => Boolean)(
-    f: Producer[WithData[A]] ?=> os.Path => A
-)(using ctx: Producer[WithData[A]]): WithData[A] = {
+def create_data[A](ctx: Producer[?])(skip: os.RelPath => Boolean)(
+    f: os.Path => A
+): WithData[A] = {
   val data_dir: os.Path = ctx.data_path
   os.remove.all(data_dir)
   os.makeDir.all(data_dir)
-  val a = f(using ctx)(data_dir)
+  val a = f(data_dir)
   WithData(
     a,
     ctx.producing.path,
@@ -58,15 +59,15 @@ def create_data[A](skip: os.RelPath => Boolean)(
   )
 }
 
-def update_data[A](skip: os.RelPath => Boolean)(
-    f: Producer[WithData[A]] ?=> os.Path => A
-)(using ctx: Producer[WithData[A]]): WithData[A] = {
+def update_data[A](ctx: Producer[?])(skip: os.RelPath => Boolean)(
+    f: os.Path => A
+): WithData[A] = {
   val data_dir: os.Path = ctx.data_path
   if (!os.isDir(data_dir)) {
     os.remove.all(data_dir)
     os.makeDir.all(data_dir)
   }
-  val a = f(using ctx)(data_dir)
+  val a = f(data_dir)
   WithData(
     a,
     ctx.producing.path,
@@ -75,7 +76,7 @@ def update_data[A](skip: os.RelPath => Boolean)(
 }
 
 lazy val periodic = Scope().fun { (ms: Long) =>
-  Scope().target() {
+  Scope().target(EmptyTuple) { (_, _) =>
     (System.currentTimeMillis() / ms) * ms
   }
 }

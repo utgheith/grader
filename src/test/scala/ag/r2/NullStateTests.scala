@@ -4,17 +4,19 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object NullThings extends Scope("nulls") {
   val runs = new AtomicInteger(0)
-  val input: Target[Int] = target() { 1 }
-  val either: Target[Either[String, Int]] = target(input) { i =>
+  val input: Target[Int] = target(EmptyTuple) {(_, _) =>  1 }
+  val either: Target[Either[String, Int]] = target((i = input)) { (_, deps) =>
     val _ = runs.incrementAndGet()
-    Right(i)
+    Right(deps.i)
   }
 }
 
 class NullStateTests extends munit.FunSuite {
   test("a saved value that reads back as null is recomputed, not returned") {
     def run_once(): Either[String, Int] =
-      State.run(config.get_test_dir) { NullThings.either.track.block }
+      State.run(config.get_test_dir) { root =>
+        root.track(NullThings.either).block
+      }
 
     assertEquals(run_once(), Right(1))
     assertEquals(NullThings.runs.get, 1)

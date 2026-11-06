@@ -11,11 +11,11 @@ object Published extends Scope("published") {
   val writes = new AtomicInteger(0)
 
   // no dependencies: re-checked on every run
-  val readable: Target[Boolean] = target() {
+  val readable: Target[Boolean] = target(EmptyTuple) {(_, _) => 
     Try(upickle.default.read[Map[String, Int]](os.read(file))).isSuccess
   }
 
-  val writer: Target[Int] = target(readable) { _ =>
+  val writer: Target[Int] = target((readable = readable)) { (_, _) =>
     os.write.over(file, upickle.default.write(Map("score" -> 90)))
     writes.incrementAndGet()
   }
@@ -25,8 +25,8 @@ class PublishedFileTests extends munit.FunSuite {
   test(
     "a published file that stops being readable is rewritten, then left alone"
   ) {
-    def run_once(): Unit = State.run(config.get_test_dir) {
-      val _ = Published.writer.track.block
+    def run_once(): Unit = State.run(config.get_test_dir) { root =>
+      val _ = root.track(Published.writer).block
     }
     def writes = Published.writes.get
 

@@ -229,7 +229,7 @@ object Config extends Scope(".") {
 
   // `cloudflare` is dropped here: a target's value is saved to
   // workspace/targets/.../saved.json, and the api_key shouldn't be.
-  private lazy val config: Target[Config] = target() {
+  private lazy val config: Target[Config] = target(EmptyTuple) { (_, _) =>
     // logger.info(s"loading config from $config_file")
     load().copy(cloudflare = None)
   }
@@ -240,27 +240,31 @@ object Config extends Scope(".") {
 
   // Safe to cache: just the flag. No dependencies, so it's re-read from
   // config.json on every run, and targets that depend on it notice changes.
-  lazy val cloudflare_enabled: Target[Boolean] = target() {
+  lazy val cloudflare_enabled: Target[Boolean] = target(EmptyTuple) { (_, _) =>
     load().cloudflare.exists(_.enabled)
   }
 
   // Likewise safe to cache, and re-read on every run.
-  lazy val cloudflare_domain: Target[Option[String]] = target() {
-    load().cloudflare.flatMap(_.domain)
+  lazy val cloudflare_domain: Target[Option[String]] = target(EmptyTuple) {
+    (_, _) =>
+      load().cloudflare.flatMap(_.domain)
   }
 
-  lazy val gitolite: Target[RemoteServer] = target(config)(_.gitolite)
+  lazy val gitolite: Target[RemoteServer] =
+    target((c = config))((_, deps) => deps.c.gitolite)
 
   lazy val dropbox_path: Target[Option[RelPath]] =
-    target(config)(_.dropbox_path)
+    target((c = config))((_, deps) => deps.c.dropbox_path)
 
-  lazy val site_base: Target[Option[String]] = target(config)(_.site_base)
+  lazy val site_base: Target[Option[String]] =
+    target((c = config))((_, deps) => deps.c.site_base)
 
   // TODO: peek
-  lazy val can_send_mail: Target[Boolean] = target(config) { config =>
-    config.can_send_mail.getOrElse(false)
+  lazy val can_send_mail: Target[Boolean] = target((config = config)) {
+    (_, deps) =>
+      deps.config.can_send_mail.getOrElse(false)
   }.peek
 
   lazy val can_push_repo: Target[Boolean] =
-    target(config)(_.can_push_repo.getOrElse(false))
+    target((c = config))((_, deps) => deps.c.can_push_repo.getOrElse(false))
 }
