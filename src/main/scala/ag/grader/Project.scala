@@ -140,9 +140,10 @@ case class Project(course: Course, project_name: String)
   lazy val extensions: Target[Extensions] =
     target((p = info))((_, deps) => deps.p.extensions)
 
-  // `csid`'s deadline for `phase`, with any extension they have: phase 1's is
-  // the test cutoff, phase 2's the code cutoff; the latest results are late
-  // from the code cutoff too.
+  // `csid`'s deadline for grading their code in `phase`, with any extension
+  // they have: phase 1's is the test cutoff, phase 2's the code cutoff; the
+  // latest results are late from the code cutoff too. A student's test case is
+  // due at the test cutoff, whatever their extension (see student_test).
   lazy val deadline: (CSID, Phase) => Target[LocalDateTime] = fun {
     (csid, phase) =>
       target(
@@ -1151,7 +1152,8 @@ case class Project(course: Course, project_name: String)
         (
           submission = submission(csid),
           test_extensions = test_extensions,
-          test_cutoff = deadline(csid, Phase.One)
+          // the project's cutoff: phase 1 extensions are for code, not tests
+          test_cutoff = test_cutoff
         )
       ) { (producer, deps) =>
         val submission = deps.submission

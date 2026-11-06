@@ -39,7 +39,8 @@ case class Iterations(min: Int, max: Int) derives ReadWriter {
 }
 
 // Deadline extensions: per phase, the whole days a student gets past that
-// phase's deadline. In courses_config, inside a project:
+// phase's deadline, for their code. Their test case is still due at the test
+// cutoff. In courses_config, inside a project:
 //   "extensions": { "phase1": { "<csid>": 2, ... }, "phase2": { ... } }
 @upickle.implicits.allowUnknownKeys(false)
 case class Extensions(
