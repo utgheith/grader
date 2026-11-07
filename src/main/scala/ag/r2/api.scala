@@ -9,11 +9,14 @@ object Noise {
 
   def apply(): Boolean = noise
 
+  // Stops at end of input: read() then returns -1 at once, which would spin
+  // and toggle noise at random.
   Thread.ofPlatform().daemon(true).start { () =>
-    while (true) {
+    var reading = true
+    while (reading) {
       println("-- hit enter to toggle noise --")
-      val _ = System.in.read()
-      noise = !noise
+      if (System.in.read() < 0) reading = false
+      else noise = !noise
     }
   }
 }

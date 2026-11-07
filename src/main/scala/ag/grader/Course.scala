@@ -2,7 +2,6 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
-  Many,
   Scope,
   Target,
   ToRelPath,
@@ -10,16 +9,15 @@ import ag.r2.{
   create_data,
   periodic,
   run_if_needed,
-  say,
-  update_data
+  say
 }
 
-import scala.collection.{SortedMap, SortedSet, mutable}
+import scala.collection.{SortedMap, SortedSet}
 import upickle.default.ReadWriter
 
 @upickle.implicits.allowUnknownKeys(false)
-case class Course(course_name: String) extends Scope(ToRelPath(course_name))
-    derives ReadWriter {
+case class Course(course_name: String)
+    extends GitoliteScope(ToRelPath(course_name)) derives ReadWriter {
 
   lazy val staff_group_name: String = s"@${course_name}_staff"
 
@@ -91,60 +89,43 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
    */
 
   lazy val publish_keys: Target[WithData[SortedMap[CSID, String]]] =
-    target(
+    gitolite_target(
+      repo = "gitolite-admin",
+      msg = "updated keys",
+      fork_from = None
+    )(
       (
-        g = Gitolite.repo_info(
-          "gitolite-admin"
-        ),
         dropbox = dropbox,
         notifications = notifications.peek,
-        can_send_mail = Config.can_send_mail,
-        can_push_repo = Config.can_push_repo
+        can_send_mail = Config.can_send_mail
       )
-    ) { (producer, deps) =>
-      create_data(producer)(skip = _.lastOpt.contains(".git")) { dir =>
-        val added = deps.g.update(
-          path = dir,
-          fork_from = None,
-          msg = "updated keys",
-          readers = Seq(),
-          writers = Seq(),
-          deps.can_push_repo
-        ) { _ =>
-          val added = mutable.SortedSet[CSID]()
-
-          for {
-            // all keys in dropbox
-            (csid, new_key) <- deps.dropbox.toSeq
-            key_file_name = s"${csid.toString}.pub"
-            key_file_path = dir / "keydir" / key_file_name
-            // if the key doesn't exist or is different
-            if !os
-              .exists(key_file_path) || os
-              .read(key_file_path)
-              .trim
-              .nn != new_key
-          } {
-            // If we make it here then the key needs to be added or updated
-            println(s"adding ${csid.toString} to gitolite-admin")
-            os.write.over(key_file_path, new_key)
-            added.add(csid)
-          }
-          added
-        }
-
-        for (csid <- added) {
+    ) { (_, deps, repo) =>
+      for {
+        // all keys in dropbox
+        (csid, new_key) <- deps.dropbox.toSeq
+        key_file_name = s"${csid.toString}.pub"
+        key_file_path = repo.dir / "keydir" / key_file_name
+        // if the key doesn't exist or is different
+        if !os
+          .exists(key_file_path) || os
+          .read(key_file_path)
+          .trim
+          .nn != new_key
+      } {
+        // If we make it here then the key needs to be added or updated
+        println(s"adding ${csid.toString} to gitolite-admin")
+        os.write.over(key_file_path, new_key)
+        repo.after_push {
           deps.notifications.send_key_update(
             this,
             csid,
-            deps.g.server,
+            repo.info.server,
             deps.can_send_mail
           )
         }
-
-        deps.dropbox
       }
 
+      deps.dropbox
     }
 
   private lazy val enrollment_repo_name = s"${course_name}__enrollment"
@@ -176,33 +157,16 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   // create/update the enrollment repo
   lazy val publish_enrollment: Target[WithData[SortedMap[CSID, String]]] =
-    target(
-      (
-        g = Gitolite.repo_info(
-          enrollment_repo_name
-        ),
-        keys = publish_keys,
-        can_push_repo = Config.can_push_repo
+    gitolite_target(
+      repo = enrollment_repo_name,
+      msg = "enrolling students",
+      readers = Seq(staff_group_name)
+    )((keys = publish_keys)) { (_, deps, repo) =>
+      os.write.over(
+        enrollment_file(repo.dir),
+        upickle.default.write(deps.keys.value, indent = 2)
       )
-    ) { (producer, deps) =>
-      update_data[SortedMap[CSID, String]](producer)(skip = {
-        _.lastOpt.contains(".git")
-      }) { dir =>
-        deps.g.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "enrolling students",
-          readers = Seq(staff_group_name),
-          writers = Seq(),
-          deps.can_push_repo
-        ) { _ =>
-          os.write.over(
-            enrollment_file(dir),
-            upickle.default.write(deps.keys.value, indent = 2)
-          )
-        }
-        deps.keys.value
-      }
+      deps.keys.value
     }
 
   lazy val site_repo_name: String = s"${course_name}__site"
@@ -211,49 +175,36 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   // site is under source control: each change is a commit, and history is
   // preserved. Pages of projects that are no longer active stay in the repo.
   lazy val publish_site: Target[WithData[SortedSet[String]]] =
-    complex_target { tracker =>
+    complex_gitolite_target(
+      repo = site_repo_name,
+      msg = "update site",
+      readers = Seq("@all")
+    ) { tracker =>
       val projects = tracker.track(active_projects).values.toSeq
-      val deps = tracker.track_all(
-        (
-          repo_info = Gitolite.repo_info(site_repo_name),
-          pages = Many(projects.map(HtmlGen(_).page)),
-          can_push_repo = Config.can_push_repo
-        )
-      )
+      val pages = tracker.track_all(projects.map(HtmlGen(_).page))
 
-      run_if_needed(tracker) { producer =>
-        update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-          deps.repo_info.update(
-            path = dir,
-            fork_from = Some("empty"),
-            msg = "update site",
-            readers = Seq("@all"),
-            writers = Seq(),
-            deps.can_push_repo
-          ) { _ =>
-            val names = for {
-              page <- deps.pages
-              f <- os.list(page.get_data_path(producer))
-            } yield {
-              os.copy.over(f, dir / f.last)
-              f.last
-            }
-            // the front page lists every project's (latest) page in the repo,
-            // including those of projects that are no longer active
-            val all_pages = os
-              .list(dir)
-              .map(_.last)
-              .filter(f =>
-                f.endsWith(".html") && f != "index.html" && !HtmlGen
-                  .is_phase_page(f)
-              )
-            os.write.over(
-              dir / "index.html",
-              HtmlGen.render_index(course_name, all_pages)
-            )
-            names.to(SortedSet)
-          }
+      (producer, repo) => {
+        val names = for {
+          page <- pages
+          f <- os.list(page.get_data_path(producer))
+        } yield {
+          os.copy.over(f, repo.dir / f.last)
+          f.last
         }
+        // the front page lists every project's (latest) page in the repo,
+        // including those of projects that are no longer active
+        val all_pages = os
+          .list(repo.dir)
+          .map(_.last)
+          .filter(f =>
+            f.endsWith(".html") && f != "index.html" && !HtmlGen
+              .is_phase_page(f)
+          )
+        os.write.over(
+          repo.dir / "index.html",
+          HtmlGen.render_index(course_name, all_pages)
+        )
+        names.to(SortedSet)
       }
     }
 
@@ -310,25 +261,16 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   private lazy val grades_repo_name = s"${course_name}__grades"
 
   lazy val create_grades_repo: Target[WithData[Unit]] =
-    target(
-      (
-        g = Gitolite.repo_info(grades_repo_name),
-        can_push_repo = Config.can_push_repo
-      )
-    ) { (producer, deps) =>
-      create_data(producer)(skip = _.lastOpt.contains(".git")) { dir =>
-        deps.g.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "creating grades repo",
-          readers = Seq(staff_group_name),
-          writers = Seq(staff_group_name),
-          deps.can_push_repo
-        ) { newly_created =>
-          if newly_created then {
-            os.write(
-              dir / "README.md",
-              f"""
+    gitolite_target(
+      repo = grades_repo_name,
+      msg = "creating grades repo",
+      readers = Seq(staff_group_name),
+      writers = Seq(staff_group_name)
+    )(EmptyTuple) { (_, _, repo) =>
+      if repo.forked then {
+        os.write(
+          repo.dir / "README.md",
+          f"""
                  |# Grading data for `$course_name`
                  |
                  |This is a per-course workspace for synchronizing grading data
@@ -336,9 +278,7 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
                  |automatically creates this repo, but does not otherwise use
                  |it; that may change in the future.
                  |""".stripMargin
-            )
-          }
-        }
+        )
       }
     }
 }
