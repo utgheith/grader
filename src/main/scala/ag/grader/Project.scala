@@ -77,7 +77,7 @@ private val finished_runs = AtomicLong(0)
 
 @upickle.implicits.allowUnknownKeys(false)
 case class Project(course: Course, project_name: String)
-    extends Scope(course / project_name) derives ReadWriter {
+    extends GitoliteScope(course / project_name) derives ReadWriter {
 
   lazy val info: Target[RawProject] =
     Gitolite.raw_project(course.course_name, project_name)
@@ -177,37 +177,56 @@ case class Project(course: Course, project_name: String)
   private lazy val override_repo_name = s"${project_repo_name}__override"
 
   lazy val publish_override_repo: Target[WithData[Unit]] =
-    target(
+    gitolite_target(
+      repo = override_repo_name,
+      msg = "update override",
+      readers = Seq("@all"),
+      writers = Seq(course.staff_group_name)
+    )(
       (
-        override_repo_info = Gitolite.repo_info(
-          override_repo_name
-        ),
         test_extensions = test_extensions,
-        project_repo = project_repo,
-        can_push_repo = Config.can_push_repo
+        project_repo = project_repo
       )
-    ) { (producer, deps) =>
-      update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-        deps.override_repo_info.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "update override",
-          readers = Seq(s"@all"),
-          writers = Seq(course.staff_group_name),
-          deps.can_push_repo
-        ) { _ =>
-          val initialized_marker = dir / ".initialized"
+    ) { (producer, deps, repo) =>
+      val initialized_marker = repo.dir / ".initialized"
 
-          if (!os.exists(initialized_marker)) {
+      if (!os.exists(initialized_marker)) {
 
-            /* find the original tests */
-            for {
-              f <- os.list(deps.project_repo.get_data_path(producer))
-              if !f.last.startsWith(".")
-              if deps.test_extensions.contains(f.ext)
-            } {
+        /* find the original tests */
+        for {
+          f <- os.list(deps.project_repo.get_data_path(producer))
+          if !f.last.startsWith(".")
+          if deps.test_extensions.contains(f.ext)
+        } {
+          val target =
+            repo.dir / f.relativeTo(deps.project_repo.get_data_path(producer))
+          if (!os.exists(target)) {
+            os.copy(
+              from = f,
+              to = target,
+              followLinks = false,
+              createFolders = true,
+              copyAttributes = true
+            )
+          }
+        }
+
+        /* copy other files */
+        os.walk
+          .stream(
+            path = deps.project_repo.get_data_path(producer),
+            followLinks = false
+          )
+          .foreach { f =>
+            if (
+              os.isFile(f) && Project.automatic_override_names.contains(
+                f.last
+              )
+            ) {
               val target =
-                dir / f.relativeTo(deps.project_repo.get_data_path(producer))
+                repo.dir / f.relativeTo(
+                  deps.project_repo.get_data_path(producer)
+                )
               if (!os.exists(target)) {
                 os.copy(
                   from = f,
@@ -218,39 +237,9 @@ case class Project(course: Course, project_name: String)
                 )
               }
             }
-
-            /* copy other files */
-            os.walk
-              .stream(
-                path = deps.project_repo.get_data_path(producer),
-                followLinks = false
-              )
-              .foreach { f =>
-                if (
-                  os.isFile(f) && Project.automatic_override_names.contains(
-                    f.last
-                  )
-                ) {
-                  val target =
-                    dir / f.relativeTo(
-                      deps.project_repo.get_data_path(producer)
-                    )
-                  if (!os.exists(target)) {
-                    os.copy(
-                      from = f,
-                      to = target,
-                      followLinks = false,
-                      createFolders = true,
-                      copyAttributes = true
-                    )
-                  }
-                }
-              }
-
-            os.write(initialized_marker, "")
           }
 
-        }
+        os.write(initialized_marker, "")
       }
     }
 
@@ -265,39 +254,31 @@ case class Project(course: Course, project_name: String)
 
   lazy val publish_work_repo: CSID => Target[WithData[Unit]] = fun {
     (csid: CSID) =>
-      target(
+      gitolite_target(
+        repo = work_repo_name(csid),
+        msg = "create",
+        fork_from = Some(project_repo_name),
+        readers = Seq(csid.value, course.staff_group_name),
+        writers = Seq(csid.value)
+      )(
         (
-          repo_info = Gitolite.repo_info(
-            work_repo_name(csid)
-          ),
           n = course.notifications,
-          can_send_mail = Config.can_send_mail,
-          can_push_repo = Config.can_push_repo
+          can_send_mail = Config.can_send_mail
         )
-      ) { (producer, deps) =>
-        update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-          deps.repo_info.update(
-            path = dir,
-            fork_from = Some(project_repo_name),
-            readers = Seq(csid.value, course.staff_group_name),
-            writers = Seq(csid.value),
-            msg = s"create",
-            deps.can_push_repo
-          ) { forked =>
-            if (forked) {
-              shout(
-                producer,
-                s"sending notification to ${csid.toString}, can_send_mail is ${deps.can_send_mail}"
-              )
-              deps.n.send_repo_created(
-                this,
-                deps.repo_info,
-                csid,
-                deps.can_send_mail,
-                dir
-              )
-            }
-            ()
+      ) { (producer, deps, repo) =>
+        if (repo.forked) {
+          repo.after_push {
+            shout(
+              producer,
+              s"sending notification to ${csid.toString}, can_send_mail is ${deps.can_send_mail}"
+            )
+            deps.n.send_repo_created(
+              this,
+              repo.info,
+              csid,
+              deps.can_send_mail,
+              repo.dir
+            )
           }
         }
       }
@@ -804,7 +785,11 @@ case class Project(course: Course, project_name: String)
       tests: TestSet
   ): (CSID, Int) => Target[WithData[Option[StudentResults]]] = fun {
     (csid, n) =>
-      complex_target { tracker =>
+      complex_gitolite_target(
+        repo = student_results_repo_name(csid),
+        msg = "updated results",
+        readers = Seq(csid.value, course.staff_group_name)
+      ) { tracker =>
         val results =
           tracker.track(
             student_results(keep_going, tests)(csid, Phase.Latest, n)
@@ -817,41 +802,28 @@ case class Project(course: Course, project_name: String)
         val deps = tracker.track_all(
           (
             outcomes = Many(runs),
-            repo_info = Gitolite.repo_info(student_results_repo_name(csid)),
             // rewrite the_results.json if it stops being readable
-            readable = student_results_readable(csid),
-            can_push_repo = Config.can_push_repo
+            readable = student_results_readable(csid)
           )
         )
 
-        run_if_needed(tracker) { producer =>
-          update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-            deps.repo_info.update(
-              path = dir,
-              fork_from = Some("empty"),
-              msg = "updated results",
-              readers = Seq(csid.value, course.staff_group_name),
-              writers = Seq(),
-              deps.can_push_repo
-            ) { _ =>
-              for {
-                f <- os.list(dir)
-                if !f.last.startsWith(".")
-              } os.remove.all(f)
-              for (outcome <- deps.outcomes)
-                copy_results(
-                  outcome.get_data_path(producer),
-                  dir,
-                  outcome.value.test_id
-                )
-              for (r <- results)
-                os.write.over(
-                  dir / "the_results.json",
-                  upickle.default.write(r)
-                )
-              results
-            }
-          }
+        (producer, repo) => {
+          for {
+            f <- os.list(repo.dir)
+            if !f.last.startsWith(".")
+          } os.remove.all(f)
+          for (outcome <- deps.outcomes)
+            copy_results(
+              outcome.get_data_path(producer),
+              repo.dir,
+              outcome.value.test_id
+            )
+          for (r <- results)
+            os.write.over(
+              repo.dir / "the_results.json",
+              upickle.default.write(r)
+            )
+          results
         }
       }
   }
@@ -1063,11 +1035,14 @@ case class Project(course: Course, project_name: String)
     WithData[SortedMap[Alias, RedactedStudentResults]]
   ] =
     fun { (phase, n) =>
-      complex_target { tracker =>
+      complex_gitolite_target(
+        repo = project_results_repo_name,
+        msg = s"update ${phase.results_file}",
+        readers = Seq("@all")
+      ) { tracker =>
         val students = tracker.track(students_with_submission).toSeq
         val deps = tracker.track_all(
           (
-            repo_info = Gitolite.repo_info(project_results_repo_name),
             // rewrite the file if it stops being readable
             readable = results_readable(phase),
             results = Many(
@@ -1080,38 +1055,27 @@ case class Project(course: Course, project_name: String)
             ),
             // lateness is from each student's own deadline for the phase
             deadlines = Many(students.map(deadline(_, phase))),
-            aliases = publish_aliases,
-            can_push_repo = Config.can_push_repo
+            aliases = publish_aliases
           )
         )
 
-        run_if_needed(tracker) { producer =>
+        (_, repo) => {
           val deadline_of = students
             .zip(deps.deadlines)
             .map((csid, d) =>
               csid -> ZonedDateTime.of(d, ZoneId.systemDefault()).nn
             )
             .toMap
-          update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-            deps.repo_info.update(
-              path = dir,
-              fork_from = Some("empty"),
-              msg = s"update ${phase.results_file}",
-              readers = Seq("@all"),
-              writers = Seq(),
-              deps.can_push_repo
-            ) { _ =>
-              val data = (for {
-                r <- deps.results.flatten
-                alias <- deps.aliases.value.get(r.csid).toSeq
-              } yield (alias, r.redacted(deadline_of(r.csid)))).to(SortedMap)
-              os.write.over(
-                dir / phase.results_file,
-                upickle.default.write(data, indent = 2)
-              )
-              data
-            }
-          }
+
+          val data = (for {
+            r <- deps.results.flatten
+            alias <- deps.aliases.value.get(r.csid).toSeq
+          } yield (alias, r.redacted(deadline_of(r.csid)))).to(SortedMap)
+          os.write.over(
+            repo.dir / phase.results_file,
+            upickle.default.write(data, indent = 2)
+          )
+          data
         }
       }
     }
@@ -1237,49 +1201,35 @@ case class Project(course: Course, project_name: String)
     s"${course.course_name}_${project_name}__aliases"
 
   private lazy val publish_aliases: Target[WithData[SortedMap[CSID, Alias]]] =
-    target(
-      (
-        repo_info = Gitolite.repo_info(
-          aliases_repo_name
-        ),
-        students_with_submission = students_with_submission,
-        can_push_repo = Config.can_push_repo
-      )
-    ) { (producer, deps) =>
-      update_data(producer)(skip = _.lastOpt.contains(".git")) { dir =>
-        deps.repo_info.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "more aliases",
-          readers = Seq(course.staff_group_name),
-          writers = Seq(),
-          deps.can_push_repo
-        ) { _ =>
-          val file = dir / "aliases.json"
-          val old_aliases = if (os.exists(file)) {
-            upickle.default.read[SortedMap[CSID, Alias]](os.read(file))
-          } else {
-            SortedMap[CSID, Alias]()
-          }
-
-          var next_alias = old_aliases.values.foldLeft(0)(_ max _.value) + 1
-          val covered_csids = old_aliases.keySet
-
-          var new_aliases = old_aliases.toMap
-
-          for {
-            csid <- deps.students_with_submission
-            if !covered_csids.contains(csid)
-          } {
-            new_aliases = new_aliases.updated(csid, Alias(next_alias))
-            next_alias += 1
-          }
-
-          val out = new_aliases.to(SortedMap)
-          os.write.over(file, upickle.default.write(out, indent = 2))
-          out
+    gitolite_target(
+      repo = aliases_repo_name,
+      msg = "more aliases",
+      readers = Seq(course.staff_group_name)
+    )((students_with_submission = students_with_submission)) {
+      (_, deps, repo) =>
+        val file = repo.dir / "aliases.json"
+        val old_aliases = if (os.exists(file)) {
+          upickle.default.read[SortedMap[CSID, Alias]](os.read(file))
+        } else {
+          SortedMap[CSID, Alias]()
         }
-      }
+
+        var next_alias = old_aliases.values.foldLeft(0)(_ max _.value) + 1
+        val covered_csids = old_aliases.keySet
+
+        var new_aliases = old_aliases.toMap
+
+        for {
+          csid <- deps.students_with_submission
+          if !covered_csids.contains(csid)
+        } {
+          new_aliases = new_aliases.updated(csid, Alias(next_alias))
+          next_alias += 1
+        }
+
+        val out = new_aliases.to(SortedMap)
+        os.write.over(file, upickle.default.write(out, indent = 2))
+        out
     }
 
   lazy val get_aliases: Target[SortedMap[CSID, Alias]] =
@@ -1363,86 +1313,75 @@ case class Project(course: Course, project_name: String)
     }
 
   lazy val publish_tests: Target[WithData[SortedMap[TestId, TestInfo]]] =
-    target(
+    gitolite_target(
+      repo = tests_repo_name,
+      msg = "tests",
+      readers = Seq("@all")
+    )(
       (
-        tests_repo_info = Gitolite.repo_info(tests_repo_name),
         student_tests_by_csid = student_tests_by_csid,
         aliases = publish_aliases,
         publish_submitted_tests = publish_submitted_tests,
         override_tests = override_tests,
-        test_extensions = test_extensions,
-        can_push_repo = Config.can_push_repo
+        test_extensions = test_extensions
       )
-    ) { (producer, deps) =>
-      update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-        deps.tests_repo_info.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "tests",
-          readers = Seq("@all"),
-          writers = Seq(),
-          deps.can_push_repo
-        ) { _ =>
-          // delete all tests
-          for {
-            f <- os.list(dir)
-            if !f.last.startsWith(".")
-          } {
-            os.remove.all(f)
-          }
-
-          val info = mutable.Map[TestId, TestInfo]()
-
-          // copy student tests, including ignored ones (projects before
-          // their first deadline run those too; see TestSet)
-          for {
-            (csid, test_sp) <- deps.student_tests_by_csid.toSeq
-            alias <- deps.aliases.value.get(csid).toSeq
-          } {
-            for (ext <- deps.test_extensions) {
-              val test_id = TestId(
-                external_name = alias.toString,
-                internal_name = csid.toString
-              )
-              val test_info = TestInfo(test_id, test_sp.copy(value = ()))
-              info.update(test_id, test_info)
-              val src =
-                test_sp.get_data_path(producer) / s"${csid.value}.$ext"
-              val dest = dir / s"${alias.toString}.$ext"
-              os.copy(
-                from = src,
-                to = dest,
-                createFolders = true,
-                followLinks = false
-              )
-            }
-          }
-
-          // copy overrides
-          for {
-            (test_name, test_sp) <- deps.override_tests.toSeq
-          } {
-            for (ext <- deps.test_extensions) {
-              val test_id = TestId(
-                external_name = test_name,
-                internal_name = test_name
-              )
-              val test_info = TestInfo(test_id, test_sp.copy(value = ()))
-              info.update(test_id, test_info)
-              os.copy.over(
-                from = test_sp.get_data_path(producer) / s"$test_name.$ext",
-                to = dir / s"$test_name.$ext",
-                createFolders = true,
-                followLinks = false
-              )
-            }
-          }
-
-          info.to(SortedMap)
-
-        }
-
+    ) { (producer, deps, repo) =>
+      // delete all tests
+      for {
+        f <- os.list(repo.dir)
+        if !f.last.startsWith(".")
+      } {
+        os.remove.all(f)
       }
+
+      val info = mutable.Map[TestId, TestInfo]()
+
+      // copy student tests, including ignored ones (projects before
+      // their first deadline run those too; see TestSet)
+      for {
+        (csid, test_sp) <- deps.student_tests_by_csid.toSeq
+        alias <- deps.aliases.value.get(csid).toSeq
+      } {
+        for (ext <- deps.test_extensions) {
+          val test_id = TestId(
+            external_name = alias.toString,
+            internal_name = csid.toString
+          )
+          val test_info = TestInfo(test_id, test_sp.copy(value = ()))
+          info.update(test_id, test_info)
+          val src =
+            test_sp.get_data_path(producer) / s"${csid.value}.$ext"
+          val dest = repo.dir / s"${alias.toString}.$ext"
+          os.copy(
+            from = src,
+            to = dest,
+            createFolders = true,
+            followLinks = false
+          )
+        }
+      }
+
+      // copy overrides
+      for {
+        (test_name, test_sp) <- deps.override_tests.toSeq
+      } {
+        for (ext <- deps.test_extensions) {
+          val test_id = TestId(
+            external_name = test_name,
+            internal_name = test_name
+          )
+          val test_info = TestInfo(test_id, test_sp.copy(value = ()))
+          info.update(test_id, test_info)
+          os.copy.over(
+            from = test_sp.get_data_path(producer) / s"$test_name.$ext",
+            to = repo.dir / s"$test_name.$ext",
+            createFolders = true,
+            followLinks = false
+          )
+        }
+      }
+
+      info.to(SortedMap)
     }
 
   lazy val test_ids: Target[SortedSet[TestId]] =
@@ -1542,62 +1481,51 @@ case class Project(course: Course, project_name: String)
 
   private lazy val publish_submitted_tests
       : Target[WithData[SortedMap[TestId, TestInfo]]] =
-    target(
+    gitolite_target(
+      repo = submitted_tests_repo_name,
+      msg = "tests",
+      readers = Seq(course.staff_group_name)
+    )(
       (
-        submitted_tests_repo_info = Gitolite.repo_info(
-          submitted_tests_repo_name
-        ),
         student_tests_by_csid = student_tests_by_csid,
         aliases = publish_aliases,
-        test_extensions = test_extensions,
-        can_push_repo = Config.can_push_repo
+        test_extensions = test_extensions
       )
-    ) { (producer, deps) =>
-      update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-        deps.submitted_tests_repo_info.update(
-          path = dir,
-          fork_from = Some("empty"),
-          msg = "tests",
-          readers = Seq(course.staff_group_name),
-          writers = Seq(),
-          deps.can_push_repo
-        ) { _ =>
-          // delete all tests
-          for {
-            f <- os.list(dir)
-            if !f.last.startsWith(".")
-          } {
-            os.remove.all(f)
-          }
+    ) { (producer, deps, repo) =>
+      // delete all tests
+      for {
+        f <- os.list(repo.dir)
+        if !f.last.startsWith(".")
+      } {
+        os.remove.all(f)
+      }
 
-          val info = mutable.Map[TestId, TestInfo]()
+      val info = mutable.Map[TestId, TestInfo]()
 
-          // copy student tests
-          for {
-            (csid, test_sp) <- deps.student_tests_by_csid.toSeq
-            alias <- deps.aliases.value.get(csid).toSeq
-          } {
-            for (ext <- deps.test_extensions) {
-              val test_id = TestId(
-                external_name = alias.toString,
-                internal_name = csid.toString
-              )
-              val test_info = TestInfo(test_id, test_sp.copy(value = ()))
-              info.update(test_id, test_info)
-              val src =
-                test_sp.get_data_path(producer) / s"${csid.value}.$ext"
-              val dest = dir / s"${alias.toString}.${ext.toString}"
-              os.copy(
-                from = src,
-                to = dest,
-                createFolders = true,
-                followLinks = false
-              )
-            }
-          }
-          info.to(SortedMap)
+      // copy student tests
+      for {
+        (csid, test_sp) <- deps.student_tests_by_csid.toSeq
+        alias <- deps.aliases.value.get(csid).toSeq
+      } {
+        for (ext <- deps.test_extensions) {
+          val test_id = TestId(
+            external_name = alias.toString,
+            internal_name = csid.toString
+          )
+          val test_info = TestInfo(test_id, test_sp.copy(value = ()))
+          info.update(test_id, test_info)
+          val src =
+            test_sp.get_data_path(producer) / s"${csid.value}.$ext"
+          val dest = repo.dir / s"${alias.toString}.${ext.toString}"
+          os.copy(
+            from = src,
+            to = dest,
+            createFolders = true,
+            followLinks = false
+          )
         }
       }
+      info.to(SortedMap)
     }
 
   private lazy val submitted_tests_repo_name =

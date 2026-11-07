@@ -1,11 +1,24 @@
 package ag.grader
 
 import ag.git.{Sha, git}
-import ag.r2.{Scope, Target, WithData, periodic, update_data, say, shout}
+import ag.r2.{
+  Many,
+  Producer,
+  Scope,
+  Target,
+  Tracker,
+  WithData,
+  periodic,
+  run_if_needed,
+  update_data,
+  say,
+  shout
+}
 
-import upickle.default.read
+import upickle.default.{ReadWriter, read}
 
-import scala.collection.{SortedMap, SortedSet}
+import scala.NamedTuple.NamedTuple
+import scala.collection.{SortedMap, SortedSet, mutable}
 import scala.util.control.NonFatal
 
 object Gitolite extends Scope(".") {
@@ -144,5 +157,97 @@ object Gitolite extends Scope(".") {
       target((course = raw_course(course_name))) { (_, deps) =>
         deps.course.projects(project_name)
       }
+  }
+}
+
+// A local checkout of a gitolite repo, up to date with the server. Whatever a
+// gitolite_target's function leaves in `dir` is committed and pushed after it
+// returns.
+case class Checkout(
+    dir: os.Path,
+    info: RepoInfo,
+    // whether the repo was created for this run
+    forked: Boolean
+) {
+  private val after_push_actions = mutable.ArrayBuffer[() => Unit]()
+
+  // Runs `action` once the changes are on the server, or there was nothing to
+  // push. It doesn't run if the update fails, so it's safe to announce the
+  // changes from here: a retry won't repeat the announcement.
+  def after_push(action: => Unit): Unit = {
+    val _ = after_push_actions.append(() => action)
+  }
+
+  private[grader] def run_after_push(): Unit =
+    after_push_actions.foreach(action => action())
+}
+
+// A scope with targets that keep a gitolite repo up to date.
+class GitoliteScope(base_ : os.RelPath | String | Scope) extends Scope(base_) {
+
+  // val x = gitolite_target(repo = "r", msg = "update r")((a = ta)) {
+  //   (producer, deps, repo) => ... deps.a ... repo.dir ...
+  // }
+  //
+  // Same as target { ... }, with these additions: the target also depends on
+  // the repo, so it runs again when someone else pushes to it, and it needs
+  // Config.can_push_repo to push or to create the repo. The repo is created on
+  // first use by forking `fork_from` and giving `readers` and `writers` access;
+  // they aren't applied to a repo that already exists. With `fork_from = None`,
+  // a missing repo is an error.
+  def gitolite_target[N <: Tuple, V <: Tuple, Out: ReadWriter](
+      repo: String,
+      msg: String,
+      fork_from: Option[String] = Some("empty"),
+      readers: Seq[String] = Seq(),
+      writers: Seq[String] = Seq()
+  )(targets: NamedTuple[N, V])(
+      f: (Producer[?], Target.Values[N, V], Checkout) => Out
+  )(using
+      only_targets: Tuple.Union[V] <:< (Target[?] | Many[?]),
+      fn: sourcecode.FullName
+  ): Target[WithData[Out]] =
+    complex_gitolite_target(repo, msg, fork_from, readers, writers) { tracker =>
+      val values = tracker.track_all(targets)
+      (producer, checkout) => f(producer, values, checkout)
+    }
+
+  // The same, for dependencies that depend on the values of others: track them
+  // and return what to do with the checkout, which runs only if needed.
+  //
+  // val x = complex_gitolite_target(repo = "r", msg = "update r") { tracker =>
+  //   val as = tracker.track(ta)
+  //   (producer, repo) => ... as ... repo.dir ...
+  // }
+  def complex_gitolite_target[Out: ReadWriter](
+      repo: String,
+      msg: String,
+      fork_from: Option[String] = Some("empty"),
+      readers: Seq[String] = Seq(),
+      writers: Seq[String] = Seq()
+  )(f: Tracker[?] => (Producer[?], Checkout) => Out)(using
+      fn: sourcecode.FullName
+  ): Target[WithData[Out]] = complex_target { tracker =>
+    val deps = tracker.track_all(
+      (info = Gitolite.repo_info(repo), can_push_repo = Config.can_push_repo)
+    )
+    val update = f(tracker)
+    run_if_needed(tracker) { producer =>
+      update_data(producer)(_.lastOpt.contains(".git")) { dir =>
+        val (out, checkout) = deps.info.update(
+          path = dir,
+          fork_from = fork_from,
+          msg = msg,
+          readers = readers,
+          writers = writers,
+          can_push_repo = deps.can_push_repo
+        ) { forked =>
+          val checkout = Checkout(dir, deps.info, forked)
+          (update(producer, checkout), checkout)
+        }
+        checkout.run_after_push()
+        out
+      }
+    }
   }
 }
