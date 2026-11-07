@@ -1,7 +1,6 @@
 package ag.r2
 
 import ag.common.{given_ReadWriter_RelPath, Signature}
-import ag.task.Task
 
 import upickle.default.ReadWriter
 
@@ -45,12 +44,12 @@ trait Target[A] extends TargetBase {
   // our compute logic (implemented by the value producer)
   // We could return a more general value because Target[A]
   // is co-variant in A
-  def make(tracker: Tracker[A]): Task[Result[A]]
+  def make(tracker: Tracker[A]): Result[A]
 
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
 
-    override def make(tracker: Tracker[A]): Task[Result[A]] =
+    override def make(tracker: Tracker[A]): Result[A] =
       outer.make(tracker)
 
     override val is_peek: Boolean = outer.is_peek
@@ -61,7 +60,7 @@ trait Target[A] extends TargetBase {
     new Target[A] {
       override val path: os.RelPath = outer.path
 
-      override def make(tracker: Tracker[A]): Task[Result[A]] =
+      override def make(tracker: Tracker[A]): Result[A] =
         outer.make(tracker)
 
       override val is_peek: Boolean = true
@@ -69,18 +68,25 @@ trait Target[A] extends TargetBase {
 
 }
 
-object Target {
-  // the value of a Target
-  type Value[T] = T match { case Target[a] => a }
+// Many targets of one type, as a field of the named tuple given to target or
+// Tracker.track_all. Its value is the targets' values, in order.
+final class Many[A](val targets: Seq[Target[A]])
 
-  // the values of a named tuple of Targets, under the same names
+object Target {
+  // the value of a Target or a Many
+  type Value[T] = T match {
+    case Many[a]   => Seq[a]
+    case Target[a] => a
+  }
+
+  // the values of a named tuple of Targets and Manys, under the same names
   type Values[N <: Tuple, V <: Tuple] = NamedTuple[N, Tuple.Map[V, Value]]
 
   def apply[A](
       p: os.RelPath
-  )(f: Tracker[A] => Task[Result[A]]): Target[A] = new Target[A] { outer =>
+  )(f: Tracker[A] => Result[A]): Target[A] = new Target[A] { outer =>
     override val path: os.RelPath = p
-    override def make(tracker: Tracker[A]): Task[Result[A]] =
+    override def make(tracker: Tracker[A]): Result[A] =
       f(tracker)
     override val is_peek: Boolean = false
   }

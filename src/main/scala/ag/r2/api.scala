@@ -1,7 +1,6 @@
 package ag.r2
 
 import ag.common.Signer
-import ag.task.Task
 
 import upickle.default.ReadWriter
 
@@ -17,11 +16,6 @@ object Noise {
       noise = !noise
     }
   }
-}
-
-inline def force_task[A](v: A | Task[A]): Task[A] = v match {
-  case fa: Task[?] => fa.asInstanceOf[Task[A]]
-  case v           => Task.successful(v.asInstanceOf[A])
 }
 
 def say(ctx: Context[?], msg: => Any): Unit = Context.say(Some(ctx), msg)
@@ -41,9 +35,9 @@ def shout(msg: => Any): Unit = {
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: ReadWriter](tracker: Tracker[A])(
-    f: Producer[A] => A | Task[A]
-): Task[Result[A]] =
-  tracker.run_if_needed(producer => force_task(f(producer)))
+    f: Producer[A] => A
+): Result[A] =
+  tracker.run_if_needed(f)
 
 def create_data[A](ctx: Producer[?])(skip: os.RelPath => Boolean)(
     f: os.Path => A

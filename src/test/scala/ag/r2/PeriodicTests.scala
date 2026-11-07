@@ -21,7 +21,7 @@ object Timed extends Scope("timed") {
 
 class PeriodicTests extends munit.FunSuite {
   private def run_once[A](t: Target[A]): A =
-    State.run(config.get_test_dir)(root => root.track(t).block)
+    State.run(config.get_test_dir)(root => root.track(t))
 
   test("a target depending on periodic reruns once its period has passed") {
     val _ = run_once(Timed.fast)

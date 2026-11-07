@@ -1,9 +1,9 @@
 package ag.r2
 
-import ag.task.Task
 import os.Path
 
 import scala.collection.mutable
+import scala.util.Try
 
 // `force_roots`: rebuild every target the program tracks directly (its
 // "roots", tracked at depth 0), even if its saved result is current. Their
@@ -39,19 +39,28 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
-  def resolve[A](target: Target[A], tracker: Tracker[?]): Task[A] = {
+  // Starts computing `target`, unless it already has been, and makes it a
+  // dependency of `tracker`'s target. Returns the computation's result and
+  // what the caller must run: with `here`, the target is computed by calling
+  // that on the caller's thread; otherwise on a thread of its own.
+  private[r2] def start[A](
+      target: Target[A],
+      tracker: Tracker[?],
+      here: Boolean
+  ): (Task[Result[?]], () => Unit) = {
     tracker.check_phase(tracker.Phase.Open)
     if (tracker.route.map(_.path).contains(target.path)) {
       throw new Exception(
         s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"
       )
     }
+    var run: () => Unit = () => ()
     val result: Task[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
         target.path, {
           // first use of this target in this run
           if (force_roots && tracker.depth == 0) force(target)
-          Task {
+          def compute(): Result[?] = {
             Context.say(
               Some(tracker),
               s"miss for ${target.path.toString} in ${this.toString}"
@@ -66,17 +75,20 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
                 override def producing_opt: Option[Target[A]] = Some(target)
               }
             )
-          }.flatMap(identity)
+          }
+          if (here) {
+            val (task, complete) = Task.promise[Result[?]]()
+            run = () => complete(Try(compute()))
+            task
+          } else {
+            Task(compute())
+          }
         }
       )
     }
 
     tracker.add_dependency(target, result)
-
-    for {
-      r <- result
-    } yield r.value.asInstanceOf[A]
-
+    (result, run)
   }
 
 }

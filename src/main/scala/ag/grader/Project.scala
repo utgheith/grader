@@ -7,6 +7,7 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.r2.{
+  Many,
   periodic,
   Scope,
   Target,
@@ -20,7 +21,6 @@ import ag.r2.{
   update_data
 }
 import ag.rules.{lines, run}
-import ag.task.Task
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
@@ -319,12 +319,9 @@ case class Project(course: Course, project_name: String)
 
   lazy val submissions: Target[SortedMap[CSID, WithData[Unit]]] =
     complex_target { tracker =>
-      val csids: Seq[CSID] = tracker.guilty(course.enrolled_csids).toSeq
-      val submissions: Seq[Option[WithData[Unit]]] = for {
-        csid <- csids
-      } yield {
-        tracker.guilty(submission(csid))
-      }
+      val csids: Seq[CSID] = tracker.track(course.enrolled_csids).toSeq
+      val submissions: Seq[Option[WithData[Unit]]] =
+        tracker.track_all(csids.map(submission))
 
       run_if_needed(tracker) { _ =>
         (for {
@@ -699,11 +696,15 @@ case class Project(course: Course, project_name: String)
   ): (CSID, String, TestId) => Target[WithData[Outcome]] = fun {
     (csid, sha, test_id) =>
       complex_target { tracker =>
-        val test_info_f = tracker.track(test_info(test_id))
-        val test_extensions_f = tracker.track(test_extensions)
-        val prepared_f = tracker.track(prepare(csid, sha))
-        val cores_f = tracker.track(cores)
-        val docker_image_f = tracker.track(docker_image)
+        val deps = tracker.track_all(
+          (
+            test_info = test_info(test_id),
+            test_extensions = test_extensions,
+            prepared = prepare(csid, sha),
+            cores = cores,
+            docker_image = docker_image
+          )
+        )
 
         tracker.run { (producer, old_state) =>
           val (cs, history) = old_state match {
@@ -721,38 +722,33 @@ case class Project(course: Course, project_name: String)
                 )) =>
               cs
             case _ => { () =>
-              val test_info = test_info_f.block
-              val test_extensions = test_extensions_f.block
-              val prepared = prepared_f.block
-              val cores = cores_f.block
-              val docker_image = docker_image_f.block
-              Task.successful {
-                update_data(producer)(_ => false) { dir =>
-                  // only the files from the latest run are kept
-                  os.remove.all(dir)
-                  os.makeDir.all(dir)
+              val (test_info, test_extensions, prepared, cores, docker_image) =
+                deps
+              update_data(producer)(_ => false) { dir =>
+                // only the files from the latest run are kept
+                os.remove.all(dir)
+                os.makeDir.all(dir)
 
-                  val res = doit(
-                    project = this,
-                    csid = csid,
-                    cores = cores,
-                    prepared_path = prepared.get_data_path(producer),
-                    test_id = test_info.value.id,
-                    test_path = test_info.get_data_path(producer),
-                    test_extensions = test_extensions,
-                    n = history.size + 1,
-                    out_path = dir,
-                    docker_image = docker_image
-                  )
+                val res = doit(
+                  project = this,
+                  csid = csid,
+                  cores = cores,
+                  prepared_path = prepared.get_data_path(producer),
+                  test_id = test_info.value.id,
+                  test_path = test_info.get_data_path(producer),
+                  test_extensions = test_extensions,
+                  n = history.size + 1,
+                  out_path = dir,
+                  docker_image = docker_image
+                )
 
-                  Outcome(
-                    project = this,
-                    test_id = test_id,
-                    csid = csid,
-                    commit_id = Some(sha),
-                    outcomes = history :+ res
-                  )
-                }
+                Outcome(
+                  project = this,
+                  test_id = test_id,
+                  csid = csid,
+                  commit_id = Some(sha),
+                  outcomes = history :+ res
+                )
               }
             }
           }
@@ -771,25 +767,28 @@ case class Project(course: Course, project_name: String)
   ): (CSID, Phase, Int) => Target[Option[StudentResults]] = fun {
     (csid, phase, n) =>
       complex_target { tracker =>
-        val info = tracker.guilty(prepare_info(csid, phase))
-        val outcomes = for {
+        val info = tracker.track(prepare_info(csid, phase))
+        val runs = for {
           info <- info.toSeq
-          id <- tracker.guilty(test_ids_for(tests)).toSeq
-        } yield tracker.track(run_one(keep_going, n)(csid, info.sha, id))
-        val alias = tracker.track(csid_to_alias(csid))
-        val has_test = tracker.track(csid_has_test(csid))
+          id <- tracker.track(test_ids_for(tests)).toSeq
+        } yield run_one(keep_going, n)(csid, info.sha, id)
+        val deps = tracker.track_all(
+          (
+            outcomes = Many(runs),
+            alias = csid_to_alias(csid),
+            has_test = csid_has_test(csid)
+          )
+        )
         run_if_needed(tracker) { _ =>
           info.map(info =>
             StudentResults(
               csid = csid,
-              alias = alias.block,
-              has_test = has_test.block,
+              alias = deps.alias,
+              has_test = deps.has_test,
               prepare_info = info,
               // keyed by alias: a student test's internal name is its
               // author's CSID
-              outcomes = Task
-                .sequence(outcomes)
-                .block
+              outcomes = deps.outcomes
                 .map(o => o.value.test_id.redacted -> o.value.redacted)
                 .to(SortedMap)
             )
@@ -807,39 +806,39 @@ case class Project(course: Course, project_name: String)
     (csid, n) =>
       complex_target { tracker =>
         val results =
-          tracker.guilty(
+          tracker.track(
             student_results(keep_going, tests)(csid, Phase.Latest, n)
           )
         // the same runs, for their output files
-        val outcomes = for {
+        val runs = for {
           r <- results.toSeq
-          id <- tracker.guilty(test_ids_for(tests)).toSeq
-        } yield tracker.track(
-          run_one(keep_going, n)(csid, r.prepare_info.sha, id)
+          id <- tracker.track(test_ids_for(tests)).toSeq
+        } yield run_one(keep_going, n)(csid, r.prepare_info.sha, id)
+        val deps = tracker.track_all(
+          (
+            outcomes = Many(runs),
+            repo_info = Gitolite.repo_info(student_results_repo_name(csid)),
+            // rewrite the_results.json if it stops being readable
+            readable = student_results_readable(csid),
+            can_push_repo = Config.can_push_repo
+          )
         )
-        val repo_info =
-          tracker.track(Gitolite.repo_info(student_results_repo_name(csid)))
-        // rewrite the_results.json if it stops being readable
-        val _ = tracker.track(student_results_readable(csid))
-        val can_push_repo = tracker.track(Config.can_push_repo)
 
         run_if_needed(tracker) { producer =>
-          val student_results_repo = repo_info.block
-          val outcomes_v = Task.sequence(outcomes).block
           update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-            student_results_repo.update(
+            deps.repo_info.update(
               path = dir,
               fork_from = Some("empty"),
               msg = "updated results",
               readers = Seq(csid.value, course.staff_group_name),
               writers = Seq(),
-              can_push_repo.block
+              deps.can_push_repo
             ) { _ =>
               for {
                 f <- os.list(dir)
                 if !f.last.startsWith(".")
               } os.remove.all(f)
-              for (outcome <- outcomes_v)
+              for (outcome <- deps.outcomes)
                 copy_results(
                   outcome.get_data_path(producer),
                   dir,
@@ -1015,23 +1014,24 @@ case class Project(course: Course, project_name: String)
   // picks the tests and keep-going, as it does for publish_results.
   lazy val has_work: (Phase, Int) => Target[Boolean] = fun { (phase, n) =>
     complex_target { tracker =>
-      val state_v = tracker.guilty(state)
+      val state_v = tracker.track(state)
       val keep_going = state_v.keeps_going(phase)
-      val published_f = tracker.track(results(phase))
-      val ids_f = tracker.track(test_ids_for(state_v.tests(phase)))
-      val students = tracker.guilty(students_with_submission).toSeq
-      val infos_f =
-        students.map(csid => tracker.track(prepare_info(csid, phase)))
-      val aliases_f = students.map(csid => tracker.track(csid_to_alias(csid)))
+      val students = tracker.track(students_with_submission).toSeq
+      val deps = tracker.track_all(
+        (
+          published = results(phase),
+          ids = test_ids_for(state_v.tests(phase)),
+          infos = Many(students.map(prepare_info(_, phase))),
+          aliases = Many(students.map(csid_to_alias))
+        )
+      )
       run_if_needed(tracker) { _ =>
-        val ids = ids_f.block.map(_.redacted)
-        published_f.block.toOption.flatten match {
+        val ids = deps.ids.map(_.redacted)
+        deps.published.toOption.flatten match {
           case None            => true
           case Some(published) =>
-            Task
-              .sequence(infos_f)
-              .block
-              .zip(Task.sequence(aliases_f).block)
+            deps.infos
+              .zip(deps.aliases)
               .exists {
                 // publish_results leaves out students without an alias
                 case (Some(info), Some(alias)) =>
@@ -1064,46 +1064,46 @@ case class Project(course: Course, project_name: String)
   ] =
     fun { (phase, n) =>
       complex_target { tracker =>
-        val repo_info =
-          tracker.track(Gitolite.repo_info(project_results_repo_name))
-        // rewrite the file if it stops being readable
-        val _ = tracker.track(results_readable(phase))
-        val students = tracker.guilty(students_with_submission).toSeq
-        val results = students.map(csid =>
-          tracker.track(student_results(keep_going, tests)(csid, phase, n))
+        val students = tracker.track(students_with_submission).toSeq
+        val deps = tracker.track_all(
+          (
+            repo_info = Gitolite.repo_info(project_results_repo_name),
+            // rewrite the file if it stops being readable
+            readable = results_readable(phase),
+            results = Many(
+              students.map(student_results(keep_going, tests)(_, phase, n))
+            ),
+            own_repos = Many(
+              if (phase == Phase.Latest)
+                students.map(publish_student_results(keep_going, tests)(_, n))
+              else Seq()
+            ),
+            // lateness is from each student's own deadline for the phase
+            deadlines = Many(students.map(deadline(_, phase))),
+            aliases = publish_aliases,
+            can_push_repo = Config.can_push_repo
+          )
         )
-        val _ =
-          if (phase == Phase.Latest)
-            students.map(csid =>
-              tracker.track(publish_student_results(keep_going, tests)(csid, n))
-            )
-          else Nil
-        // lateness is from each student's own deadline for the phase
-        val deadlines =
-          students.map(csid => tracker.track(deadline(csid, phase)))
-        val aliases = tracker.track(publish_aliases)
-        val can_push_repo = tracker.track(Config.can_push_repo)
 
         run_if_needed(tracker) { producer =>
-          val repo_info_v = repo_info.block
           val deadline_of = students
-            .zip(Task.sequence(deadlines).block)
+            .zip(deps.deadlines)
             .map((csid, d) =>
               csid -> ZonedDateTime.of(d, ZoneId.systemDefault()).nn
             )
             .toMap
           update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-            repo_info_v.update(
+            deps.repo_info.update(
               path = dir,
               fork_from = Some("empty"),
               msg = s"update ${phase.results_file}",
               readers = Seq("@all"),
               writers = Seq(),
-              can_push_repo.block
+              deps.can_push_repo
             ) { _ =>
               val data = (for {
-                r <- Task.sequence(results).block.flatten
-                alias <- aliases.block.value.get(r.csid).toSeq
+                r <- deps.results.flatten
+                alias <- deps.aliases.value.get(r.csid).toSeq
               } yield (alias, r.redacted(deadline_of(r.csid)))).to(SortedMap)
               os.write.over(
                 dir / phase.results_file,
@@ -1213,12 +1213,10 @@ case class Project(course: Course, project_name: String)
 
   lazy val student_tests_by_csid: Target[SortedMap[CSID, WithData[String]]] =
     complex_target { tracker =>
-      val csids = tracker.guilty(students_with_submission).toSeq
-      val possible_test_tasks =
-        csids.map(csid => tracker.track(student_test(csid)))
+      val csids = tracker.track(students_with_submission).toSeq
+      val possible_tests = tracker.track_all(csids.map(student_test))
 
       run_if_needed(tracker) { _ =>
-        val possible_tests = Task.sequence(possible_test_tasks).block
         (for {
           (csid, test) <- csids.zip(possible_tests)
           git_sha <- test.value.toSeq
@@ -1356,12 +1354,10 @@ case class Project(course: Course, project_name: String)
 
   private lazy val override_tests: Target[SortedMap[String, WithData[String]]] =
     complex_target { tracker =>
-      val test_names = tracker.guilty(override_test_names).toSeq
-      val test_tasks =
-        test_names.map(test_name => tracker.track(override_test(test_name)))
+      val test_names = tracker.track(override_test_names).toSeq
+      val tests = tracker.track_all(test_names.map(override_test))
 
       run_if_needed(tracker) { _ =>
-        val tests = Task.sequence(test_tasks).block
         test_names.zip(tests).to(SortedMap)
       }
     }
@@ -1615,12 +1611,12 @@ case class Project(course: Course, project_name: String)
       : (CSID, Phase, Int) => Target[SortedSet[TestId]] = fun {
     (csid, phase, n) =>
       complex_target { tracker =>
-        val outs = for {
-          info <- tracker.guilty(prepare_info(csid, phase)).toSeq
-          id <- tracker.guilty(phase2_test_ids).toSeq
-        } yield tracker.track(run_one(true, n)(csid, info.sha, id))
+        val runs = for {
+          info <- tracker.track(prepare_info(csid, phase)).toSeq
+          id <- tracker.track(phase2_test_ids).toSeq
+        } yield run_one(true, n)(csid, info.sha, id)
+        val outs_v = tracker.track_all(runs)
         run_if_needed(tracker) { _ =>
-          val outs_v = Task.sequence(outs).block
           (for {
             sp: WithData[Outcome] <- outs_v
             d: Outcome = sp.value
@@ -1634,15 +1630,13 @@ case class Project(course: Course, project_name: String)
     SortedMap[CSID, SortedSet[TestId]]
   ] = fun { (phase, n) =>
     complex_target { tracker =>
-      val csids = tracker.guilty(students_with_submission)
-      val pairs = csids.toSeq.map { csid =>
-        tracker
-          .track(compute_student_scores(csid, phase, n))
-          .map(g => (csid, g))
-      }
+      val csids = tracker.track(students_with_submission)
+      val scores = tracker.track_all(
+        csids.toSeq.map(compute_student_scores(_, phase, n))
+      )
 
       run_if_needed(tracker) { _ =>
-        Task.sequence(pairs).block.to(SortedMap)
+        csids.toSeq.zip(scores).to(SortedMap)
       }
     }
   }
@@ -1680,20 +1674,19 @@ object Project extends Scope(".") {
 
   private lazy val all_projects: Target[SortedSet[Project]] = complex_target {
     tracker =>
-      val cs = tracker.guilty(Course.all)
-      val pms = cs.map(it => tracker.track(it.projects))
+      val cs = tracker.track(Course.all)
+      val pms = tracker.track_all(cs.map(_.projects))
       run_if_needed(tracker) { _ =>
-        Task.sequence(pms).block.flatMap(pm => pm.values).to(SortedSet)
+        pms.flatMap(pm => pm.values).to(SortedSet)
       }
   }
 
   lazy val active_projects: Target[SortedSet[Project]] =
     complex_target { tracker =>
-      val all_projects_v = tracker.guilty(all_projects).toSeq
-      val active = all_projects_v.map(it => tracker.track(it.active))
+      val all_projects_v = tracker.track(all_projects).toSeq
+      val active_v = tracker.track_all(all_projects_v.map(_.active))
 
       run_if_needed(tracker) { _ =>
-        val active_v = Task.sequence(active).block
         (for {
           (p, a) <- all_projects_v.zip(active_v)
           if a

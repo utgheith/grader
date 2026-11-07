@@ -34,7 +34,7 @@ class ForceTests extends munit.FunSuite {
     def run_once(force: Boolean = false): Int = {
       val root = State(config.get_test_dir)
       if (force) root.force(ForceThings.counted)
-      root.track(ForceThings.counted).block
+      root.track(ForceThings.counted)
     }
 
     assertEquals(run_once(), 1)
@@ -54,7 +54,7 @@ class ForceTests extends munit.FunSuite {
   test("force_roots rebuilds what's tracked directly, not its inputs") {
     def run_once(force_roots: Boolean): Int =
       State.run(config.get_test_dir, force_roots) { root =>
-        root.track(RootThings.top).block
+        root.track(RootThings.top)
       }
 
     assertEquals(run_once(false), 2)

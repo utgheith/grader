@@ -2,6 +2,7 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.r2.{
+  Many,
   Scope,
   Target,
   ToRelPath,
@@ -12,8 +13,6 @@ import ag.r2.{
   say,
   update_data
 }
-
-import ag.task.Task
 
 import scala.collection.{SortedMap, SortedSet, mutable}
 import upickle.default.ReadWriter
@@ -47,10 +46,8 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
 
   lazy val active_projects: Target[SortedMap[String, Project]] =
     complex_target { tracker =>
-      val ps = tracker.guilty(projects)
-      val active_flags = for {
-        active_flags <- ps.values.map(it => tracker.guilty(it.active))
-      } yield active_flags
+      val ps = tracker.track(projects)
+      val active_flags = tracker.track_all(ps.values.toSeq.map(_.active))
       run_if_needed(tracker) { _ =>
         ps.values
           .zip(active_flags)
@@ -215,28 +212,27 @@ case class Course(course_name: String) extends Scope(ToRelPath(course_name))
   // preserved. Pages of projects that are no longer active stay in the repo.
   lazy val publish_site: Target[WithData[SortedSet[String]]] =
     complex_target { tracker =>
-      val repo_info = tracker.track(Gitolite.repo_info(site_repo_name))
-      val pages =
-        tracker
-          .guilty(active_projects)
-          .values
-          .toSeq
-          .map(p => tracker.guilty(HtmlGen(p).page))
-      val can_push_repo = tracker.track(Config.can_push_repo)
+      val projects = tracker.track(active_projects).values.toSeq
+      val deps = tracker.track_all(
+        (
+          repo_info = Gitolite.repo_info(site_repo_name),
+          pages = Many(projects.map(HtmlGen(_).page)),
+          can_push_repo = Config.can_push_repo
+        )
+      )
 
       run_if_needed(tracker) { producer =>
-        val repo_info_v = repo_info.block
         update_data(producer)(_.lastOpt.contains(".git")) { dir =>
-          repo_info_v.update(
+          deps.repo_info.update(
             path = dir,
             fork_from = Some("empty"),
             msg = "update site",
             readers = Seq("@all"),
             writers = Seq(),
-            can_push_repo.block
+            deps.can_push_repo
           ) { _ =>
             val names = for {
-              page <- pages
+              page <- deps.pages
               f <- os.list(page.get_data_path(producer))
             } yield {
               os.copy.over(f, dir / f.last)
@@ -356,11 +352,10 @@ object Course extends Scope(os.RelPath(".")) {
     }
 
   lazy val active_courses: Target[Seq[Course]] = complex_target { tracker =>
-    val all_courses: Seq[Course] = tracker.guilty(all)
-    val active_flag_tasks = all_courses.map(it => tracker.track(it.active))
+    val all_courses: Seq[Course] = tracker.track(all)
+    val active_flags = tracker.track_all(all_courses.map(_.active))
 
     run_if_needed(tracker) { _ =>
-      val active_flags = Task.sequence(active_flag_tasks).block
       all_courses.zip(active_flags).filter(_._2).map(_._1)
     }
   }

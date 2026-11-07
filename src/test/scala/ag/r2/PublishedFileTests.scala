@@ -26,7 +26,7 @@ class PublishedFileTests extends munit.FunSuite {
     "a published file that stops being readable is rewritten, then left alone"
   ) {
     def run_once(): Unit = State.run(config.get_test_dir) { root =>
-      val _ = root.track(Published.writer).block
+      val _ = root.track(Published.writer)
     }
     def writes = Published.writes.get
 

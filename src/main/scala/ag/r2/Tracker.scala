@@ -1,11 +1,11 @@
 package ag.r2
 
 import ag.common.{Signature, Signer}
-import ag.task.Task
 import upickle.default.{ReadWriter, read, write}
 
 import scala.collection.{mutable, SortedMap}
 import scala.collection.concurrent.TrieMap
+import scala.NamedTuple.NamedTuple
 import scala.util.control.NonFatal
 
 trait Tracker[A] extends Context[A] {
@@ -35,12 +35,48 @@ trait Tracker[A] extends Context[A] {
   }
 
   // `target`'s current value, making it a dependency of the target this tracks
-  // (of nothing, for the program's top level: its State)
-  def track[B](target: Target[B]): Task[B] = state.resolve(target, this)
+  // (of nothing, for the program's top level: its State). It's computed on this
+  // thread, unless another reader got there first.
+  def track[B](target: Target[B]): B = {
+    val (task, run) = state.start(target, this, here = true)
+    run()
+    task.block.value.asInstanceOf[B]
+  }
 
-  def guilty[B](target: Target[B]): B = track(target).block
+  // The same for many targets at once, each on its own thread. All of them
+  // finish, so that their work is saved, before any failure is reported.
+  def track_all[B](targets: Seq[Target[B]]): Seq[B] =
+    read_all(targets).map(_.asInstanceOf[B])
 
-  def add_dependency(d: TargetBase, fr: Task[Result[?]]): Unit = {
+  // ...and for a named tuple of Targets and Manys, which can be read at once
+  // even when their types differ: the values have the same names.
+  def track_all[N <: Tuple, V <: Tuple](targets: NamedTuple[N, V])(using
+      Tuple.Union[V] <:< (Target[?] | Many[?])
+  ): Target.Values[N, V] = {
+    val fields = targets.toTuple.productIterator.toSeq
+    val all = fields.flatMap {
+      case t: Target[?] => Seq(t)
+      case m: Many[?]   => m.targets
+    }
+    val values = read_all(all).iterator
+    val out = fields.map {
+      case _: Target[?] => values.next()
+      case m: Many[?]   => values.take(m.targets.size).toList
+    }
+    Tuple.fromArray(out.toArray).asInstanceOf[Target.Values[N, V]]
+  }
+
+  private def read_all(targets: Seq[Target[?]]): Seq[Any] = {
+    // the last one can use this thread, which has to wait anyway
+    val started = targets.zipWithIndex.map { (t, i) =>
+      state.start(t, this, here = i == targets.size - 1)
+    }
+    started.foreach(_._2())
+    val outcomes = started.map(_._1.block_try)
+    outcomes.map(_.get.value)
+  }
+
+  private[r2] def add_dependency(d: TargetBase, fr: Task[Result[?]]): Unit = {
     phase.check(Phase.Open, Phase.Closing)
     if (d.is_peek) {
       Context.say(Some(this), s"does not depend on ${d.path.toString}")
@@ -75,8 +111,8 @@ trait Tracker[A] extends Context[A] {
   }
 
   def run(
-      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => Task[A])
-  )(using ReadWriter[A]): Task[Result[A]] = {
+      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
+  )(using ReadWriter[A]): Result[A] = {
     val producer: Producer[A] = new Producer[A] {
       override val depth: Int = Tracker.this.depth
       override val route = Tracker.this.route
@@ -146,8 +182,8 @@ trait Tracker[A] extends Context[A] {
 
     f(producer, old_state) match {
       case Some(ra) =>
-        Task.successful(ra)
-      case ffa: (() => Task[A]) =>
+        ra
+      case ffa: (() => A) =>
         // remove the old result
         // say(producer, "removing old result")
         // os.remove.all(producer.target_path)
@@ -163,21 +199,20 @@ trait Tracker[A] extends Context[A] {
         os.write.over(producer.log_path, "", createFolders = true)
 
         // Run the computation
-        ffa().map { new_value =>
-          // We have a new result, store it on disk
-          val new_result = Result(new_value, Signer.sign(new_value))
-          val new_saved = Saved(new_result, Tracker.this.dependencies)
-          say(producer, "writing new state")
-          os.write.over(
-            producer.saved_path,
-            write(new_saved, indent = 2),
-            createFolders = true
-          )
+        val new_value = ffa()
+        // We have a new result, store it on disk
+        val new_result = Result(new_value, Signer.sign(new_value))
+        val new_saved = Saved(new_result, Tracker.this.dependencies)
+        say(producer, "writing new state")
+        os.write.over(
+          producer.saved_path,
+          write(new_saved, indent = 2),
+          createFolders = true
+        )
 
-          os.remove.all(producer.dirty_path)
-          say(producer, s"${producer.producing.path.toString} done")
-          new_result
-        }
+        os.remove.all(producer.dirty_path)
+        say(producer, s"${producer.producing.path.toString} done")
+        new_result
     }
 
   }
@@ -191,8 +226,8 @@ trait Tracker[A] extends Context[A] {
   //
 
   def run_if_needed(
-      f: Producer[A] => Task[A]
-  )(using ReadWriter[A]): Task[Result[A]] = {
+      f: Producer[A] => A
+  )(using ReadWriter[A]): Result[A] = {
     run {
       case (_, sra @ Some(_)) =>
         sra

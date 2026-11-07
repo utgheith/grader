@@ -27,7 +27,7 @@ class ScopeTests extends FunSuite {
     }
 
     assert(clue(t1.path) == clue(os.RelPath("ag/r2/ScopeTests/t1/test")))
-    assertEquals(root.guilty(t1), Data(1))
+    assertEquals(root.track(t1), Data(1))
   }
 
   test("fun method") {
@@ -58,8 +58,8 @@ class ScopeTests extends FunSuite {
       case (_, (1, b)) => b
       case (_, (a, _)) => a
     }
-    assertEquals(root.guilty(two), "1,2")
-    assertEquals(root.guilty(pattern), 2)
+    assertEquals(root.track(two), "1,2")
+    assertEquals(root.track(pattern), 2)
   }
 
   test("target refuses a tuple with anything but targets") {

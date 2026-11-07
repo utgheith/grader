@@ -15,7 +15,7 @@ class NullStateTests extends munit.FunSuite {
   test("a saved value that reads back as null is recomputed, not returned") {
     def run_once(): Either[String, Int] =
       State.run(config.get_test_dir) { root =>
-        root.track(NullThings.either).block
+        root.track(NullThings.either)
       }
 
     assertEquals(run_once(), Right(1))
