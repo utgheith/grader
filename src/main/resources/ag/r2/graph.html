@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run graph</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header>
+  <h1>Run graph</h1>
+  <nav>
+    <a href="#overview" data-view="overview">Overview</a>
+    <a href="#graph" data-view="graph">Graph</a>
+    <a href="#targets" data-view="targets">Targets</a>
+    <a href="#commands" data-view="commands">Commands</a>
+  </nav>
+  <form id="search" autocomplete="off">
+    <input id="q" type="search" placeholder="Find a target" list="paths" aria-label="Find a target">
+    <datalist id="paths"></datalist>
+  </form>
+  <p id="summary"></p>
+</header>
+<div id="body">
+  <main id="main"></main>
+  <aside id="side" hidden></aside>
+</div>
+<!-- the run's data, written next to this page by ag.r2.RunGraph -->
+<script src="data.js"></script>
+<script>/*JS*/</script>
+</body>
+</html>
