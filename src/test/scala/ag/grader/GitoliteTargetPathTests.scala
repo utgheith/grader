@@ -36,6 +36,10 @@ class GitoliteTargetPathTests extends munit.FunSuite {
       "ag/grader/Project/publish_work_repo/c/p/s"
     )
     check_path(
+      project.publish_prepared(CSID("s")),
+      "ag/grader/Project/publish_prepared/c/p/s"
+    )
+    check_path(
       project.publish_results(true, "all")(Phase.Latest, 1),
       "ag/grader/Project/publish_results/c/p/latest/1"
     )

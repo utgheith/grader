@@ -58,6 +58,12 @@ enum Phase derives ReadWriter:
     case One    => "results_phase1.json"
     case Two    => "results_phase2.json"
 
+  // the phase's directory in a student's prepared repo
+  def prepared_dir: String = this match
+    case Latest => "live"
+    case One    => "phase1"
+    case Two    => "phase2"
+
   // the commits graded are those before this, if anything
   def deadline(test_cutoff: LocalDateTime, code_cutoff: LocalDateTime) =
     this match
@@ -488,62 +494,155 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  // A commit's code, ready to test: the course's overrides on top, its tests
-  // and git history removed. Keyed by sha, so every phase grading the same
-  // commit shares it (and its runs).
-  lazy val prepare: (CSID, String) => Target[WithData[Unit]] =
-    fun { (csid, sha) =>
-      target(
+  // Fills `dir` (which mustn't exist) with commit `sha` of `submission_repo`,
+  // ready to test: the course's overrides on top, its tests and git history
+  // removed, and `prepared_commit` naming the commit.
+  private def prepare_commit(
+      submission_repo: os.Path,
+      sha: String,
+      override_repo: os.Path,
+      test_extensions: SortedSet[String],
+      dir: os.Path
+  ): Unit = {
+    // (1) the commit
+    val _ = os
+      .proc(
+        "git",
+        "clone",
+        "--shared",
+        "--template=",
+        "--no-checkout",
+        submission_repo,
+        dir
+      )
+      .run()
+    val _ = os.proc("git", "checkout", sha).run(cwd = dir)
+    val commit_time =
+      os.proc("git", "show", "-s", "--format=%cI")
+        .call(cwd = dir)
+        .out
+        .trim()
+
+    // (2) override
+    os.copy(
+      override_repo,
+      dir,
+      followLinks = false,
+      replaceExisting = true,
+      createFolders = true,
+      mergeFolders = true
+    )
+
+    // (3) remove all tests
+    for {
+      p <- os.list(dir)
+      if test_extensions.contains(p.ext)
+    } os.remove.all(p)
+
+    // (4) remove .git
+    os.remove.all(dir / ".git")
+
+    // (5) which commit this is
+    os.write.over(dir / "prepared_commit", s"$sha\n$commit_time\n")
+  }
+
+  def prepared_repo_name(csid: CSID): String =
+    s"${work_repo_name(csid)}__prepared"
+
+  // What's graded for each phase, as it's tested, in a repo the student and
+  // the staff can read: a directory per phase (Phase.prepared_dir) holding
+  // the graded commit, prepared, with the phase's tests added. A phase with
+  // nothing to grade has no directory. The value maps each directory to its
+  // commit.
+  lazy val publish_prepared
+      : CSID => Target[WithData[SortedMap[String, String]]] = fun { csid =>
+    complex_gitolite_target(
+      repo = prepared_repo_name(csid),
+      msg = "prepared",
+      readers = Seq(csid.value, course.staff_group_name)
+    ) { tracker =>
+      // the tests grading each phase runs (see ProjectState.tests)
+      val state = tracker.track(this.state)
+      val graded = for {
+        phase <- Phase.values.toSeq
+        info <- tracker.track(prepare_info(csid, phase)).toSeq
+      } yield (phase, info.sha, tracker.track(test_ids_for(state.tests(phase))))
+      val test_ids = graded.flatMap(_._3).distinct
+      val tests = test_ids.zip(tracker.track_all(test_ids.map(test_info))).toMap
+      val deps = tracker.track_all(
         (
           submission_repo = submission(csid),
           override_repo = publish_override_repo,
           test_extensions = test_extensions
         )
-      ) { (producer, deps) =>
-        create_data(producer)(_ => false) { dir =>
-          val repo = deps.submission_repo.getOrElse(
-            throw IllegalStateException(s"${csid.value} has no submission")
-          )
-          // (1) the commit
-          val _ = os
-            .proc(
-              "git",
-              "clone",
-              "--shared",
-              "--template=",
-              "--no-checkout",
-              repo.get_data_path(producer),
-              dir
-            )
-            .run()
-          val _ = os.proc("git", "checkout", sha).run(cwd = dir)
-          val commit_time =
-            os.proc("git", "show", "-s", "--format=%cI")
-              .call(cwd = dir)
-              .out
-              .trim()
+      )
 
-          // (2) override
+      (producer, repo) => {
+        for (phase <- Phase.values) os.remove.all(repo.dir / phase.prepared_dir)
+        for ((phase, sha, phase_tests) <- graded) {
+          val dir = repo.dir / phase.prepared_dir
+          prepare_commit(
+            submission_repo = deps.submission_repo
+              .getOrElse(
+                throw IllegalStateException(s"${csid.value} has no submission")
+              )
+              .get_data_path(producer),
+            sha = sha,
+            override_repo = deps.override_repo.get_data_path(producer),
+            test_extensions = deps.test_extensions,
+            dir = dir
+          )
+          for (id <- phase_tests)
+            copy_test(
+              id,
+              tests(id).get_data_path(producer),
+              dir,
+              deps.test_extensions
+            )
+          // everything, including what the code's own .gitignore files
+          // exclude: the checkout is cleaned before each update, and copies
+          // of it are what's tested
+          val _ = os
+            .proc("git", "add", "--all", "--force", phase.prepared_dir)
+            .call(cwd = repo.dir)
+        }
+        graded.map((phase, sha, _) => phase.prepared_dir -> sha).to(SortedMap)
+      }
+    }
+  }
+
+  // A commit's code, ready to test: its directory in the student's prepared
+  // repo, less the tests (each run adds its own). Keyed by sha, so every
+  // phase grading the same commit shares it (and its runs); a run writes
+  // into it, which is why it's a copy.
+  lazy val prepare: (CSID, String) => Target[WithData[Unit]] =
+    fun { (csid, sha) =>
+      target(
+        (
+          prepared = publish_prepared(csid),
+          test_extensions = test_extensions
+        )
+      ) { (producer, deps) =>
+        val phase_dir = deps.prepared.value
+          .collectFirst { case (dir, s) if s == sha => dir }
+          .getOrElse(
+            throw IllegalStateException(
+              s"${prepared_repo_name(csid)} has no directory for $sha"
+            )
+          )
+        create_data(producer)(_ => false) { dir =>
           os.copy(
-            deps.override_repo.get_data_path(producer),
+            deps.prepared.get_data_path(producer) / phase_dir,
             dir,
             followLinks = false,
             replaceExisting = true,
             createFolders = true,
             mergeFolders = true
           )
-
-          // (3) remove all tests
           for {
             p <- os.list(dir)
             if deps.test_extensions.contains(p.ext)
           } os.remove.all(p)
-
-          // (4) remove .git
-          os.remove.all(dir / ".git")
-
-          // (5) which commit this is
-          os.write.over(dir / "prepared_commit", s"$sha\n$commit_time\n")
         }
       }
     }
