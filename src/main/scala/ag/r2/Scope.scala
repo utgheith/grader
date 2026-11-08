@@ -23,7 +23,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
   )(using
       only_targets: Tuple.Union[V] <:< (Target[?] | Many[?]),
       fn: sourcecode.FullName
-  ): Target[Out] = Target(ToRelPath(fn) / base) { tracker =>
+  ): Target[Out] = Target(ToRelPath(fn) / base, ToRelPath(fn)) { tracker =>
     val values = tracker.track_all(targets)
     run_if_needed(tracker)(producer => f(producer, values))
   }
@@ -57,7 +57,7 @@ class Scope(base_ : os.RelPath | String | Scope) { self =>
 
   def complex_target[Out](f: Tracker[Out] => Result[Out])(using
       fn: sourcecode.FullName
-  ): Target[Out] = Target(ToRelPath(fn) / base)(f)
+  ): Target[Out] = Target(ToRelPath(fn) / base, ToRelPath(fn))(f)
 }
 
 object Scope {

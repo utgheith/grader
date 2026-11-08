@@ -2,7 +2,7 @@ package ag.grader
 
 import ag.common.{down, given_ReadWriter_RelPath}
 import ag.r2.{Scope, Target}
-import ag.rules.run
+import ag.rules.{recorded, run}
 import os.RelPath
 import upickle.default.{ReadWriter, read}
 
@@ -165,8 +165,9 @@ case class CloudflareConfig(
       args: os.Shellable*
   ): os.CommandResult = {
     val output = if (quiet) os.Pipe else os.Inherit
-    os.proc(os.Shellable(Seq("npx", "--yes", "wrangler")) +: args*)
-      .call(
+    val p = os.proc(os.Shellable(Seq("npx", "--yes", "wrangler")) +: args*)
+    recorded(p, cwd) {
+      p.call(
         cwd = cwd,
         env = Map(
           "CLOUDFLARE_API_TOKEN" -> api_key,
@@ -177,6 +178,7 @@ case class CloudflareConfig(
         stdout = output,
         stderr = output
       )
+    }
   }
 
   // Publish `site_dir` as the whole of Pages project `project`, creating the

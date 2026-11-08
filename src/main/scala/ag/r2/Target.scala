@@ -35,6 +35,9 @@ object WithData {
 trait TargetBase {
   // Our unique name
   val path: os.RelPath
+  // The name of the definition that made us: our path, without the scope and
+  // parameters that tell us apart from the other targets it makes
+  val kind: os.RelPath
   val is_peek: Boolean
 }
 
@@ -48,6 +51,7 @@ trait Target[A] extends TargetBase {
 
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
+    override val kind: os.RelPath = outer.kind
 
     override def make(tracker: Tracker[A]): Result[A] =
       outer.make(tracker)
@@ -59,6 +63,7 @@ trait Target[A] extends TargetBase {
   else
     new Target[A] {
       override val path: os.RelPath = outer.path
+      override val kind: os.RelPath = outer.kind
 
       override def make(tracker: Tracker[A]): Result[A] =
         outer.make(tracker)
@@ -83,9 +88,11 @@ object Target {
   type Values[N <: Tuple, V <: Tuple] = NamedTuple[N, Tuple.Map[V, Value]]
 
   def apply[A](
-      p: os.RelPath
+      p: os.RelPath,
+      k: os.RelPath
   )(f: Tracker[A] => Result[A]): Target[A] = new Target[A] { outer =>
     override val path: os.RelPath = p
+    override val kind: os.RelPath = k
     override def make(tracker: Tracker[A]): Result[A] =
       f(tracker)
     override val is_peek: Boolean = false

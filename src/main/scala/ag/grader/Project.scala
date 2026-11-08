@@ -20,7 +20,7 @@ import ag.r2.{
   shout,
   update_data
 }
-import ag.rules.{lines, run}
+import ag.rules.{lines, recorded, run}
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
@@ -425,9 +425,10 @@ case class Project(course: Course, project_name: String)
         submission_repo.flatMap { submission_repo =>
           val repo = submission_repo.get_data_path(producer)
           def git(args: String*): Option[String] = {
-            val r = os
-              .proc("git" +: args)
-              .call(cwd = repo, check = false, stderr = os.Pipe)
+            val p = os.proc("git" +: args)
+            val r = recorded(p, repo) {
+              p.call(cwd = repo, check = false, stderr = os.Pipe)
+            }
             Option.when(r.exitCode == 0)(r.out.trim()).filter(_.nonEmpty)
           }
           def commit(rev: String): Option[String] =
@@ -517,11 +518,8 @@ case class Project(course: Course, project_name: String)
             )
             .run()
           val _ = os.proc("git", "checkout", sha).run(cwd = dir)
-          val commit_time =
-            os.proc("git", "show", "-s", "--format=%cI")
-              .call(cwd = dir)
-              .out
-              .trim()
+          val show = os.proc("git", "show", "-s", "--format=%cI")
+          val commit_time = recorded(show, dir)(show.call(cwd = dir)).out.trim()
 
           // (2) override
           os.copy(

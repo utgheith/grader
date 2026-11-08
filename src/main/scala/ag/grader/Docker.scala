@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.rules.recorded
+
 import java.security.MessageDigest
 import scala.collection.concurrent.TrieMap
 
@@ -22,18 +24,21 @@ object Docker {
         val sha_string = sha.map(b => f"$b%02x").mkString
         val image_name = s"grader:$sha_string"
 
-        val existing =
-          os.proc("docker", "images", "-q", image_name).call().out.lines()
+        val images = os.proc("docker", "images", "-q", image_name)
+        val existing = recorded(images, os.pwd)(images.call()).out.lines()
         if (existing.isEmpty) {
           println(s"$image_name not found, creating")
-          val _ = os
-            .proc("docker", "build", "-t", image_name, "-f", docker_file, ".")
-            .call(
-              cwd = os.temp.dir(deleteOnExit = true),
+          val build =
+            os.proc("docker", "build", "-t", image_name, "-f", docker_file, ".")
+          val build_dir = os.temp.dir(deleteOnExit = true)
+          val _ = recorded(build, build_dir) {
+            build.call(
+              cwd = build_dir,
               check = true,
               stdout = os.Inherit,
               stderr = os.Inherit
             )
+          }
         } else if (existing.size > 1) {
           println(s"    found ${existing.size} of them")
           existing.sorted.foreach { n =>

@@ -4,6 +4,7 @@ import os.Path
 
 import scala.collection.mutable
 import scala.util.Try
+import scala.util.control.NonFatal
 
 // `force_roots`: rebuild every target the program tracks directly (its
 // "roots", tracked at depth 0), even if its saved result is current. Their
@@ -39,6 +40,16 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
+  // what this run did, for write_graph
+  private[r2] val graph: RunGraph = RunGraph()
+
+  // Where write_graph leaves the graph's pages: open index.html.
+  lazy val graph_dir: os.Path = workspace / "graph"
+
+  // Writes the graph of the targets this run used, their dependencies and the
+  // commands that computed them, replacing the last run's.
+  def write_graph(): Unit = graph.write(graph_dir, this)
+
   // Starts computing `target`, unless it already has been, and makes it a
   // dependency of `tracker`'s target. Returns the computation's result and
   // what the caller must run: with `here`, the target is computed by calling
@@ -54,6 +65,7 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
         s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"
       )
     }
+    graph.used(target, tracker.producing_opt)
     var run: () => Unit = () => ()
     val result: Task[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
@@ -65,16 +77,32 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
               Some(tracker),
               s"miss for ${target.path.toString} in ${this.toString}"
             )
-            target.make(
-              new Tracker {
-                override val depth: Int = tracker.depth + 1
+            graph.making(target)
+            try {
+              // the commands that run on this thread now are the target's,
+              // until it tracks another, which computes on this thread
+              val r = ag.rules.on_command.set(c =>
+                graph.command(Some(target.path), c)
+              ) {
+                target.make(
+                  new Tracker {
+                    override val depth: Int = tracker.depth + 1
 
-                override val route = tracker.route :+ target
-                override val state: State = tracker.state
+                    override val route = tracker.route :+ target
+                    override val state: State = tracker.state
 
-                override def producing_opt: Option[Target[A]] = Some(target)
+                    override def producing_opt: Option[Target[A]] =
+                      Some(target)
+                  }
+                )
               }
-            )
+              graph.made(target, None)
+              r
+            } catch {
+              case NonFatal(e) =>
+                graph.made(target, Some(e))
+                throw e
+            }
           }
           if (here) {
             val (task, complete) = Task.promise[Result[?]]()
@@ -94,7 +122,21 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 }
 
 object State {
+  // Runs `f` with a new state in workspace `path`, then writes the run's graph
+  // (see State.write_graph), whether or not it fails.
   def run[A](path: os.Path, force_roots: Boolean = false)(
       f: State => A
-  ): A = f(new State(path, force_roots))
+  ): A = {
+    val state = new State(path, force_roots)
+    try
+      ag.rules.on_command.set(c => state.graph.command(None, c))(f(state))
+    finally {
+      try {
+        state.write_graph()
+        println(s"graph: ${(state.graph_dir / "index.html").toString}")
+      } catch {
+        case NonFatal(e) => println(s"writing the graph failed: ${e.toString}")
+      }
+    }
+  }
 }

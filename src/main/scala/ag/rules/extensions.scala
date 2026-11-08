@@ -48,6 +48,58 @@ case class ProcException(
     s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[${std_out_err.toString}]"
 }
 
+// A command that ran: `id` names its files in std_dir, which start with
+// `out_prefix` (<id>.out, <id>.err); both are None for one whose output went
+// elsewhere (see `recorded`). `rc` is None if it didn't finish (it timed
+// out, or couldn't start).
+case class CommandRun(
+    id: Option[Long],
+    out_prefix: Option[os.Path],
+    command: Seq[String],
+    cwd: os.Path,
+    rc: Option[Int],
+    start_ms: Long,
+    duration_ms: Long
+)
+
+// Told about every command that runs on this thread, while it's set: the
+// build engine sets it to learn which target ran which commands.
+val on_command: ag.common.Scoped[CommandRun => Unit] =
+  ag.common.Scoped((_: CommandRun) => ())
+
+// Runs `call`, which runs `p` in `cwd`, and reports it to `on_command`: for
+// the commands that don't go through `run` because they need os.proc.call's
+// other options.
+def recorded(p: os.proc, cwd: os.Path)(
+    call: => os.CommandResult
+): os.CommandResult =
+  report(None, p, cwd)(call)
+
+private def report(id: Option[Long], p: os.proc, cwd: os.Path)(
+    call: => os.CommandResult
+): os.CommandResult = {
+  val listener = on_command.get
+  val start = System.currentTimeMillis()
+  var rc: Option[Int] = None
+  try {
+    val r = call
+    rc = Some(r.exitCode)
+    r
+  } finally {
+    listener(
+      CommandRun(
+        id = id,
+        out_prefix = id.map(i => std_dir / i.toString),
+        command = p.commandChunks,
+        cwd = cwd,
+        rc = rc,
+        start_ms = start,
+        duration_ms = System.currentTimeMillis() - start
+      )
+    )
+  }
+}
+
 val default_timeout: Int = 5 * 60 * 1000
 val default_check: Boolean = true
 lazy val default_cwd = os.pwd
@@ -77,14 +129,16 @@ extension (p: os.proc) {
 
     // say(s"cmd#$id: ${p.commandChunks}")
 
-    val out = p.call(
-      stdout = os.PathRedirect(stdout),
-      stderr = os.PathRedirect(stderr),
-      check = false,
-      cwd = cwd,
-      timeout = timeout,
-      stdin = stdin
-    )
+    val out = report(Some(id), p, cwd) {
+      p.call(
+        stdout = os.PathRedirect(stdout),
+        stderr = os.PathRedirect(stderr),
+        check = false,
+        cwd = cwd,
+        timeout = timeout,
+        stdin = stdin
+      )
+    }
     val exit_code = out.exitCode
     if (exit_code != 0) {
       // say(s"---> $id:rc=${exit_code}")

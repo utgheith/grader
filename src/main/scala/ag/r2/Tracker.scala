@@ -122,9 +122,15 @@ trait Tracker[A] extends Context[A] {
       override def producing_opt: Option[Target[A]] = Tracker.this.producing_opt
     }
 
+    // why it has to run, if it does, and which dependencies changed
+    var reason: Option[String] = None
+    var changed: Seq[os.RelPath] = Seq()
+    def because(why: String): Unit = if (reason.isEmpty) reason = Some(why)
+
     // check if we have a failed update
     if (os.exists(producer.dirty_path)) {
       say(producer, s"removing dirty ${producer.target_path.toString}")
+      because("its last run failed, or it was forced")
       os.remove.all(producer.target_path)
     }
 
@@ -153,6 +159,7 @@ trait Tracker[A] extends Context[A] {
           if (old.depends_on.isEmpty) {
             // special case: no dependenices => always recompute
             say(producer, "no dependencies, force recompute")
+            because("it has no dependencies")
             None
           } else {
             if (
@@ -164,17 +171,23 @@ trait Tracker[A] extends Context[A] {
               Some(old.result)
             } else {
               say(producer, "dependencies changed for old state")
+              because("dependencies changed")
+              changed = Tracker.this.dependencies.toSeq.collect {
+                case (p, s) if !old.depends_on.get(p).contains(s) => p
+              }
               None
             }
           }
         } catch {
           case NonFatal(e) =>
             say(producer, s"load error ${e.toString}")
+            because(s"its saved value can't be read: ${e.toString}")
             os.remove.all(producer.saved_path)
             None
         }
       } else {
         say(producer, s"no old state")
+        because("it has no saved value")
         None
       }
 
@@ -182,6 +195,7 @@ trait Tracker[A] extends Context[A] {
 
     f(producer, old_state) match {
       case Some(ra) =>
+        state.graph.decided(producer.producing.path, "reused", None, Seq())
         ra
       case ffa: (() => A) =>
         // remove the old result
@@ -199,7 +213,12 @@ trait Tracker[A] extends Context[A] {
         os.write.over(producer.log_path, "", createFolders = true)
 
         // Run the computation
-        val new_value = ffa()
+        because("its saved value is current, but it chose to run again")
+        state.graph.decided(producer.producing.path, "ran", reason, changed)
+        state.graph.running(producer.producing.path)
+        val new_value =
+          try ffa()
+          finally state.graph.ran(producer.producing.path)
         // We have a new result, store it on disk
         val new_result = Result(new_value, Signer.sign(new_value))
         val new_saved = Saved(new_result, Tracker.this.dependencies)

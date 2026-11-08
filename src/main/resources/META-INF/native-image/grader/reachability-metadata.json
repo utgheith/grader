@@ -1,6 +1,9 @@
 {
   "resources": [
     { "glob": "ag/grader/report.js" },
-    { "glob": "ag/grader/report.css" }
+    { "glob": "ag/grader/report.css" },
+    { "glob": "ag/r2/graph.html" },
+    { "glob": "ag/r2/graph.css" },
+    { "glob": "ag/r2/graph.js" }
   ]
 }
