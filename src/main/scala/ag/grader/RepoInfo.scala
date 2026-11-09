@@ -68,6 +68,7 @@ case class RepoInfo(
               case Some(fork_from) =>
                 if (!can_push_repo)
                   throw Exception(s"not allowed to fork $repo_name")
+                ag.rules.refuse_if_read_only(s"create $repo_name")
                 shout(s"forking $repo_name")
                 server
                   .SshProc("ssh", server.ssh_uri, "fork", fork_from, repo_name)
@@ -117,6 +118,7 @@ case class RepoInfo(
     Try(os.proc("git", "commit", "-a", "-m", msg).run(cwd = path)) match {
       case Success(_) =>
         if (!can_push_repo) throw Exception(s"not allowed to push $repo_name")
+        ag.rules.refuse_if_read_only(s"push $repo_name")
         shout(s"pushing $repo_name")
         val _ = server.SshProc("git", "push").run(cwd = path)
       case Failure(_) =>

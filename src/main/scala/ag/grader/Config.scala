@@ -81,6 +81,7 @@ case class CloudflareConfig(
       path: String,
       body: Option[ujson.Value] = None
   ): ujson.Value = {
+    ag.rules.refuse_if_read_only(s"call Cloudflare ($method $path)")
     val request = HttpRequest
       .newBuilder(URI.create(s"https://api.cloudflare.com/client/v4$path"))
       .nn
@@ -164,6 +165,7 @@ case class CloudflareConfig(
   private def wrangler(cwd: os.Path, check: Boolean, quiet: Boolean)(
       args: os.Shellable*
   ): os.CommandResult = {
+    ag.rules.refuse_if_read_only("run wrangler")
     val output = if (quiet) os.Pipe else os.Inherit
     val p = os.proc(os.Shellable(Seq("npx", "--yes", "wrangler")) +: args*)
     recorded(p, cwd) {

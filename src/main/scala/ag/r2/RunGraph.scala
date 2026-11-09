@@ -32,7 +32,7 @@ private[r2] final class RunGraph(changed: () => Unit) {
       val n = Node(target.path, target.kind)
       nodes.putIfAbsent(target.path, n) match {
         case Some(first) => first
-        case None =>
+        case None        =>
           val _ = dirty.add(n)
           changed()
           n

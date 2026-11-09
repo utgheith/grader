@@ -69,11 +69,32 @@ object PrepareInfo {
     else Duration.between(cutoff, commit).nn.getSeconds / 86400.0
 
   // Commit times come from the student's machine, push times from the
-  // server; a gap of over 30 minutes (either way) is worth a look.
+  // server; a gap of over 30 minutes (either way) is worth a look. Positive:
+  // pushed after it was committed. See PushGap for which way matters.
   def push_gap(info: PrepareInfo): Option[Duration] =
-    info.push_time
-      .map(p => Duration.between(info.commit_time.toInstant, p).nn)
+    PushGap.between(info.commit_time.toInstant.nn, info.push_time)
+}
+
+// Which way a commit's commit and push times are over 30 minutes apart.
+enum PushGap:
+  // Pushed long after it was committed: a red flag, since a commit time can
+  // be set back to look on time.
+  case PushedLater(gap: Duration)
+  // Committed after it was pushed: the student's clock is ahead. Just
+  // informative: it can't make a commit look earlier.
+  case CommittedLater(gap: Duration)
+
+object PushGap {
+  // the gap, positive if the push was later; None if under 30 minutes
+  def between(commit: Instant, push: Option[Instant]): Option[Duration] =
+    push
+      .map(p => Duration.between(commit, p).nn)
       .filter(_.abs.nn.toMinutes > 30)
+
+  def of(commit: Instant, push: Option[Instant]): Option[PushGap] =
+    between(commit, push).map(d =>
+      if (d.isNegative) CommittedLater(d.negated.nn) else PushedLater(d)
+    )
 }
 
 // What may be published about how a submission was prepared. The sha and
@@ -92,4 +113,7 @@ final case class RedactedPrepareInfo(
     from_commit_file: Boolean,
     // commit and push times over 30 minutes apart
     push_gap: Boolean
-) derives ReadWriter
+) derives ReadWriter {
+  // which way, if they are
+  def gap: Option[PushGap] = PushGap.of(commit_time.toInstant.nn, push_time)
+}

@@ -535,15 +535,23 @@ object HtmlGen {
                   Option.when(info.from_commit_file)(
                     "commit chosen by a commit id file"
                   ),
-                  Option.when(info.push_gap)(
-                    "push and commit times differ by over 30 min"
-                  )
+                  info.gap.map {
+                    case PushGap.PushedLater(_) =>
+                      "pushed over 30 min after it was committed"
+                    case PushGap.CommittedLater(_) =>
+                      "committed over 30 min after it was pushed (clock ahead)"
+                  }
                 ).flatten.mkString(" · ")
               )(
                 alias.toString,
                 Option.when(is_late)(span(cls := "mark late")("*")),
                 Option.when(info.from_commit_file)(span(cls := "mark")("†")),
-                Option.when(info.push_gap)(span(cls := "mark warn")("!")),
+                info.gap.map {
+                  case PushGap.PushedLater(_) =>
+                    span(cls := "mark pushed-late")("!")
+                  case PushGap.CommittedLater(_) =>
+                    span(cls := "mark clock")("~")
+                },
                 span(
                   cls := "sha",
                   title := (List(
@@ -621,8 +629,12 @@ object HtmlGen {
         li(span(cls := "mark late")("*"), " late commit"),
         li(span(cls := "mark")("†"), " commit chosen by a commit id file"),
         li(
-          span(cls := "mark warn")("!"),
-          " push and commit times differ by over 30 min"
+          span(cls := "mark pushed-late")("!"),
+          " pushed over 30 min after it was committed"
+        ),
+        li(
+          span(cls := "mark clock")("~"),
+          " committed over 30 min after it was pushed (clock ahead)"
         ),
         li(span(cls := "swatch staff")(""), " staff")
       )

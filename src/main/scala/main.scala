@@ -1044,12 +1044,58 @@ object Main {
       pprint.pprintln(root.track(PlTools(prefix).fstar))
     }
 
+  // The grading status, from the committed repos (see ag.grader.Status).
+  // Its data are targets (ag.grader.StatusData) on Gitolite.mirror's
+  // checkouts, worked out by read-only States in the workspace's status/
+  // directory, which these pages lock for as long as the program runs: a
+  // workspace of their own, so they can go on beside runs. None if another
+  // program has them.
+  private def status_pages(workspace: os.Path): Option[ag.grader.Status] = {
+    val dir = workspace / "status"
+    os.makeDir.all(dir)
+    ag.common.RunLock.acquire(dir, s"status pages for $command_line") match {
+      case Right(_) =>
+        val states = ag.grader.ReadOnlyStates(dir, ttl_ms = 60 * 1000)
+        Some(
+          ag.grader.Status(
+            ag.grader.StatusData(ag.grader.Gitolite.mirror),
+            () => states()
+          )
+        )
+      case Left(holder) =>
+        println(s"no status pages: ${dir.toString} is in use by $holder")
+        None
+    }
+  }
+
+  // Serves the status pages (and nothing else) until stopped. It runs
+  // nothing but the mirrors of the committed repos, in its own workspace, so
+  // it can go on beside runs, which serve the same pages while they're up.
+  @main
+  def status(workspace: os.Path = os.pwd / "workspace"): Unit =
+    ag.grader.Config.web match {
+      case None =>
+        println(
+          "the status pages need config.json's \"web\" (see ag.r2.WebConfig)"
+        )
+      case Some(web) =>
+        // its own command output: a run may be using the workspace's
+        ag.rules.use_std_out_err(workspace / "status" / "std_out_err")
+        status_pages(workspace).foreach { pages =>
+          pages.mirror(println)
+          if (!ag.r2.WebServer.serve_pages(workspace, web, pages))
+            println(
+              s"if a run is serving port ${web.port}, its server has the status pages too, at /status/"
+            )
+        }
+    }
+
   // Prints a hash of a password, for config.json's "web": {"password_hash"}
   @main
   def hash_password(): Unit = {
     def ask(prompt: String): Array[Char] = Option(System.console()) match {
       case Some(console) => console.readPassword(prompt).nn
-      case None =>
+      case None          =>
         print(prompt)
         scala.io.StdIn.readLine().toCharArray.nn
     }
@@ -1076,11 +1122,13 @@ object Main {
     RunLock(workspace, command_line) {
       ag.rules.use_std_out_err(workspace / "std_out_err")
       State.run(workspace, force) { state =>
+        val web = ag.grader.Config.web
         ag.r2.WebServer.serving(
           state,
-          ag.grader.Config.web,
+          web,
           paused = paused,
-          pause_at_end = pause_at_end
+          pause_at_end = pause_at_end,
+          pages = web.flatMap(_ => status_pages(workspace))
         )(f(state))
       }
     }

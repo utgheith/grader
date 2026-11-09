@@ -22,6 +22,9 @@ def doit(
     docker_image: Option[String]
 ): (OutcomeStatus, Option[Double]) = {
 
+  ag.rules.refuse_if_read_only(
+    s"run ${test_id.external_name} on ${prepared_path.last} (${n.toString})"
+  )
   started_runs.incrementAndGet()
   try {
     if (cores > limit) {

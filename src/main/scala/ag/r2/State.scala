@@ -9,8 +9,15 @@ import scala.util.control.NonFatal
 // `force_roots`: rebuild every target the program tracks directly (its
 // "roots", tracked at depth 0), even if its saved result is current. Their
 // inputs are reused as usual.
-class State(val workspace: os.Path, val force_roots: Boolean = false)
-    extends Tracker {
+//
+// `read_only`: its targets may update the workspace and read from servers,
+// but nothing else: whatever would act outside it (see
+// ag.rules.read_only) throws instead, failing the target that tried.
+class State(
+    val workspace: os.Path,
+    val force_roots: Boolean = false,
+    val read_only: Boolean = false
+) extends Tracker {
 
   // Context[Nothing] methods
   override val depth: Int = 0
@@ -95,16 +102,18 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
               val r = ag.rules.on_command.set(c =>
                 graph.command(Some(target.path), c)
               ) {
-                target.make(
-                  new Tracker {
-                    override val depth: Int = tracker.depth + 1
+                ag.rules.read_only.set(read_only)(
+                  target.make(
+                    new Tracker {
+                      override val depth: Int = tracker.depth + 1
 
-                    override val route = tracker.route :+ target
-                    override val state: State = tracker.state
+                      override val route = tracker.route :+ target
+                      override val state: State = tracker.state
 
-                    override def producing_opt: Option[Target[A]] =
-                      Some(target)
-                  }
+                      override def producing_opt: Option[Target[A]] =
+                        Some(target)
+                    }
+                  )
                 )
               }
               graph.made(target, None)

@@ -3,11 +3,7 @@ package ag.r2
 import ag.common.given_ReadWriter_Path
 import upickle.default.ReadWriter
 
-import com.sun.net.httpserver.{
-  HttpExchange,
-  HttpsConfigurator,
-  HttpsServer
-}
+import com.sun.net.httpserver.{HttpExchange, HttpsConfigurator, HttpsServer}
 
 import java.io.{IOException, OutputStream}
 import java.net.InetSocketAddress
@@ -43,6 +39,16 @@ case class WebConfig(
     s"WebConfig(port = $port, password_hash = <redacted>, bind = ${bind.toString}, keystore = ${keystore.toString})"
 }
 
+// More pages for a WebServer to serve, behind its login, at /<prefix>/...
+trait WebPages {
+  val prefix: String
+  // the page at `path` below the prefix ("" for its front page), with its
+  // segments still URL-encoded; None if there's none
+  def page(path: String): Option[WebPage]
+}
+
+case class WebPage(content_type: String, body: String)
+
 // Shows a run as it goes: the graph's page (see RunGraph), updated live, with
 // controls to pause it and hold targets (see Control). Everything but the login
 // page needs a session cookie, which a login gets and which stays good across
@@ -51,7 +57,10 @@ final class WebServer private (
     state: State,
     config: WebConfig,
     http: HttpsServer,
-    secret: Array[Byte]
+    secret: Array[Byte],
+    pages: Option[WebPages],
+    // false: serving just `pages`, for no run
+    run: Boolean
 ) {
   import WebServer.*
 
@@ -175,21 +184,39 @@ final class WebServer private (
       val path = ex.getRequestURI.nn.getPath.nn
       (ex.getRequestMethod, path) match {
         case ("GET", "/login") => reply(ex, 200, "text/html", login_page(false))
-        case ("POST", "/login") => login(ex)
+        case ("POST", "/login")      => login(ex)
         case _ if !valid_session(ex) =>
           if (ex.getRequestMethod == "GET") {
             h.set("Location", "login")
             reply(ex, 303, "text/plain", "")
           } else reply(ex, 401, "text/plain", "log in first")
         case ("POST", "/logout") =>
-          h.add("Set-Cookie", s"$cookie_name=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict")
+          h.add(
+            "Set-Cookie",
+            s"$cookie_name=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
+          )
           reply(ex, 200, "text/plain", "")
-        case ("GET", "/")          => reply(ex, 200, "text/html", RunGraph.page)
-        case ("GET", "/data.js")   => reply(ex, 200, "text/javascript", "const GRAPH = null;\n")
-        case ("GET", "/events")    => events(ex)
+        case ("GET", "/") if !run && pages.nonEmpty =>
+          h.set("Location", s"${pages.get.prefix}/")
+          reply(ex, 303, "text/plain", "")
+        case ("GET", p) if pages.exists(w => p == s"/${w.prefix}") =>
+          h.set("Location", s"${pages.get.prefix}/")
+          reply(ex, 303, "text/plain", "")
+        case ("GET", p) if pages.exists(w => p.startsWith(s"/${w.prefix}/")) =>
+          val w = pages.get
+          val raw =
+            ex.getRequestURI.nn.getRawPath.nn.stripPrefix(s"/${w.prefix}/")
+          w.page(raw) match {
+            case Some(page) => reply(ex, 200, page.content_type, page.body)
+            case None       => reply(ex, 404, "text/plain", "not found")
+          }
+        case ("GET", "/")        => reply(ex, 200, "text/html", RunGraph.page)
+        case ("GET", "/data.js") =>
+          reply(ex, 200, "text/javascript", "const GRAPH = null;\n")
+        case ("GET", "/events")       => events(ex)
         case ("POST", "/api/control") => control(ex)
-        case ("GET", _)            => file(ex, path)
-        case _                     => reply(ex, 404, "text/plain", "not found")
+        case ("GET", _)               => file(ex, path)
+        case _ => reply(ex, 404, "text/plain", "not found")
       }
     } catch {
       case NonFatal(e) =>
@@ -275,11 +302,19 @@ final class WebServer private (
       case Some(p) if os.isDir(p) =>
         val items = os.list(p).map { f =>
           val name = f.last + (if (os.isDir(f)) "/" else "")
-          s"""<li><a href="${html(path.stripSuffix("/"))}/${html(name)}">${html(name)}</a></li>"""
+          s"""<li><a href="${html(path.stripSuffix("/"))}/${html(name)}">${html(
+              name
+            )}</a></li>"""
         }
-        reply(ex, 200, "text/html", s"<!doctype html><meta charset=utf-8><title>${html(p.last)}</title><ul>${items.mkString}</ul>")
+        reply(
+          ex,
+          200,
+          "text/html",
+          s"<!doctype html><meta charset=utf-8><title>${html(p.last)}</title><ul>${items.mkString}</ul>"
+        )
       case Some(p) =>
-        ex.getResponseHeaders.nn.set("Content-Type", "text/plain; charset=utf-8")
+        ex.getResponseHeaders.nn
+          .set("Content-Type", "text/plain; charset=utf-8")
         ex.sendResponseHeaders(200, os.size(p))
         val out = ex.getResponseBody.nn
         val _ = java.nio.file.Files.copy(p.toNIO, out)
@@ -305,13 +340,16 @@ object WebServer {
   // is done (or failed), the run waits to exit until someone lets it, so its
   // final state can be looked at. Both need the server: without one, there'd
   // be no way to go on, so they're ignored.
+  //
+  // `pages`, if any, are served too, at /<prefix>/.
   def serving[A](
       state: State,
       config: Option[WebConfig],
       paused: Boolean = false,
-      pause_at_end: Boolean = false
+      pause_at_end: Boolean = false,
+      pages: Option[WebPages] = None
   )(f: => A): A =
-    config.flatMap(c => start(state, c)) match {
+    config.flatMap(c => start(state, c, pages, run = true)) match {
       case None =>
         if (paused || pause_at_end)
           println(
@@ -333,7 +371,27 @@ object WebServer {
         }
     }
 
-  private def start(state: State, config: WebConfig): Option[WebServer] =
+  // Serves just `pages` (no run) until the program is stopped. The
+  // workspace holds the server's keys and certificate, as for runs. False if
+  // the server can't start (the reason is printed).
+  def serve_pages(
+      workspace: os.Path,
+      config: WebConfig,
+      pages: WebPages
+  ): Boolean =
+    start(State(workspace), config, Some(pages), run = false) match {
+      case None    => false
+      case Some(_) =>
+        new java.util.concurrent.CountDownLatch(1).await()
+        true
+    }
+
+  private def start(
+      state: State,
+      config: WebConfig,
+      pages: Option[WebPages],
+      run: Boolean
+  ): Option[WebServer] =
     try {
       val (ks, password) = keystore(state, config)
       val kmf = KeyManagerFactory
@@ -348,16 +406,28 @@ object WebServer {
       }
       val http = HttpsServer.create(address, 0).nn
       http.setHttpsConfigurator(HttpsConfigurator(ssl))
-      val server = WebServer(state, config, http, session_secret(state))
+      val server =
+        WebServer(state, config, http, session_secret(state), pages, run)
       server.start()
-      state.control.enable()
-      println(
-        s"serving this run at https://${config.bind.getOrElse(java.net.InetAddress.getLocalHost.nn.getCanonicalHostName)}:${config.port}/"
+      if (run) state.control.enable()
+      val host = config.bind.getOrElse(
+        java.net.InetAddress.getLocalHost.nn.getCanonicalHostName
       )
+      val what = if (run) "this run" else pages.fold("")(_.prefix)
+      println(s"serving $what at https://$host:${config.port}/")
+      pages
+        .filter(_ => run)
+        .foreach(w =>
+          println(
+            s"  and ${w.prefix} at https://$host:${config.port}/${w.prefix}/"
+          )
+        )
       Some(server)
     } catch {
       case NonFatal(e) =>
-        println(s"not serving this run: ${e.toString}")
+        println(
+          s"not serving ${if (run) "this run" else "pages"}: ${e.toString}"
+        )
         None
     }
 
@@ -403,16 +473,34 @@ object WebServer {
       os.remove.all(ks)
       val bytes = new Array[Byte](24)
       random.nextBytes(bytes)
-      val password = Base64.getUrlEncoder.nn.withoutPadding.nn.encodeToString(bytes).nn
+      val password =
+        Base64.getUrlEncoder.nn.withoutPadding.nn.encodeToString(bytes).nn
       os.write.over(pass, password, perms = "rw-------")
       val host = java.net.InetAddress.getLocalHost.nn.getCanonicalHostName.nn
       val _ = os
         .proc(
-          "keytool", "-genkeypair", "-alias", "grader", "-keyalg", "EC",
-          "-groupname", "secp256r1", "-validity", "3650",
-          "-dname", s"CN=$host", "-ext", s"SAN=dns:$host,dns:localhost,ip:127.0.0.1",
-          "-storetype", "PKCS12", "-keystore", ks, "-storepass", password,
-          "-keypass", password
+          "keytool",
+          "-genkeypair",
+          "-alias",
+          "grader",
+          "-keyalg",
+          "EC",
+          "-groupname",
+          "secp256r1",
+          "-validity",
+          "3650",
+          "-dname",
+          s"CN=$host",
+          "-ext",
+          s"SAN=dns:$host,dns:localhost,ip:127.0.0.1",
+          "-storetype",
+          "PKCS12",
+          "-keystore",
+          ks,
+          "-storepass",
+          password,
+          "-keypass",
+          password
         )
         .call(stdout = os.Pipe, stderr = os.Pipe)
       os.perms.set(ks, "rw-------")
@@ -424,7 +512,8 @@ object WebServer {
     finally in.close()
     store.getCertificate("grader") match {
       case cert: X509Certificate =>
-        val digest = MessageDigest.getInstance("SHA-256").nn.digest(cert.getEncoded).nn
+        val digest =
+          MessageDigest.getInstance("SHA-256").nn.digest(cert.getEncoded).nn
         println(
           s"self-signed certificate, SHA-256 ${digest.map(b => f"$b%02X").mkString(":")}"
         )
@@ -442,7 +531,8 @@ object WebServer {
       body: String
   ): Unit = {
     val bytes = body.getBytes(UTF_8)
-    ex.getResponseHeaders.nn.set("Content-Type", s"$content_type; charset=utf-8")
+    ex.getResponseHeaders.nn
+      .set("Content-Type", s"$content_type; charset=utf-8")
     ex.sendResponseHeaders(code, if (bytes.isEmpty) -1 else bytes.length.toLong)
     if (bytes.nonEmpty) {
       val out = ex.getResponseBody.nn
@@ -472,10 +562,10 @@ object WebServer {
 
   private def html(s: String): String =
     s.flatMap {
-      case '&' => "&amp;"
-      case '<' => "&lt;"
-      case '>' => "&gt;"
-      case '"' => "&quot;"
+      case '&'  => "&amp;"
+      case '<'  => "&lt;"
+      case '>'  => "&gt;"
+      case '"'  => "&quot;"
       case '\'' => "&#39;"
       case c    => c.toString
     }

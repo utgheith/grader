@@ -157,6 +157,20 @@ class ScoreTests extends FunSuite {
     )
   }
 
+  test("a push long after the commit is told apart from a commit after the push") {
+    val commit = cutoff.toInstant.nn
+    assertEquals(PushGap.of(commit, None), None)
+    assertEquals(PushGap.of(commit, Some(commit.plusSeconds(29 * 60))), None)
+    assertEquals(
+      PushGap.of(commit, Some(commit.plusSeconds(31 * 60))),
+      Some(PushGap.PushedLater(java.time.Duration.ofMinutes(31)))
+    )
+    assertEquals(
+      PushGap.of(commit, Some(commit.minusSeconds(2 * 3600))),
+      Some(PushGap.CommittedLater(java.time.Duration.ofHours(2)))
+    )
+  }
+
   test("the page shows the score, sortable, with its arithmetic") {
     val r = results(
       cutoff.plusHours(26),

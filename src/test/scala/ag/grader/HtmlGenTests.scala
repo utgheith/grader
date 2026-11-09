@@ -192,7 +192,9 @@ class HtmlGenTests extends FunSuite {
   test("late, commit-id-file and push-gap submissions are marked") {
     assert(page.contains("late commit"))
     assert(page.contains("commit chosen by a commit id file"))
-    assert(page.contains("push and commit times differ by over 30 min"))
+    // its test data pushes 2 hours after the commit: the red flag
+    assert(page.contains("pushed over 30 min after it was committed"))
+    assert(page.contains("""<span class="mark pushed-late">!</span>"""))
   }
 
   test("each row shows its commit's short sha, with the details on hover") {

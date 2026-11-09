@@ -67,6 +67,21 @@ case class CommandRun(
 val on_command: ag.common.Scoped[CommandRun => Unit] =
   ag.common.Scoped((_: CommandRun) => ())
 
+// Set while a read-only State (see ag.r2.State) computes a target. What
+// would act outside that State's workspace (push to or create a repo, send
+// mail, deploy a site, run student code) calls `refuse_if_read_only` first.
+// Reading the server (fetching, cloning) and updating the workspace are
+// fine.
+val read_only: ag.common.Scoped[Boolean] = ag.common.Scoped(false)
+
+final class ReadOnlyException(what: String)
+    extends Exception(s"read-only: won't $what")
+
+// Throws, instead of doing `what`, while `read_only` is set. A throw, not a
+// skip: the target fails, so nothing is saved as if it had happened.
+def refuse_if_read_only(what: => String): Unit =
+  if (read_only.get) throw ReadOnlyException(what)
+
 // Runs `call`, which runs `p` in `cwd`, and reports it to `on_command`: for
 // the commands that don't go through `run` because they need os.proc.call's
 // other options.

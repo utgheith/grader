@@ -41,7 +41,7 @@ private[r2] final class Control(changed: () => Unit) {
     val w = synchronized {
       val hit = gate match {
         case Gate.Start => false
-        case Gate.Run =>
+        case Gate.Run   =>
           breakpoints.contains(target.path.toString) || breakpoints
             .contains(target.kind.toString)
         case Gate.Failed =>
@@ -114,9 +114,7 @@ private[r2] final class Control(changed: () => Unit) {
       paused = paused,
       break_on_failure = break_on_failure,
       breakpoints = breakpoints.toSeq,
-      waiting = waiting.values.toSeq.map(w =>
-        Held(w.id, w.path, w.gate, w.hit)
-      )
+      waiting = waiting.values.toSeq.map(w => Held(w.id, w.path, w.gate, w.hit))
     )
   }
 }

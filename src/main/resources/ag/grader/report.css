@@ -118,6 +118,10 @@ input[type=checkbox] { accent-color: var(--accent); }
 .results td.num.full { color: var(--pass-fg); font-weight: 700; }
 .results td.num.score { font-weight: 700; }
 .mark.warn { color: var(--timeout-fg); }
+/* a push long after the commit is a red flag; a commit after the push
+   (the student's clock is ahead) is just informative */
+.mark.pushed-late { color: var(--fail-fg); }
+.mark.clock { color: var(--muted); font-weight: 400; }
 .results th.num + th.test, .results td.num + td.cell { border-left: 1px solid var(--border); }
 .results .of { color: var(--muted); font-weight: 400; }
 

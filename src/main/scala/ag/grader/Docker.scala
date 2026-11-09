@@ -27,6 +27,7 @@ object Docker {
         val images = os.proc("docker", "images", "-q", image_name)
         val existing = recorded(images, os.pwd)(images.call()).out.lines()
         if (existing.isEmpty) {
+          ag.rules.refuse_if_read_only(s"build docker image $image_name")
           println(s"$image_name not found, creating")
           val build =
             os.proc("docker", "build", "-t", image_name, "-f", docker_file, ".")

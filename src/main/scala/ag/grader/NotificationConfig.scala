@@ -22,6 +22,7 @@ case class NotificationConfig(
       can_send: Boolean
   ): Unit = {
     if (can_send) {
+      ag.rules.refuse_if_read_only(s"send mail to ${to.toString}")
       shout(
         s"sending $send_to_student ${to.toString} ${cc.toString} $subject"
       )
