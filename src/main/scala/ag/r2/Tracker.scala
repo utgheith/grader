@@ -215,6 +215,7 @@ trait Tracker[A] extends Context[A] {
         // Run the computation
         because("its saved value is current, but it chose to run again")
         state.graph.decided(producer.producing.path, "ran", reason, changed)
+        state.control.checkpoint(producer.producing, Control.Gate.Run)
         state.graph.running(producer.producing.path)
         val new_value =
           try ffa()

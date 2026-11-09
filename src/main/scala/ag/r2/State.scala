@@ -40,15 +40,25 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
+  // counts changes to `graph` and `control`, for a WebServer to notice them
+  private[r2] val version = new java.util.concurrent.atomic.AtomicLong(0)
+
   // what this run did, for write_graph
-  private[r2] val graph: RunGraph = RunGraph()
+  private[r2] val graph: RunGraph = RunGraph(() => {
+    val _ = version.incrementAndGet()
+  })
+
+  // where a WebServer can hold targets
+  private[r2] val control: Control = Control(() => {
+    val _ = version.incrementAndGet()
+  })
 
   // Where write_graph leaves the graph's pages: open index.html.
   lazy val graph_dir: os.Path = workspace / "graph"
 
   // Writes the graph of the targets this run used, their dependencies and the
   // commands that computed them, replacing the last run's.
-  def write_graph(): Unit = graph.write(graph_dir, this)
+  def write_graph(): Unit = graph.write(this)
 
   // Starts computing `target`, unless it already has been, and makes it a
   // dependency of `tracker`'s target. Returns the computation's result and
@@ -77,6 +87,7 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
               Some(tracker),
               s"miss for ${target.path.toString} in ${this.toString}"
             )
+            control.checkpoint(target, Control.Gate.Start)
             graph.making(target)
             try {
               // the commands that run on this thread now are the target's,
@@ -101,6 +112,7 @@ class State(val workspace: os.Path, val force_roots: Boolean = false)
             } catch {
               case NonFatal(e) =>
                 graph.made(target, Some(e))
+                control.checkpoint(target, Control.Gate.Failed, Some(e))
                 throw e
             }
           }

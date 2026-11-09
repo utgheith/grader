@@ -79,6 +79,18 @@ class RunGraphTests extends FunSuite {
     assertEquals(second(broken.path.toString)("reason").str, "it has no saved value")
   }
 
+  test("the page loads on a thread whose context loader can't see it") {
+    // like the web server's threads under `sbt run`
+    @volatile var page: Either[Throwable, String] = Left(Exception("not run"))
+    val t = Thread.ofPlatform().unstarted { () =>
+      page = scala.util.Try(RunGraph.load_page()).toEither
+    }
+    t.setContextClassLoader(ClassLoader.getPlatformClassLoader)
+    t.start()
+    t.join()
+    assert(page.exists(_.contains("draw_graph")), page.toString)
+  }
+
   test("a target that reruns says which dependencies changed") {
     val workspace = os.temp.dir(deleteOnExit = true)
     val s = Scope("graph_changed")

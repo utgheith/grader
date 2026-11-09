@@ -8,17 +8,36 @@ import scala.collection.mutable
 
 // What one run did, kept for the dependency graph it leaves in its workspace
 // (see `write`): every target it used, how it got its value, what it depends
-// on, and the commands that ran to compute it.
-private[r2] final class RunGraph {
+// on, and the commands that ran to compute it. A WebServer shows it as it
+// changes: `changed` is called after each change, and `changes` tells which.
+private[r2] final class RunGraph(changed: () => Unit) {
   import RunGraph.*
 
   private val started_at = System.currentTimeMillis()
   private val nodes = TrieMap[os.RelPath, Node]()
+  // nodes changed since `changes` or `snapshot` last looked
+  private val dirty = java.util.concurrent.ConcurrentHashMap.newKeySet[Node]()
+
+  // runs `f` on `n`, then records the change
+  private def change(n: Node)(f: => Unit): Unit = {
+    n.synchronized(f)
+    val _ = dirty.add(n)
+    changed()
+  }
 
   private def now(): Long = System.currentTimeMillis() - started_at
 
   private def node(target: TargetBase): Node =
-    nodes.getOrElseUpdate(target.path, Node(target.path, target.kind))
+    nodes.get(target.path).getOrElse {
+      val n = Node(target.path, target.kind)
+      nodes.putIfAbsent(target.path, n) match {
+        case Some(first) => first
+        case None =>
+          val _ = dirty.add(n)
+          changed()
+          n
+      }
+    }
 
   private def node_at(path: os.RelPath): Option[Node] = nodes.get(path)
 
@@ -26,21 +45,22 @@ private[r2] final class RunGraph {
   def used(target: TargetBase, by: Option[TargetBase]): Unit = {
     val _ = node(target)
     val n = by.map(node).getOrElse(root_node)
-    n.synchronized {
-      // a real dependency outranks a peek at the same target
-      val peek = target.is_peek && n.deps.getOrElse(target.path.toString, true)
+    val known = n.synchronized(n.deps.get(target.path.toString))
+    // a real dependency outranks a peek at the same target
+    val peek = target.is_peek && known.getOrElse(true)
+    if (!known.contains(peek)) change(n) {
       n.deps.update(target.path.toString, peek)
     }
   }
 
   def making(target: TargetBase): Unit = {
     val n = node(target)
-    n.synchronized { n.start = Some(now()) }
+    change(n) { n.start = Some(now()) }
   }
 
   def made(target: TargetBase, error: Option[Throwable]): Unit = {
     val n = node(target)
-    n.synchronized {
+    change(n) {
       n.end = Some(now())
       error.foreach { e =>
         n.outcome = "failed"
@@ -56,7 +76,7 @@ private[r2] final class RunGraph {
       reason: Option[String],
       changed: Seq[os.RelPath]
   ): Unit = node_at(path).foreach { n =>
-    n.synchronized {
+    change(n) {
       n.outcome = outcome
       n.reason = reason
       n.changed = changed.map(_.toString)
@@ -65,30 +85,30 @@ private[r2] final class RunGraph {
 
   // the target's own function starts or ends
   def running(path: os.RelPath): Unit = node_at(path).foreach { n =>
-    n.synchronized { n.run_start = Some(now()) }
+    change(n) { n.run_start = Some(now()) }
   }
   def ran(path: os.RelPath): Unit = node_at(path).foreach { n =>
-    n.synchronized { n.run_end = Some(now()) }
+    change(n) { n.run_end = Some(now()) }
   }
 
   def command(path: Option[os.RelPath], c: CommandRun): Unit = {
     val n = path.flatMap(node_at).getOrElse(root_node)
-    n.synchronized { val _ = n.commands.append(c) }
+    change(n) { val _ = n.commands.append(c) }
   }
 
   private lazy val root_node: Node = Node(os.RelPath(root), os.RelPath(root))
 
-  // Writes the graph's viewer to `dir`: index.html, which shows data.js.
-  // Links to files in `state`'s workspace are relative, so they stay valid
-  // if the workspace moves along with `dir`.
-  def write(dir: os.Path, state: State): Unit = {
-    val ended = now()
+  // Links to files in `state`'s workspace are relative to state.graph_dir,
+  // where `write` leaves the page, so they stay valid if the workspace moves.
+  // A WebServer serves the same files at the same paths.
+  private def out(n: Node, state: State): NodeOut = {
+    val dir = state.graph_dir
     def link(p: os.Path): Option[String] =
       Option.when(os.exists(p))(p.relativeTo(dir).toString)
     def nonempty(p: os.Path): Option[String] =
       Option.when(os.isFile(p) && os.size(p) > 0)(p.relativeTo(dir).toString)
 
-    def out(n: Node): NodeOut = n.synchronized {
+    n.synchronized {
       val is_root = n eq root_node
       NodeOut(
         path = n.path.toString,
@@ -123,13 +143,40 @@ private[r2] final class RunGraph {
       )
     }
 
-    val graph = GraphOut(
+  }
+
+  // everything, as of now; `done`: the run is over. What changed stays
+  // in `changes`, for whoever already has an older snapshot.
+  def snapshot(state: State, done: Boolean): GraphOut = {
+    GraphOut(
       started = started_at,
-      ms = ended,
+      ms = now(),
+      done = done,
       workspace = state.workspace.toString,
       root = root,
-      nodes = (root_node +: nodes.values.toSeq.sortBy(_.path.toString)).map(out)
+      nodes = (root_node +: nodes.values.toSeq.sortBy(_.path.toString))
+        .map(out(_, state))
     )
+  }
+
+  // the nodes that changed since the last snapshot or changes
+  def changes(state: State): Seq[NodeOut] = {
+    val it = dirty.iterator().nn
+    val ns = mutable.ArrayBuffer[Node]()
+    while (it.hasNext) {
+      ns.append(it.next().nn)
+      it.remove()
+    }
+    ns.toSeq.map(out(_, state))
+  }
+
+  def elapsed: Long = now()
+
+  // Writes the graph's viewer to state.graph_dir: index.html, which shows
+  // data.js.
+  def write(state: State): Unit = {
+    val dir = state.graph_dir
+    val graph = snapshot(state, done = true)
     os.makeDir.all(dir)
     os.write.over(dir / "index.html", page)
     os.write.over(
@@ -190,15 +237,22 @@ private[r2] object RunGraph {
   case class GraphOut(
       started: Long,
       ms: Long,
+      done: Boolean,
       workspace: String,
       root: String,
       nodes: Seq[NodeOut]
   ) derives ReadWriter
 
   // src/main/resources/ag/r2/graph.{html,css,js}, made into one page
-  private lazy val page: String = {
+  lazy val page: String = load_page()
+
+  private[r2] def load_page(): String = {
+    // Through the loader of our own classes, not the thread's context loader
+    // (os.resource's default): the server's threads get the system class
+    // loader, which can't see our resources when sbt runs us.
+    val root = os.ResourceRoot.ClassLoader(classOf[RunGraph].getClassLoader.nn)
     def resource(name: String): String =
-      os.read(os.resource / "ag" / "r2" / name)
+      os.read(os.resource(using root) / "ag" / "r2" / name)
     resource("graph.html")
       .replace("/*CSS*/", resource("graph.css"))
       .replace("/*JS*/", resource("graph.js"))

@@ -19,6 +19,7 @@
   --root: #1d1f23;
   --root-bg: #e6e7ea;
   --changed: #e07b00;
+  --held: #8a3ffc;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -43,6 +44,7 @@
     --root: #e4e6ea;
     --root-bg: #333842;
     --changed: #ffa040;
+    --held: #b48cff;
   }
 }
 :root[data-theme="dark"] {
@@ -66,6 +68,7 @@
   --root: #e4e6ea;
   --root-bg: #333842;
   --changed: #ffa040;
+  --held: #b48cff;
 }
 
 * { box-sizing: border-box; }
@@ -243,3 +246,43 @@ dd { margin: 0; word-break: break-word; }
 .links li { padding: 2px 0; word-break: break-all; font-family: var(--mono); font-size: 12px; }
 .links li.changed a { color: var(--changed); font-weight: 600; }
 .tag { font-family: system-ui, sans-serif; font-size: 11px; color: var(--muted); margin-left: 4px; }
+
+/* live: the run's state, controls and held targets */
+#live { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; }
+#follow_box { font-size: 13px; }
+.pill { padding: 1px 9px; border-radius: 10px; font-weight: 600; font-size: 12px; border: 1px solid var(--c); color: var(--c); background: var(--cb); }
+.pill.on { --c: var(--ran); --cb: var(--ran-bg); }
+.pill.paused { --c: var(--held); --cb: transparent; }
+.pill.off { --c: var(--reused); --cb: var(--reused-bg); }
+.pill.bad { --c: var(--failed); --cb: var(--failed-bg); }
+.hit { color: var(--held); font-weight: 600; }
+.hit a { color: var(--held); }
+.btn.primary { background: var(--held); border-color: var(--held); color: #fff; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: default; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.held-note { color: var(--held); font-weight: 600; }
+.tag.held { color: var(--held); font-weight: 600; }
+.node.held rect { stroke: var(--held); stroke-width: 3; stroke-dasharray: 5 3; animation: held 1.2s linear infinite; }
+@keyframes held { to { stroke-dashoffset: -16; } }
+@media (prefers-reduced-motion: reduce) { .node.held rect { animation: none; } }
+.legend i.held-key { border: 2px dashed var(--held); background: transparent; }
+#addbp { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+#addbp input { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }
+
+[hidden] { display: none !important; }
+
+/* Tab completion's list of choices */
+.completions {
+  position: fixed; z-index: 10; margin: 0; padding: 4px 0; list-style: none;
+  max-height: 50vh; max-width: min(720px, 92vw); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / .15);
+  font-family: var(--mono); font-size: 12px;
+}
+.completions li { display: flex; justify-content: space-between; gap: 16px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+.completions li span:first-child { overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.completions li b { color: var(--fg); font-weight: 600; }
+.completions li .n { color: var(--muted); }
+.completions li:hover, .completions li.on { background: var(--ran-bg); }
+input.nomatch { outline: 2px solid var(--failed); }

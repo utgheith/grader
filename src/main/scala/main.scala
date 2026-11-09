@@ -112,7 +112,17 @@ case class CommonArgs(
       "rebuild what this command asks for, even if its saved results are current (their inputs are reused)"
     )
     force: Flag = Flag(false),
-    workspace: os.Path = os.pwd / "workspace"
+    workspace: os.Path = os.pwd / "workspace",
+    @arg(doc =
+      "start paused: nothing runs until it's resumed from the run's page (needs config.json's \"web\")"
+    )
+    paused: Flag = Flag(false),
+    @arg(
+      name = "pause-at-end",
+      doc =
+        "before exiting, wait to be let go from the run's page, to look at how it ended (needs config.json's \"web\")"
+    )
+    pause_at_end: Flag = Flag(false)
 ) extends Scope(".") {
 
   lazy val courses: Target[Regex] = (this / courses_).target(EmptyTuple) {
@@ -238,7 +248,7 @@ object CommonArgs {
 object Main {
   @main
   def dropbox(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(s"\n------ ${c.course_name} -------")
         println(upickle.default.write(root.track(c.dropbox), indent = 2))
@@ -247,7 +257,7 @@ object Main {
 
   @main
   def bad_tests(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       val r = (for {
         p <- root.track(commonArgs.selected_projects)
         s <- root.track(p.course.enrollment).keySet.toSeq
@@ -267,7 +277,7 @@ object Main {
 
   @main
   def publish_keys(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(s"\n------ ${c.course_name} -------")
         println(
@@ -279,7 +289,7 @@ object Main {
 
   @main
   def publish_enrollment(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(s"\n------ ${c.course_name} -------")
         println(root.track(c.publish_enrollment).value.size)
@@ -289,7 +299,7 @@ object Main {
 
   @main
   def enrollment(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(s"\n------ ${c.course_name} -------")
         println(root.track(c.enrollment).size)
@@ -299,7 +309,7 @@ object Main {
 
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(s"Creating ${c.course_name}__grades")
         val _ = root.track(c.create_grades_repo)
@@ -308,31 +318,31 @@ object Main {
 
   @main
   def courses(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       println(root.track(commonArgs.selected_courses))
     }
 
   @main
   def history(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       root.track(Gitolite.history).foreach(println)
     }
 
   @main
   def info(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       root.track(Gitolite.info).foreach(println)
     }
 
   @main
   def projects(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       pprint.pprintln(root.track(commonArgs.selected_projects))
     }
 
   @main
   def overrides(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (p <- root.track(commonArgs.selected_projects)) {
         println(root.track(p.publish_override_repo))
       }
@@ -340,7 +350,7 @@ object Main {
 
   @main
   def work_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         for {
           (pn, p) <- root.track(c.active_projects)
@@ -364,7 +374,7 @@ object Main {
         doc = "How to sort the aliases; 'alias' or 'csid'.  Defaults to 'csid'."
       )
       sortMode: AliasSortMode = AliasSortMode.CSID
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     val sort = sortMode match
       case AliasSortMode.CSID  => false
       case AliasSortMode.Alias => true
@@ -411,7 +421,7 @@ object Main {
       commonArgs: CommonArgs,
       @arg(doc = "1 or 2 (default: the latest results)")
       phase: Phase = Phase.Latest
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     for (p <- root.track(commonArgs.selected_projects)) {
       val state = state_of(p, root)
       val tests = state.tests(phase)
@@ -431,7 +441,7 @@ object Main {
   @main
   def chosen_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     for (p <- root.track(commonArgs.selected_projects)) {
       println(s"\n${p.course.course_name}_${p.project_name}:")
       for (test_id <- root.track(p.phase2_test_ids)) {
@@ -443,7 +453,7 @@ object Main {
   @main
   def publish_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     for (p <- root.track(commonArgs.selected_projects)) {
       println(s"-- publishing tests for ${p.project_name}")
       pprint.pprintln(root.track(p.publish_tests))
@@ -463,7 +473,7 @@ object Main {
           "Directory to copy prepared submissions into. Defaults to 'prepared'"
       )
       destination: os.Path = os.pwd / "prepared"
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     val base = destination
 
     for (c <- root.track(commonArgs.selected_courses)) {
@@ -536,7 +546,7 @@ object Main {
         doc = "Sort all commits by date rather than grouping commits by repo"
       )
       sort: Flag
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     val datetime_format = DateTimeFormatter.ISO_LOCAL_DATE_TIME
     val show_details = details.value
 
@@ -618,7 +628,7 @@ object Main {
 
   @main
   def publish_work_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(c.course_name)
         for {
@@ -641,7 +651,7 @@ object Main {
 
   @main
   def submissions(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       pprint.pprintln(root.track(commonArgs.submissions))
       // for ((p, csid) <- commonArgs.submissions.guilty) {
       //  println(s"$p $csid")
@@ -650,7 +660,7 @@ object Main {
 
   @main
   def test_ids(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for ((p, test_id) <- root.track(commonArgs.test_ids)) {
         println(s"${p.toString} ${test_id.toString}")
       }
@@ -660,7 +670,7 @@ object Main {
   @main
   def latest(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     root.track(Gitolite.latest).foreach(println)
 
   }
@@ -707,7 +717,7 @@ object Main {
         doc = "The json file to write the results summary out to"
       )
       result_file: Option[String]
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     val runs = root.track(commonArgs.runs)
     // the phase's tests (as publish_results runs them), narrowed by -t
     val outs = root.track_all {
@@ -771,7 +781,7 @@ object Main {
   @main
   def publish_results(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     val candidates = root.track(commonArgs.selected_projects)
     def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
     // the phases a project publishes, each with its test set and keep-going
@@ -835,7 +845,7 @@ object Main {
   @main
   def student_tests(
       commonArgs: CommonArgs
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     for (p <- root.track(commonArgs.selected_projects)) {
       val _ =
         val out = root.track(p.student_tests_by_csid)
@@ -846,7 +856,7 @@ object Main {
 
   @main
   def get_results(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(c.course_name)
         for {
@@ -874,7 +884,7 @@ object Main {
 
   @main
   def notify_results(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         for {
           (pn, p) <- root.track(c.active_projects)
@@ -893,7 +903,7 @@ object Main {
 
   @main
   def gen_html(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         for {
           (pn, p) <- root.track(c.active_projects)
@@ -908,7 +918,7 @@ object Main {
 
   @main
   def publish_site(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         println(
           s"${c.site_repo_name}: ${root.track(c.publish_site).value.mkString(" ")}"
@@ -920,7 +930,7 @@ object Main {
   // With --force, also rebuilds the site repo (an input of the deploy), so
   // a change to how the site is put together reaches Cloudflare.
   def push_to_cloudflare(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
         if (commonArgs.force.value) root.force(c.publish_site)
         val url = root.track(c.push_to_cloudflare).value
@@ -938,7 +948,7 @@ object Main {
       )
       phase: Phase = Phase.Latest,
       minutes: Int = 1
-  ): Unit = in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+  ): Unit = in_workspace(commonArgs) { root =>
     for (p <- root.track(commonArgs.selected_projects)) {
       val chosen = root.track(p.test_ids)
       val weights = root.track(p.test_weights)
@@ -1024,7 +1034,7 @@ object Main {
 
   @main
   def play(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs.workspace, commonArgs.force.value) { root =>
+    in_workspace(commonArgs) { root =>
       pprint.pprintln(root.track(Gitolite.mirror("courses_config")))
     }
 
@@ -1034,20 +1044,55 @@ object Main {
       pprint.pprintln(root.track(PlTools(prefix).fstar))
     }
 
+  // Prints a hash of a password, for config.json's "web": {"password_hash"}
+  @main
+  def hash_password(): Unit = {
+    def ask(prompt: String): Array[Char] = Option(System.console()) match {
+      case Some(console) => console.readPassword(prompt).nn
+      case None =>
+        print(prompt)
+        scala.io.StdIn.readLine().toCharArray.nn
+    }
+    val password = ask("password: ")
+    if (password.isEmpty) println("empty password")
+    else if (!password.sameElements(ask("again: "))) println("they differ")
+    else println(ag.r2.Password.hash(password))
+  }
+
   // the command line, for telling a second run who holds the lock
   private var command_line = ""
 
   // Every command works in its workspace holding the workspace's lock: two
   // runs sharing a workspace would corrupt each other's state.
-  private def in_workspace[A](workspace: os.Path, force: Boolean = false)(
+  private def in_workspace[A](
+      workspace: os.Path,
+      force: Boolean = false,
+      paused: Boolean = false,
+      pause_at_end: Boolean = false
+  )(
       f: State => A
   ): A = {
     os.makeDir.all(workspace)
     RunLock(workspace, command_line) {
       ag.rules.use_std_out_err(workspace / "std_out_err")
-      State.run(workspace, force)(f)
+      State.run(workspace, force) { state =>
+        ag.r2.WebServer.serving(
+          state,
+          ag.grader.Config.web,
+          paused = paused,
+          pause_at_end = pause_at_end
+        )(f(state))
+      }
     }
   }
+
+  private def in_workspace[A](args: CommonArgs)(f: State => A): A =
+    in_workspace(
+      args.workspace,
+      force = args.force.value,
+      paused = args.paused.value,
+      pause_at_end = args.pause_at_end.value
+    )(f)
 
   def main(args: Array[String]): Unit = {
     command_line = s"run ${args.mkString(" ")}"

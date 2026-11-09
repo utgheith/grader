@@ -14,12 +14,16 @@
     <a href="#graph" data-view="graph">Graph</a>
     <a href="#targets" data-view="targets">Targets</a>
     <a href="#commands" data-view="commands">Commands</a>
+    <a href="#debug" data-view="debug" hidden>Debug</a>
   </nav>
   <form id="search" autocomplete="off">
     <input id="q" type="search" placeholder="Find a target" list="paths" aria-label="Find a target">
     <datalist id="paths"></datalist>
   </form>
   <p id="summary"></p>
+  <!-- live only: the run's state and controls -->
+  <div id="live" hidden></div>
+  <label id="follow_box" class="muted" hidden><input type="checkbox" id="follow" checked> follow updates</label>
 </header>
 <div id="body">
   <main id="main"></main>

@@ -213,7 +213,9 @@ case class Config(
     site_base: Option[String],
     can_send_mail: Option[Boolean],
     can_push_repo: Option[Boolean],
-    cloudflare: Option[CloudflareConfig]
+    cloudflare: Option[CloudflareConfig],
+    // serve each run's graph live; see ag.r2.WebConfig
+    web: Option[ag.r2.WebConfig] = None
 ) derives ReadWriter {}
 
 object Config extends Scope(".") {
@@ -229,12 +231,15 @@ object Config extends Scope(".") {
 
   private def load(): Config = read[Config](os.read(config_file))
 
-  // `cloudflare` is dropped here: a target's value is saved to
-  // workspace/targets/.../saved.json, and the api_key shouldn't be.
+  // `cloudflare` and `web` are dropped here: a target's value is saved to
+  // workspace/targets/.../saved.json, and their secrets shouldn't be.
   private lazy val config: Target[Config] = target(EmptyTuple) { (_, _) =>
     // logger.info(s"loading config from $config_file")
-    load().copy(cloudflare = None)
+    load().copy(cloudflare = None, web = None)
   }
+
+  // Read straight from config.json, never through a target, like cloudflare.
+  def web: Option[ag.r2.WebConfig] = load().web
 
   // Read straight from config.json on every call, never through a target,
   // so the api_key is never cached under workspace/.
