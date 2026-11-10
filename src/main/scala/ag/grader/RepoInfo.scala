@@ -45,13 +45,17 @@ case class RepoInfo(
       if (!os.isDir(path / ".git")) {
         throw Exception("forcing")
       }
-      /* The most common path: the repo exists, and we have a local checkout, just pull the latest */
+      /* The most common path: the repo exists, and we have a local checkout.
+       * Start exactly from the server's master, never merging: that drops a
+       * commit an earlier failed push left behind, which is safe because what
+       * we push is reproducible. */
       os.proc("git", "reset", "--hard").check(cwd = path)
       os.proc("git", "clean", "-fdx").check(cwd = path)
-      os.proc("git", "checkout", "master").check(cwd = path)
-      server.SshProc("git", "pull").check(cwd = path)
+      server.SshProc("git", "fetch", "origin").check(cwd = path)
       server
         .SshProc("git", "fetch", "origin", "refs/notes/*:refs/notes/*")
+        .check(cwd = path)
+      os.proc("git", "checkout", "-B", "master", "origin/master")
         .check(cwd = path)
       say(s"updated ${path.toString} from $repo_name")
     } catch {
@@ -120,7 +124,11 @@ case class RepoInfo(
         if (!can_push_repo) throw Exception(s"not allowed to push $repo_name")
         ag.rules.refuse_if_read_only(s"push $repo_name")
         shout(s"pushing $repo_name")
-        val _ = server.SshProc("git", "push").run(cwd = path)
+        // a fast-forward or nothing (no "+"): if someone else pushed since we
+        // fetched, fail and leave it to a person rather than overwrite
+        server
+          .SshProc("git", "push", "origin", "HEAD:refs/heads/master")
+          .check(cwd = path)
       case Failure(_) =>
     }
     out

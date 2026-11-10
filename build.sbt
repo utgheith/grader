@@ -30,7 +30,7 @@ nativeImageOptions ++= Seq(
 libraryDependencies ++= Seq(
   "com.lihaoyi" %% "fansi" % "0.5.1",
   "com.lihaoyi" %% "mainargs" % "0.7.8",
-  "com.lihaoyi" %% "os-lib" % "0.11.8",
+  "com.lihaoyi" %% "os-lib" % "0.11.10",
   "com.lihaoyi" %% "pprint" % "0.9.6",
   "com.lihaoyi" %% "scalatags" % "0.13.1",
   "com.lihaoyi" %% "sourcecode" % "0.4.4",
