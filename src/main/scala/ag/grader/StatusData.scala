@@ -1,46 +1,44 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_Instant, given_ReadWriter_SortedMap}
-import ag.r2.{Producer, Scope, State, Target, WithData}
+import ag.r3.{Commit, CommitInfo, Context, Scope, Source, State, Target, Tree}
 import upickle.default.ReadWriter
 
-import java.time.{Instant, ZoneId, ZonedDateTime}
-import java.time.format.DateTimeFormatter
+import java.time.{Instant, OffsetDateTime, ZoneId, ZonedDateTime}
 import scala.collection.SortedMap
 import scala.util.Try
 
-// The status pages' data (see Status), as targets: all of it read from
-// committed repos, which `repo` checks out (Gitolite.mirror, for the pages;
-// local repos, for tests), so each is worked out again only when a repo it
-// reads changes. Meant for a read-only State (see ReadOnlyStates): nothing
-// here acts beyond its workspace.
-final class StatusData(val repo: String => Target[WithData[Boolean]])
-    extends Scope("status") {
+// The status pages' data (see Status), as r3 targets on `source`: a local
+// mirror of the git server, kept up to date by something else (`grader
+// mirror`). Each target depends on the refs it reads and reads only at the
+// commits they name, so it's worked out again only when one of those refs
+// moves. Meant for a read-only State (see ReadOnlyStates): nothing here acts
+// beyond its workspace, and nothing writes to `source`.
+final class StatusData(val source: Source) extends Scope("status") {
   import StatusData.*
 
   def project_repo(c: String, p: String): String = s"${c}_$p"
   def work_repo(c: String, p: String, csid: CSID): String =
     s"${project_repo(c, p)}_${csid.value}"
+  def own_results_repo(c: String, p: String, csid: CSID): String =
+    s"${work_repo(c, p, csid)}_results"
 
-  private def checkout(
-      producer: Producer[?],
-      m: WithData[Boolean]
-  ): Option[os.Path] =
-    Option.when(m.value)(m.get_data_path(producer))
+  private def master(repo: String): Target[Option[Commit]] = source.master(repo)
+
+  // `file` in commit `c`'s files, if it's there
+  private def text(ctx: Context[?], c: Commit, file: String): Option[String] =
+    ctx.read_text(ctx.commit(c).tree, os.RelPath(file))
 
   lazy val courses: Target[SortedMap[String, RawCourse]] =
-    target((m = repo("courses_config"))) { (producer, deps) =>
-      checkout(producer, deps.m)
-        .map(_ / "courses.json")
-        .filter(os.isFile(_))
-        .map(f =>
-          upickle.default
-            .read[Map[String, RawCourseNotSorted]](os.read(f))
-            .view
-            .mapValues(_.sorted)
-            .to(SortedMap)
-        )
-        .getOrElse(SortedMap())
+    target((m = master("courses_config"))) { (producer, deps) =>
+      (for {
+        c <- deps.m
+        json <- text(producer, c, "courses.json")
+      } yield upickle.default
+        .read[Map[String, RawCourseNotSorted]](json)
+        .view
+        .mapValues(_.sorted)
+        .to(SortedMap)).getOrElse(SortedMap())
     }
 
   lazy val project: (String, String) => Target[Option[RawProject]] = fun {
@@ -53,94 +51,75 @@ final class StatusData(val repo: String => Target[WithData[Boolean]])
   // a phase's published results, by alias, and when they were committed
   lazy val phase_results: (String, String, Phase) => Target[PhaseResults] =
     fun { (c: String, p: String, phase: Phase) =>
-      target((m = repo(s"${project_repo(c, p)}__results"))) {
+      target((m = master(s"${project_repo(c, p)}__results"))) {
         (producer, deps) =>
-          checkout(producer, deps.m)
-            .map(d => (d, d / phase.results_file))
-            .filter((_, f) => os.isFile(f)) match {
-            case None         => PhaseResults(None, None, None)
-            case Some((d, f)) =>
-              Try(
-                upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-                  os.read(f)
-                )
-              ).toEither match {
-                case Left(e) =>
-                  PhaseResults(
-                    None,
-                    None,
-                    Some(
-                      s"${phase.results_file} can't be read: ${e.getMessage}"
-                    )
-                  )
-                case Right(r) =>
-                  PhaseResults(
-                    Some(r),
-                    git_out(
-                      d,
-                      "log",
-                      "-1",
-                      "--format=%cI",
-                      "--",
-                      phase.results_file
-                    ).map(_.trim),
-                    None
-                  )
-              }
-          }
+          (for {
+            m <- deps.m
+            json <- text(producer, m, phase.results_file)
+          } yield Try(
+            upickle.default.read[SortedMap[Alias, RedactedStudentResults]](json)
+          ).toEither match {
+            case Left(e) =>
+              PhaseResults(
+                None,
+                None,
+                Some(s"${phase.results_file} can't be read: ${e.getMessage}")
+              )
+            case Right(r) =>
+              PhaseResults(
+                Some(r),
+                producer
+                  .history(m, first_parent = false)
+                  .find(changed(producer, _, Seq(phase.results_file)))
+                  .map(_.committed),
+                None
+              )
+          }).getOrElse(PhaseResults(None, None, None))
       }
     }
 
   lazy val aliases: (String, String) => Target[SortedMap[CSID, Alias]] = fun {
     (c: String, p: String) =>
-      target((m = repo(s"${project_repo(c, p)}__aliases"))) {
+      target((m = master(s"${project_repo(c, p)}__aliases"))) {
         (producer, deps) =>
-          checkout(producer, deps.m)
-            .map(_ / "aliases.json")
-            .filter(os.isFile(_))
-            .flatMap(f =>
-              Try(
-                upickle.default.read[SortedMap[CSID, Alias]](os.read(f))
-              ).toOption
-            )
-            .getOrElse(SortedMap[CSID, Alias]())
+          (for {
+            m <- deps.m
+            json <- text(producer, m, "aliases.json")
+            a <- Try(
+              upickle.default.read[SortedMap[CSID, Alias]](json)
+            ).toOption
+          } yield a).getOrElse(SortedMap[CSID, Alias]())
       }
   }
 
-  def own_results_repo(c: String, p: String, csid: CSID): String =
-    s"${work_repo(c, p, csid)}_results"
-
-  // a student's own results (the latest); its tests' output is beside them,
-  // in the checkout of own_results_repo
+  // a student's own results (the latest), and the files beside them: its
+  // tests' output
   lazy val own_results
-      : (String, String, CSID) => Target[Option[StudentResults]] = fun {
+      : (String, String, CSID) => Target[Option[(StudentResults, Tree)]] = fun {
     (c: String, p: String, csid: CSID) =>
-      target((m = repo(own_results_repo(c, p, csid)))) { (producer, deps) =>
+      target((m = master(own_results_repo(c, p, csid)))) { (producer, deps) =>
         for {
-          d <- checkout(producer, deps.m)
-          f = d / "the_results.json"
-          if os.isFile(f)
-          r <- Try(upickle.default.read[StudentResults](os.read(f))).toOption
-        } yield r
+          m <- deps.m
+          json <- text(producer, m, "the_results.json")
+          r <- Try(upickle.default.read[StudentResults](json)).toOption
+        } yield (r, producer.commit(m).tree)
       }
   }
 
   // the names of the tests in the tests repo
   lazy val published_tests: (String, String) => Target[Seq[String]] = fun {
     (c: String, p: String) =>
-      target((m = repo(s"${project_repo(c, p)}__tests"), rp = project(c, p))) {
-        (producer, deps) =>
-          val extensions = deps.rp.toSeq.flatMap(_.test_extensions)
-          checkout(producer, deps.m).toSeq
-            .flatMap { d =>
-              os.list(d).map(_.last).flatMap { f =>
-                extensions.collectFirst {
-                  case e if f.endsWith(s".$e") => f.stripSuffix(s".$e")
-                }
-              }
-            }
-            .distinct
-            .sorted
+      target(
+        (m = master(s"${project_repo(c, p)}__tests"), rp = project(c, p))
+      ) { (producer, deps) =>
+        val extensions = deps.rp.toSeq.flatMap(_.test_extensions)
+        (for {
+          m <- deps.m.toSeq
+          f <- producer.list(producer.commit(m).tree).getOrElse(Seq())
+          name <- extensions.collectFirst {
+            case e if f.endsWith(s".$e") => f.stripSuffix(s".$e")
+          }
+        } yield name).distinct.sorted
       }
   }
 
@@ -148,59 +127,57 @@ final class StatusData(val repo: String => Target[WithData[Boolean]])
   // None if they have no test
   lazy val test_commit: (String, String, CSID) => Target[Option[TestCommit]] =
     fun { (c: String, p: String, csid: CSID) =>
-      target((m = repo(work_repo(c, p, csid)), rp = project(c, p))) {
-        (producer, deps) =>
-          for {
-            rp <- deps.rp
-            d <- checkout(producer, deps.m)
-            tc <- find_test_commit(d, rp, csid)
-          } yield tc
+      val repo = work_repo(c, p, csid)
+      target(
+        (
+          m = master(repo),
+          push_times = source.ref(repo, "refs/notes/push_time"),
+          commits = source.ref(repo, "refs/notes/commits"),
+          rp = project(c, p)
+        )
+      ) { (producer, deps) =>
+        for {
+          rp <- deps.rp
+          m <- deps.m
+          tc <- find_test_commit(
+            producer,
+            m,
+            Seq(deps.push_times, deps.commits).flatten,
+            rp,
+            csid
+          )
+        } yield tc
       }
     }
 
   // When `phase`'s commit id file changed, and what it named; for the latest
-  // results, master's last commits. None if the submission repo can't be
-  // read.
+  // results, master's last commits. None if there's no submission repo.
   lazy val commit_history
       : (String, String, CSID, Phase) => Target[Option[Seq[CommitRow]]] = fun {
     (c: String, p: String, csid: CSID, phase: Phase) =>
-      target((m = repo(work_repo(c, p, csid)))) { (producer, deps) =>
-        checkout(producer, deps.m).map { d =>
-          def rows(args: String*): Seq[(String, String, String)] =
-            git_out(d, args*).toSeq
-              .flatMap(_.linesIterator)
-              .filter(_.nonEmpty)
-              .map { l =>
-                val Array(sha, when, subject) =
-                  (l.split("\t", 3).padTo(3, ""): @unchecked)
-                (sha, when, subject)
-              }
+      target((m = master(work_repo(c, p, csid)))) { (producer, deps) =>
+        deps.m.map { m =>
           phase.commit_id_file match {
             case Some(file) =>
-              rows("log", "--format=%H%x09%cI%x09%s", "--", file).map {
-                (sha, when, subject) =>
-                  val content = git_out(d, "show", s"$sha:$file").map(
-                    _.linesIterator.nextOption().getOrElse("").trim
-                  )
-                  val named = content.flatMap(id =>
-                    if (id.isEmpty) None
-                    else
-                      git_out(d, "rev-parse", "-q", "--verify", s"$id^{commit}")
-                        .map(_.trim)
-                  )
-                  CommitRow(sha, when, subject, content, named)
+              for {
+                ci <- producer.history(m, first_parent = false)
+                if changed(producer, ci, Seq(file))
+              } yield {
+                val content = producer
+                  .read_text(ci.tree, os.RelPath(file))
+                  .map(_.linesIterator.nextOption().getOrElse("").trim)
+                val named = content
+                  .filter(_.nonEmpty)
+                  .flatMap(id => producer.resolve(m, id))
+                  .map(_.id)
+                CommitRow(ci.id, ci.committed, ci.subject, content, named)
               }
             case None =>
-              rows(
-                "log",
-                "-n",
-                "10",
-                "--first-parent",
-                "--format=%H%x09%cI%x09%s",
-                "master"
-              ).map { (sha, when, subject) =>
-                CommitRow(sha, when, subject, None, None)
-              }
+              producer
+                .history(m, first_parent = true, limit = 10)
+                .map(ci =>
+                  CommitRow(ci.id, ci.committed, ci.subject, None, None)
+                )
           }
         }
       }
@@ -241,85 +218,67 @@ object StatusData {
       named: Option[String]
   ) derives ReadWriter
 
+  // Whether `ci` changed any of `files` from its first parent (as `git log
+  // -- files` shows it: linear history, which these repos have)
+  private def changed(
+      ctx: Context[?],
+      ci: CommitInfo,
+      files: Seq[String]
+  ): Boolean = {
+    val at = ci.tree.at.getOrElse("")
+    val before = ci.parents.headOption.map(p => ctx.commit(Commit(at, p)).tree)
+    files.exists(f =>
+      ctx.id_at(ci.tree, os.RelPath(f)) != before.flatMap(
+        ctx.id_at(_, os.RelPath(f))
+      )
+    )
+  }
+
   private def find_test_commit(
-      d: os.Path,
+      ctx: Context[?],
+      master: Commit,
+      notes: Seq[Commit],
       rp: RawProject,
       csid: CSID
   ): Option[TestCommit] = {
-    val until = ZonedDateTime
-      .of(rp.test_cutoff, ZoneId.systemDefault)
-      .nn
-      .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-      .nn
+    val until =
+      ZonedDateTime.of(rp.test_cutoff, ZoneId.systemDefault).nn.toInstant.nn
+    def time(ci: CommitInfo): Instant =
+      OffsetDateTime.parse(ci.committed).nn.toInstant.nn
     val files = rp.test_extensions.map(e => s"${csid.value}.$e")
-    def lines(args: String*): Seq[String] =
-      git_out(d, args*).toSeq
-        .flatMap(_.linesIterator)
-        .map(_.trim)
-        .filter(_.nonEmpty)
+    val chain = ctx.history(master, first_parent = true)
     for {
-      rev <- lines(
-        "rev-list",
-        "-n",
-        "1",
-        "--first-parent",
-        "--until",
-        until,
-        "master"
-      ).headOption
-      if lines(
-        Seq("ls-tree", "--name-only", rev, "--") ++ files*
-      ).size == files.size
-      line <- lines(
-        Seq(
-          "log",
-          "-1",
-          "--first-parent",
-          "--format=%H%x09%cI",
-          rev,
-          "--"
-        ) ++ files*
-      ).headOption
-      Array(sha, when) <- Some(line.split("\t", 2)).filter(_.length == 2)
+      // the last commit on master before the cutoff (rev-list --until)
+      rev <- chain.find(time(_).compareTo(until) <= 0)
+      if files.forall(f => ctx.id_at(rev.tree, os.RelPath(f)).isDefined)
+      // the commit that last changed the test by then
+      sha <- ctx
+        .history(Commit(master.at, rev.id), first_parent = true)
+        .find(changed(ctx, _, files))
     } yield {
       // the push hook notes each commit a push leaves master on; the first
       // push with this commit noted one that has it
-      val with_it = sha +: lines("rev-list", "--ancestry-path", s"$sha..master")
-      val notes = lines(
-        Seq(
-          "log",
-          "--no-walk",
-          "--notes=push_time",
-          "--notes=commits",
-          "--format=%N"
-        ) ++ with_it*
-      )
+      val with_it = Commit(master.at, sha.id) +:
+        ctx.ancestry_path(Commit(master.at, sha.id), master)
+      val lines = for {
+        c <- with_it
+        n <- notes
+        text <- ctx.note(n, c.id).toSeq
+        line <- text.linesIterator
+      } yield line
       TestCommit(
-        rev = rev,
-        sha = sha,
-        commit_time = when,
-        push_time = PrepareInfo.push_time_from(notes),
-        later_changes = lines(
-          Seq(
-            "log",
-            "--first-parent",
-            "--format=%H",
-            s"$rev..master",
-            "--"
-          ) ++ files*
-        ).size
+        rev = rev.id,
+        sha = sha.id,
+        commit_time = sha.committed,
+        push_time = PrepareInfo.push_time_from(lines),
+        later_changes =
+          chain.takeWhile(_.id != rev.id).count(changed(ctx, _, files))
       )
     }
   }
-
-  // git, read-only, in a local checkout; None if it fails
-  private[grader] def git_out(dir: os.Path, args: String*): Option[String] =
-    Try(
-      os.proc("git" +: args).call(cwd = dir, check = false, stderr = os.Pipe)
-    ).toOption.filter(_.exitCode == 0).map(_.out.text())
 }
 
-// A read-only State in `workspace` for the status pages, a new one every
+// A read-only r3 State in `workspace` for the status pages, a new one every
 // `ttl_ms`: a State works out each target once, so a new one is how they
 // notice new commits. Whoever makes these holds `workspace`'s RunLock: two
 // States mustn't share a workspace.

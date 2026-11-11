@@ -1,0 +1,171 @@
+package ag.r3
+
+import munit.FunSuite
+
+import java.util.concurrent.atomic.AtomicInteger
+
+// what r3 adds: targets kept in git, with history, and data as trees
+class StoreTests extends FunSuite {
+  private def ws(): os.Path = os.temp.dir(deleteOnExit = true)
+
+  private def git(dir: os.Path, args: String*): String =
+    os.proc(Seq("git", "--git-dir", (dir / "r3.git").toString) ++ args)
+      .call(stderr = os.Pipe)
+      .out
+      .text()
+      .trim
+
+  test("ref names: readable, valid, and a and a/b can both have one") {
+    assertEquals(Store.ref_name(os.RelPath("ag/r3/x/10")), "refs/r3/ag/r3/x/10/@")
+    assertEquals(Store.encode("a b"), "a%20b")
+    assertEquals(Store.encode(".hidden"), "%2Ehidden")
+    assertEquals(Store.encode("a..b"), "a.%2Eb")
+    assertEquals(Store.encode("x.lock"), "x%2Elock")
+    assertEquals(Store.encode("@"), "%40")
+    for (c <- Seq("a b", ".x", "a..b", "x.lock", "@", "~^:?*[\\", "é"))
+      assert(
+        org.eclipse.jgit.lib.Repository.isValidRefName(
+          Store.ref_name(os.rel / c)
+        ),
+        c
+      )
+    val dir = ws()
+    val s = Scope("nest")
+    val a: Target[Int] = s.target(EmptyTuple)((_, _) => 1)
+    val f: Int => Target[Int] = s.fun((i: Int) => s.target(EmptyTuple)((_, _) => i))
+    // f(2)'s path is a's with "2" appended: both refs must fit
+    assertEquals(State(dir).track(a) + State(dir).track(f(2)), 3)
+  }
+
+  test("history: a commit per change, with the reason, none when nothing changed") {
+    val dir = ws()
+    var input = 1
+    val s = Scope("history")
+    val in: Target[Int] = s.target(EmptyTuple)((_, _) => input)
+    val out: Target[Int] = s.target((i = in))((_, deps) => deps.i * 10)
+    def log() =
+      git(dir, "log", "--format=%s", Store.ref_name(out.path)).linesIterator.toSeq
+    assertEquals(State(dir).track(out), 10)
+    assertEquals(State(dir).track(out), 10)
+    assertEquals(log(), Seq("it has no saved result"))
+    input = 2
+    assertEquals(State(dir).track(out), 20)
+    assertEquals(
+      log(),
+      Seq(s"dependencies changed: ${in.path.toString}", "it has no saved result")
+    )
+    // `in` reruns every time (no dependencies) but only commits on change
+    assertEquals(
+      git(dir, "rev-list", "--count", Store.ref_name(in.path)),
+      "2"
+    )
+    assertEquals(
+      git(dir, "show", s"${Store.ref_name(out.path)}:result/value.json"),
+      "20"
+    )
+  }
+
+  test("a failed run leaves the saved result, and runs again next time") {
+    val dir = ws()
+    var input = 1
+    var fail = false
+    val runs = AtomicInteger(0)
+    val s = Scope("fails")
+    val in: Target[Int] = s.target(EmptyTuple)((_, _) => input)
+    val out: Target[Int] = s.target((i = in)) { (_, deps) =>
+      val _ = runs.incrementAndGet()
+      if (fail) throw IllegalStateException("boom")
+      deps.i
+    }
+    assertEquals(State(dir).track(out), 1)
+    val before = git(dir, "rev-parse", Store.ref_name(out.path))
+    input = 2
+    fail = true
+    val _ = intercept[Exception](State(dir).track(out))
+    assertEquals(git(dir, "rev-parse", Store.ref_name(out.path)), before)
+    fail = false
+    assertEquals(State(dir).track(out), 2)
+    assertEquals(runs.get, 3)
+  }
+
+  test("data: kept as a tree, read at that tree, checked out read-only") {
+    val dir = ws()
+    var text = "hello"
+    val s = Scope("data")
+    val in: Target[String] = s.target(EmptyTuple)((_, _) => text)
+    val made: Target[WithData[Int]] = s.target((t = in)) { (producer, deps) =>
+      create_data(producer) { d =>
+        os.write(d / "sub" / "a.txt", deps.t, createFolders = true)
+        os.write(d / "run.sh", "echo hi")
+        os.perms.set(d / "run.sh", os.PermSet.fromString("rwxr-xr-x"))
+        os.makeDir(d / "empty")
+        os.symlink(d / "link", os.rel / "sub" / "a.txt")
+        deps.t.length
+      }
+    }
+    val reader: Target[(Option[String], Option[Seq[String]], String)] =
+      s.target((m = made)) { (producer, deps) =>
+        val co = producer.checkout(deps.m.data)
+        assert(!os.perms(co / "sub" / "a.txt").contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE))
+        assert(os.perms(co / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+        assert(os.isDir(co / "empty"))
+        (
+          producer.read_text(deps.m.data, os.rel / "sub" / "a.txt"),
+          producer.list(deps.m.data),
+          os.read(co / "link")
+        )
+      }
+    val st = State(dir)
+    assertEquals(
+      st.track(reader),
+      (Some("hello"), Some(Seq("empty", "link", "run.sh", "sub")), "hello")
+    )
+    val first = st.track(made).data
+    text = "bye"
+    val st2 = State(dir)
+    assertEquals(st2.track(reader)._1, Some("bye"))
+    // the first tree is still readable, unchanged: it's pinned
+    assertEquals(st2.read_text(first, os.rel / "sub" / "a.txt"), Some("hello"))
+    assert(!os.exists(dir / "scratch") || os.list(dir / "scratch").isEmpty)
+  }
+
+  test("update_data starts from the previous data") {
+    val dir = ws()
+    var n = 1
+    val s = Scope("update")
+    val in: Target[Int] = s.target(EmptyTuple)((_, _) => n)
+    val acc: Target[WithData[Int]] = s.target((i = in)) { (producer, deps) =>
+      update_data(producer) { d =>
+        os.write(d / s"${deps.i}.txt", "")
+        os.list(d).size
+      }
+    }
+    assertEquals(State(dir).track(acc).value, 1)
+    n = 2
+    assertEquals(State(dir).track(acc).value, 2)
+  }
+
+  test("a git repo in a target's data fails the target") {
+    val dir = ws()
+    val s = Scope("repos")
+    val nested: Target[WithData[Unit]] = s.target(EmptyTuple) { (producer, _) =>
+      create_data(producer) { d =>
+        val _ = os.proc("git", "init", "-q", (d / "x").toString).call()
+      }
+    }
+    val bare: Target[WithData[Unit]] = s.target(EmptyTuple) { (producer, _) =>
+      create_data(producer) { d =>
+        val _ = os.proc("git", "init", "-q", "--bare", (d / "y.git").toString).call()
+      }
+    }
+    for (t <- Seq(nested, bare)) {
+      val e = intercept[Exception](State(dir).track(t))
+      assert(
+        Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null)
+          .exists(x => String.valueOf(x.getMessage).contains("a git repo")),
+        e
+      )
+      assertEquals(State(dir).store.load(t.path), None)
+    }
+  }
+}

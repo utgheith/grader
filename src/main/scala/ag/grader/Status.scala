@@ -1,6 +1,7 @@
 package ag.grader
 
-import ag.r2.{State, Target, WebPage, WebPages}
+import ag.r2.{WebPage, WebPages}
+import ag.r3.{State, Target, Tree}
 
 import java.net.{URLDecoder, URLEncoder}
 import java.nio.charset.StandardCharsets.UTF_8
@@ -28,13 +29,6 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // all of them at once, each on its own thread
   private def look_all[A](ts: Seq[Target[A]]): Seq[A] = state().track_all(ts)
 
-  // `repo`'s checkout; None if there's no such repo
-  private def checkout(repo: String): Option[os.Path] = {
-    val s = state()
-    val m = s.track(data.repo(repo))
-    Option.when(m.value)(m.get_data_path(s))
-  }
-
   private def courses: SortedMap[String, RawCourse] = look(data.courses)
 
   private def project_repo(c: String, p: String) = data.project_repo(c, p)
@@ -55,17 +49,14 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     data.aliases(c, p)
   )
 
-  // a student's own results (the latest), and the checkout holding its
+  // a student's own results (the latest), and the files beside them: its
   // tests' output
   private def own_results(
       c: String,
       p: String,
       csid: CSID
-  ): Option[(StudentResults, os.Path)] =
-    for {
-      r <- look(data.own_results(c, p, csid))
-      d <- checkout(data.own_results_repo(c, p, csid))
-    } yield (r, d)
+  ): Option[(StudentResults, Tree)] =
+    look(data.own_results(c, p, csid))
 
   private def test_commit(
       c: String,
@@ -571,21 +562,21 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     }
 
-  // Mirrors what the course and phase pages read (the courses, and each
-  // project's results and aliases), all at once, telling `log` how it goes.
-  // Students' repos are mirrored when their pages are first looked at.
-  def mirror(log: String => Unit): Unit = {
+  // Reads what the course and phase pages show (the courses, and each
+  // project's results and aliases) from the local mirror, all at once,
+  // telling `log` how it goes. It doesn't update the mirror: `grader mirror`
+  // does.
+  def warm(log: String => Unit): Unit = {
     def secs(since: Long): String = f"${(System.nanoTime() - since) / 1e9}%.1fs"
     val started = System.nanoTime()
-    log("mirroring courses_config")
-    val _ = checkout("courses_config")
+    log("reading courses_config")
     val cs = courses
     val names = for {
       (c, rc) <- cs.toSeq
       p <- rc.projects.keys.toSeq
       suffix <- Seq("__results", "__aliases")
     } yield s"${project_repo(c, p)}$suffix"
-    log(s"mirroring ${names.size} repos for ${cs.size} courses")
+    log(s"reading ${names.size} repos for ${cs.size} courses")
     val done = java.util.concurrent.atomic.AtomicInteger()
     names
       .map { n =>
@@ -594,7 +585,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
           .nn
           .start { () =>
             val at = System.nanoTime()
-            val how = Try(checkout(n)) match {
+            val how = Try(look(data.source.master(n))) match {
               case Success(Some(_)) => "ok"
               case Success(None)    => "no such repo"
               case Failure(e)       => s"failed: ${e.toString}"
@@ -606,7 +597,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
           .nn
       }
       .foreach(_.join())
-    log(s"mirrored in ${secs(started)}")
+    val _ = Try(cs.toSeq.foreach((c, rc) => look_course(c, rc)))
+    log(s"read in ${secs(started)}")
   }
 
   private def project_of(c: String, p: String): Option[RawProject] =
@@ -688,7 +680,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       rp: RawProject,
       alias: Option[Alias],
       results: Option[RedactedStudentResults],
-      own: Option[(StudentResults, os.Path)]
+      own: Option[(StudentResults, Tree)]
   )
 
   private def student_view(
@@ -1206,19 +1198,29 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
               .exists(_.outcomes.size == o.outcomes.size)
           )
           .filter(_ => n == o.outcomes.size)
-          .map { (_, dir) =>
-            val files =
-              Seq("result", "time", "ok", "out", "err", "stdout", "stderr")
-                .map(ext => dir / s"$test.$ext")
-                .filter(os.isFile(_))
+          .map { (_, tree) =>
+            val s = state()
+            val files = for {
+              ext <- Seq(
+                "result",
+                "time",
+                "ok",
+                "out",
+                "err",
+                "stdout",
+                "stderr"
+              )
+              name = s"$test.$ext"
+              bytes <- s.read(tree, os.RelPath(name))
+            } yield (name, bytes)
             if (files.isEmpty)
               "<p class=muted>No output was kept for this run.</p>"
             else
-              files.map { f =>
-                val size = os.size(f)
+              files.map { (name, bytes) =>
+                val size = bytes.length
                 val limit = 200_000
-                val text = String(os.read.bytes(f).take(limit), UTF_8)
-                s"""<h3>${h(f.last)} <span class=muted>(${size} bytes${
+                val text = String(bytes.take(limit), UTF_8)
+                s"""<h3>${h(name)} <span class=muted>(${size} bytes${
                     if (size > limit) s", first $limit shown" else ""
                   })</span></h3><pre>${h(text)}</pre>"""
               }.mkString

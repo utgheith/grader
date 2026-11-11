@@ -243,6 +243,10 @@ object Config extends Scope(".") {
   // Read straight from config.json, never through a target, like cloudflare.
   def web: Option[ag.r2.WebConfig] = load().web
 
+  // The git server, read straight from config.json: for what runs outside
+  // any State (LocalMirror).
+  def gitolite_server: RemoteServer = load().gitolite
+
   // Read straight from config.json on every call, never through a target,
   // so the api_key is never cached under workspace/.
   def cloudflare: Option[CloudflareConfig] = load().cloudflare

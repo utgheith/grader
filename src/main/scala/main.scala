@@ -1044,11 +1044,25 @@ object Main {
       pprint.pprintln(root.track(PlTools(prefix).fstar))
     }
 
-  // The grading status, from the committed repos (see ag.grader.Status).
-  // Its data are targets (ag.grader.StatusData) on Gitolite.mirror's
-  // checkouts, worked out by read-only States in the workspace's status/
-  // directory, which these pages lock for as long as the program runs: a
-  // workspace of their own, so they can go on beside runs. None if another
+  // The local mirror of the git server: kept up to date by `mirror`, read
+  // by the status pages.
+  private def mirror_root(workspace: os.Path): os.Path = workspace / "mirror"
+
+  // Brings the local mirror of the git server up to date (see
+  // ag.grader.LocalMirror): run it now and then, e.g. from a timer.
+  @main
+  def mirror(workspace: os.Path = os.pwd / "workspace"): Unit =
+    ag.grader.LocalMirror.update(
+      ag.grader.Config.gitolite_server,
+      mirror_root(workspace),
+      println
+    )
+
+  // The grading status, from the local mirror (see ag.grader.Status). Its
+  // data are r3 targets (ag.grader.StatusData) on the mirror, worked out by
+  // read-only States in the workspace's status/ directory, which these pages
+  // lock for as long as the program runs: a workspace of their own, so they
+  // can go on beside runs. They never update the mirror. None if another
   // program has them.
   private def status_pages(workspace: os.Path): Option[ag.grader.Status] = {
     val dir = workspace / "status"
@@ -1058,7 +1072,7 @@ object Main {
         val states = ag.grader.ReadOnlyStates(dir, ttl_ms = 60 * 1000)
         Some(
           ag.grader.Status(
-            ag.grader.StatusData(ag.grader.Gitolite.mirror),
+            ag.grader.StatusData(ag.r3.Source(mirror_root(workspace))),
             () => states()
           )
         )
@@ -1068,9 +1082,9 @@ object Main {
     }
   }
 
-  // Serves the status pages (and nothing else) until stopped. It runs
-  // nothing but the mirrors of the committed repos, in its own workspace, so
-  // it can go on beside runs, which serve the same pages while they're up.
+  // Serves the status pages (and nothing else) until stopped. It only reads
+  // the local mirror (see `mirror`), in its own workspace, so it can go on
+  // beside runs, which serve the same pages while they're up.
   @main
   def status(workspace: os.Path = os.pwd / "workspace"): Unit =
     ag.grader.Config.web match {
@@ -1082,7 +1096,7 @@ object Main {
         // its own command output: a run may be using the workspace's
         ag.rules.use_std_out_err(workspace / "status" / "std_out_err")
         status_pages(workspace).foreach { pages =>
-          pages.mirror(println)
+          pages.warm(println)
           if (!ag.r2.WebServer.serve_pages(workspace, web, pages))
             println(
               s"if a run is serving port ${web.port}, its server has the status pages too, at /status/"

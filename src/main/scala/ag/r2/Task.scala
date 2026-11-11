@@ -6,7 +6,7 @@ import scala.util.{Failure, Success, Try}
 // The engine's in-flight computations: a value that some thread is working on,
 // which any number of readers can wait for. Nothing outside ag.r2 sees one:
 // targets read each other with Tracker.track and Tracker.track_all.
-private[r2] final class Task[A] private () {
+private[ag] final class Task[A] private () {
   private val latch = new CountDownLatch(1)
   @volatile private var outcome: Try[A] | Null = null
 
@@ -25,7 +25,7 @@ private[r2] final class Task[A] private () {
   def block: A = block_try.get
 }
 
-private[r2] object Task {
+private[ag] object Task {
   private val builder: Thread.Builder.OfVirtual =
     Thread.ofVirtual().name("task-", 0)
 

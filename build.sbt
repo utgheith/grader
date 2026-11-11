@@ -34,7 +34,10 @@ libraryDependencies ++= Seq(
   "com.lihaoyi" %% "pprint" % "0.9.6",
   "com.lihaoyi" %% "scalatags" % "0.13.1",
   "com.lihaoyi" %% "sourcecode" % "0.4.4",
-  "com.lihaoyi" %% "upickle" % "4.4.3"
+  "com.lihaoyi" %% "upickle" % "4.4.3",
+  // ag.r3 keeps its targets in a git repo
+  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.8.0.202609011348-r",
+  "org.slf4j" % "slf4j-nop" % "2.0.17"
 )
 
 libraryDependencies ++= Seq(

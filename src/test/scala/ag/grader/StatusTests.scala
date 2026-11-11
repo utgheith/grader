@@ -2,35 +2,32 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import munit.FunSuite
-import ag.r2.{create_data, Scope, State, Target, WithData}
+import ag.r3.{Source, State}
 
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
 
-// The repos under `root`, standing in for Gitolite.mirror: each is copied
-// into its target's data, again in each State (the targets have no
-// dependencies)
-class LocalRepos(root: os.Path) extends Scope("local") {
-  val repo: String => Target[WithData[Boolean]] = fun { (name: String) =>
-    target(EmptyTuple) { (producer, _) =>
-      create_data(producer)(_.lastOpt.contains(".git")) { dir =>
-        val src = root / name
-        if (!os.isDir(src / ".git")) false
-        else {
-          os.list(src).foreach(f => os.copy(f, dir / f.last))
-          true
-        }
-      }
-    }
-  }
-}
-
 // The status pages, on made-up committed repos
 class StatusTests extends FunSuite {
+  // The repos under `root`, mirrored (as LocalMirror does) into root/mirror:
+  // what the pages read
+  private def mirror(root: os.Path): Source = {
+    val m = root / "mirror"
+    for (d <- os.list(root) if os.isDir(d / ".git")) {
+      val dest = m / s"${d.last}.git"
+      if (os.exists(dest)) { val _ = git(dest, "fetch", "-q", "--prune", "origin") }
+      else {
+        os.makeDir.all(m)
+        val _ = git(m, "clone", "-q", "--mirror", d.toString, dest.toString)
+      }
+    }
+    Source(m)
+  }
+
   // the pages, with their data worked out by a read-only State
   private def status_of(root: os.Path): Status = {
     val state = State(root / "status-workspace", read_only = true)
-    Status(StatusData(LocalRepos(root).repo), () => state)
+    Status(StatusData(mirror(root)), () => state)
   }
 
   private val now = LocalDateTime.now().nn
@@ -158,18 +155,19 @@ class StatusTests extends FunSuite {
     assertEquals(status.page("c1/p1/phase9/"), None)
   }
 
-  test("mirror says how mirroring the course and phase pages' repos goes") {
+  test("warm says how reading the course and phase pages' repos goes") {
     val root = os.temp.dir(deleteOnExit = true)
     val _ = setup(root)
+    os.remove.all(root / "c1_p1__aliases" / ".git")
     val status = status_of(root)
     val lines = java.util.concurrent.ConcurrentLinkedQueue[String]()
-    status.mirror(l => { val _ = lines.add(l) })
+    status.warm(l => { val _ = lines.add(l) })
     val all = lines.toArray.toSeq.map(_.toString)
-    assertEquals(all.head, "mirroring courses_config")
-    assert(all.contains("mirroring 2 repos for 1 courses"), all)
+    assertEquals(all.head, "reading courses_config")
+    assert(all.contains("reading 2 repos for 1 courses"), all)
     assert(all.exists(_.matches("""  \[\d/2\] c1_p1__results: ok \(.*s\)""")), all)
-    assert(all.exists(_.matches("""  \[\d/2\] c1_p1__aliases: ok \(.*s\)""")), all)
-    assert(all.last.startsWith("mirrored in "), all)
+    assert(all.exists(_.matches("""  \[\d/2\] c1_p1__aliases: no such repo \(.*s\)""")), all)
+    assert(all.last.startsWith("read in "), all)
   }
 
   test("the tests pages: each test's commit, push, choice and who passes it") {
@@ -237,12 +235,14 @@ class StatusTests extends FunSuite {
   test("a status target is reused in a new State while its repo is unchanged") {
     val root = os.temp.dir(deleteOnExit = true)
     val _ = setup(root)
-    val data = StatusData(LocalRepos(root).repo)
+    val data = StatusData(mirror(root))
     val history = data.commit_history("c1", "p1", s1, Phase.One)
+    // its log is emptied each time it's worked out
     def look(): (Option[Seq[StatusData.CommitRow]], Long) = {
+      val _ = mirror(root)
       val state = State(root / "status-workspace", read_only = true)
       val rows = state.track(history)
-      (rows, os.mtime(state.saved_path(history)))
+      (rows, os.mtime(state.log_path(history)))
     }
     val (first, at) = look()
     assertEquals(first.map(_.size), Some(2), "commit_id_1 changed twice")
