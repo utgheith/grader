@@ -1,10 +1,10 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
+import ag.common.ToRelPath
 import ag.r2.{
   Scope,
   Target,
-  ToRelPath,
   WithData,
   create_data,
   periodic,

@@ -2,10 +2,6 @@ package ag.r2
 
 import language.experimental.captureChecking
 
-import ag.common.down
-
-import java.util.concurrent.Semaphore
-
 //
 // Context for a running computations
 //
@@ -25,51 +21,16 @@ import java.util.concurrent.Semaphore
 // the dependency collection phase.
 
 object Context {
-  private val printLock: Semaphore = new Semaphore(1)
-
-  lazy val say_path = {
-    val p = os.pwd / "say.txt"
-    os.remove.all(p)
-    p
-  }
-
   def say(ctx: Option[Context[?]]^, msg: => Any): Unit = {
-    val t = if (msg == null) {
-      "<null>"
-    } else {
-      msg.toString
-    }
-
     val dots = ctx match {
       case Some(c) => "." * c.depth
       case None    => ""
     }
-    val thread_name = Thread.currentThread().getName
-
     val producing = ctx match {
-      case Some(c) => c.producing_opt.map(_.path)
+      case Some(c) => c.producing_opt.map(_.path.toString)
       case None    => None
     }
-
-    val out =
-      s"$dots[$thread_name]${producing.map(p => s" [${p.toString}]").getOrElse("")} $t\n"
-
-    /*
-    ctx.foreach {
-      case log: Logging =>
-
-        log.log(out)
-      case _ => /* not a producer */
-
-    }*/
-
-    printLock.down(1) {
-      if (Noise()) {
-        print(out)
-      }
-      os.write.append(say_path, out)
-    }
-
+    ag.common.Say.line(dots, producing, msg)
   }
 }
 

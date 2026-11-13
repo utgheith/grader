@@ -6,7 +6,7 @@ import ag.common.{
   given_ReadWriter_RelPath,
   given_ReadWriter_SortedMap
 }
-import ag.r2.Task
+import ag.common.Task
 import org.eclipse.jgit.lib.ObjectId
 import upickle.default.{ReadWriter, write}
 

@@ -1745,14 +1745,14 @@ object Main {
     ag.grader.Config.web match {
       case None =>
         println(
-          "the status pages need config.json's \"web\" (see ag.r2.WebConfig)"
+          "the status pages need config.json's \"web\" (see ag.web.WebConfig)"
         )
       case Some(web) =>
         // its own command output: a run may be using the workspace's
         ag.rules.use_std_out_err(workspace / "status" / "std_out_err")
         status_pages(workspace).foreach { pages =>
           pages.warm(println)
-          if (!ag.r2.WebServer.serve_pages(workspace, web, pages))
+          if (!ag.web.WebServer.serve_pages(workspace, web, pages))
             println(
               s"if a run is serving port ${web.port}, its server has the status pages too, at /status/"
             )
@@ -1771,7 +1771,7 @@ object Main {
     val password = ask("password: ")
     if (password.isEmpty) println("empty password")
     else if (!password.sameElements(ask("again: "))) println("they differ")
-    else println(ag.r2.Password.hash(password))
+    else println(ag.web.Password.hash(password))
   }
 
   // the command line, for telling a second run who holds the lock
@@ -1792,7 +1792,7 @@ object Main {
       ag.rules.use_std_out_err(workspace / "std_out_err")
       State.run(workspace, force) { state =>
         val web = ag.grader.Config.web
-        ag.r2.WebServer.serving(
+        ag.r2.LiveRun.serving(
           state,
           web,
           paused = paused,

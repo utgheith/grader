@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.{say, shout}
+import ag.common.{say, shout}
 import upickle.default.ReadWriter
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}

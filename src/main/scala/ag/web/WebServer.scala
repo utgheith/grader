@@ -1,17 +1,17 @@
-package ag.r2
+package ag.web
 
 import ag.common.given_ReadWriter_Path
 import upickle.default.ReadWriter
 
 import com.sun.net.httpserver.{HttpExchange, HttpsConfigurator, HttpsServer}
 
-import java.io.{IOException, OutputStream}
+import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.{KeyStore, MessageDigest, SecureRandom}
 import java.security.cert.X509Certificate
 import java.util.Base64
-import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, Executors}
+import java.util.concurrent.Executors
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.{KeyManagerFactory, SSLContext}
@@ -49,94 +49,39 @@ trait WebPages {
 
 case class WebPage(content_type: String, body: String)
 
-// Shows a run as it goes: the graph's page (see RunGraph), updated live, with
-// controls to pause it and hold targets (see Control). Everything but the login
-// page needs a session cookie, which a login gets and which stays good across
-// runs until it expires or the password changes.
+// A run, shown as it goes (see ag.r2.LiveRun), at the server's root: the
+// requests it answers once logged in, besides the pages'
+trait RunView {
+  // answers `ex` if it's one of its requests; false if it isn't
+  def handle(ex: HttpExchange, method: String, path: String): Boolean
+  def start(): Unit
+  // the run is over
+  def stop(): Unit
+}
+
+// Serves `pages`, and a run if there's one (`run`), behind a password.
+// Everything but the login page needs a session cookie, which a login gets
+// and which stays good across runs until it expires or the password changes.
+// The workspace keeps the session key and the self-signed certificate.
 final class WebServer private (
-    state: State,
     config: WebConfig,
     http: HttpsServer,
     secret: Array[Byte],
     pages: Option[WebPages],
-    // false: serving just `pages`, for no run
-    run: Boolean
+    run: Option[RunView]
 ) {
   import WebServer.*
-
-  @volatile private var done = false
-  private val clients = new CopyOnWriteArrayList[Client]()
-  private val broadcast_lock = new Object
-
-  private final class Client(out: OutputStream) {
-    val closed = new CountDownLatch(1)
-    def send(event: String): Boolean =
-      try {
-        out.write(event.getBytes(UTF_8))
-        out.flush()
-        true
-      } catch {
-        case _: IOException =>
-          closed.countDown()
-          false
-      }
-  }
-
-  private def event(kind: String, json: String): String =
-    s"event: $kind\ndata: $json\n\n"
-
-  private def status_json: ujson.Value =
-    upickle.default.writeJs(state.control.status)
-
-  // what changed since the last broadcast, to every client
-  private def broadcast(): Unit = broadcast_lock.synchronized {
-    val nodes = state.graph.changes(state)
-    val update = ujson.Obj(
-      "nodes" -> upickle.default.writeJs(nodes),
-      "ms" -> state.graph.elapsed,
-      "done" -> done,
-      "control" -> status_json
-    )
-    val e = event("update", ujson.write(update))
-    clients.forEach(c => if (!c.send(e)) { val _ = clients.remove(c) })
-  }
-
-  private val broadcaster = Thread.ofVirtual().unstarted { () =>
-    var seen = -1L
-    var last_ping = System.currentTimeMillis()
-    try {
-      while (!done) {
-        Thread.sleep(250)
-        val v = state.version.get()
-        if (v != seen) {
-          seen = v
-          broadcast()
-        }
-        if (System.currentTimeMillis() - last_ping > 15000) {
-          last_ping = System.currentTimeMillis()
-          clients.forEach(c =>
-            if (!c.send(": ping\n\n")) { val _ = clients.remove(c) }
-          )
-        }
-      }
-    } catch { case _: InterruptedException => () }
-  }
 
   private def start(): Unit = {
     http.createContext("/", ex => handle(ex))
     http.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     http.start()
-    broadcaster.start()
+    run.foreach(_.start())
   }
 
-  // tells the clients the run is over, and stops
-  private def stop(): Unit = {
-    done = true
-    broadcaster.interrupt()
-    broadcaster.join(2000)
-    try broadcast()
-    catch { case NonFatal(_) => () }
-    clients.forEach(_.closed.countDown())
+  // tells the run's viewers it's over, and stops
+  def stop(): Unit = {
+    run.foreach(_.stop())
     http.stop(1)
   }
 
@@ -196,7 +141,7 @@ final class WebServer private (
             s"$cookie_name=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
           )
           reply(ex, 200, "text/plain", "")
-        case ("GET", "/") if !run && pages.nonEmpty =>
+        case ("GET", "/") if run.isEmpty && pages.nonEmpty =>
           h.set("Location", s"${pages.get.prefix}/")
           reply(ex, 303, "text/plain", "")
         case ("GET", p) if pages.exists(w => p == s"/${w.prefix}") =>
@@ -210,19 +155,14 @@ final class WebServer private (
             case Some(page) => reply(ex, 200, page.content_type, page.body)
             case None       => reply(ex, 404, "text/plain", "not found")
           }
-        case ("GET", "/")        => reply(ex, 200, "text/html", RunGraph.page)
-        case ("GET", "/data.js") =>
-          reply(ex, 200, "text/javascript", "const GRAPH = null;\n")
-        case ("GET", "/events")       => events(ex)
-        case ("POST", "/api/control") => control(ex)
-        case ("GET", _)               => file(ex, path)
+        case (method, p) if run.exists(_.handle(ex, method, p)) => ()
         case _ => reply(ex, 404, "text/plain", "not found")
       }
     } catch {
       case NonFatal(e) =>
         try reply(ex, 500, "text/plain", "server error")
         catch { case NonFatal(_) => () }
-        say(s"web: ${e.toString}")
+        ag.common.say(s"web: ${e.toString}")
     } finally ex.close()
 
   private def login(ex: HttpExchange): Unit = {
@@ -241,135 +181,13 @@ final class WebServer private (
       reply(ex, 401, "text/html", login_page(true))
     }
   }
-
-  // The stream of changes: a snapshot of everything, then updates. The
-  // snapshot is taken under the broadcast lock, so no update falls between.
-  private def events(ex: HttpExchange): Unit = {
-    ex.getResponseHeaders.nn.set("Content-Type", "text/event-stream")
-    ex.sendResponseHeaders(200, 0)
-    val client = Client(ex.getResponseBody.nn)
-    val ok = broadcast_lock.synchronized {
-      val snapshot = ujson.Obj(
-        "graph" -> upickle.default.writeJs(state.graph.snapshot(state, done)),
-        "control" -> status_json
-      )
-      val sent = client.send(event("snapshot", ujson.write(snapshot)))
-      if (sent) { val _ = clients.add(client) }
-      sent
-    }
-    if (ok) client.closed.await()
-  }
-
-  // Changes from the page. Only a JSON body is taken, which another site's
-  // page can't send without asking (and the cookie is SameSite anyway).
-  private def control(ex: HttpExchange): Unit = {
-    val json = Option(ex.getRequestHeaders.nn.getFirst("Content-Type"))
-      .exists(_.startsWith("application/json"))
-    if (!json) reply(ex, 415, "text/plain", "expected json")
-    else {
-      val body =
-        ujson.read(String(ex.getRequestBody.nn.readNBytes(65536), UTF_8))
-      val c = state.control
-      body("action").str match {
-        case "pause"   => c.pause()
-        case "resume"  => c.resume()
-        case "release" => c.release(body("id").num.toLong)
-        case "break"   => c.set_breakpoint(body("at").str, body("on").bool)
-        case "break_on_failure" => c.set_break_on_failure(body("on").bool)
-        case other => throw IllegalArgumentException(s"unknown action $other")
-      }
-      reply(ex, 200, "application/json", ujson.write(status_json))
-    }
-  }
-
-  // The files the page links to: targets' logs, saved values and data, and
-  // commands' output. Only under those two directories, and always as text,
-  // so nothing in them runs in the page's origin.
-  private def file(ex: HttpExchange, path: String): Unit = {
-    val rel = scala.util.Try(os.RelPath(path.stripPrefix("/"))).toOption
-    val allowed = rel.filter(r =>
-      r.ups == 0 && r.segments.headOption.exists(served_dirs.contains)
-    )
-    val target = allowed.map(state.workspace / _).filter { p =>
-      os.exists(p) && {
-        val real = p.toNIO.toRealPath()
-        served_dirs.exists(d =>
-          real.startsWith((state.workspace / d).toNIO.toRealPath())
-        )
-      }
-    }
-    target match {
-      case Some(p) if os.isDir(p) =>
-        val items = os.list(p).map { f =>
-          val name = f.last + (if (os.isDir(f)) "/" else "")
-          s"""<li><a href="${html(path.stripSuffix("/"))}/${html(name)}">${html(
-              name
-            )}</a></li>"""
-        }
-        reply(
-          ex,
-          200,
-          "text/html",
-          s"<!doctype html><meta charset=utf-8><title>${html(p.last)}</title><ul>${items.mkString}</ul>"
-        )
-      case Some(p) =>
-        ex.getResponseHeaders.nn
-          .set("Content-Type", "text/plain; charset=utf-8")
-        ex.sendResponseHeaders(200, os.size(p))
-        val out = ex.getResponseBody.nn
-        val _ = java.nio.file.Files.copy(p.toNIO, out)
-        out.close()
-      case None => reply(ex, 404, "text/plain", "not found")
-    }
-  }
 }
 
 object WebServer {
   private val cookie_name = "grader_session"
   private val session_ms: Long = 12L * 60 * 60 * 1000
-  private val served_dirs = Set("targets", "std_out_err")
   private val failed_logins = new Object
   private val random = new SecureRandom()
-
-  // Serves `state`'s run while `f` runs, if there's a config, and returns
-  // f's value. A server that can't start (e.g. its port is taken by another
-  // workspace's run) is reported and skipped: the run goes on without it.
-  //
-  // `paused`: the run starts paused, so nothing runs until someone resumes it
-  // from the page (after setting breakpoints, say). `pause_at_end`: once `f`
-  // is done (or failed), the run waits to exit until someone lets it, so its
-  // final state can be looked at. Both need the server: without one, there'd
-  // be no way to go on, so they're ignored.
-  //
-  // `pages`, if any, are served too, at /<prefix>/.
-  def serving[A](
-      state: State,
-      config: Option[WebConfig],
-      paused: Boolean = false,
-      pause_at_end: Boolean = false,
-      pages: Option[WebPages] = None
-  )(f: => A): A =
-    config.flatMap(c => start(state, c, pages, run = true)) match {
-      case None =>
-        if (paused || pause_at_end)
-          println(
-            "not pausing: that needs this run to be served (see config.json's \"web\")"
-          )
-        f
-      case Some(server) =>
-        if (paused) {
-          state.control.pause()
-          println("paused: resume this run from its page")
-        }
-        try f
-        finally {
-          if (pause_at_end) {
-            println("waiting to exit: let this run go from its page")
-            state.control.hold_at_end()
-          }
-          server.stop()
-        }
-    }
 
   // Serves just `pages` (no run) until the program is stopped. The
   // workspace holds the server's keys and certificate, as for runs. False if
@@ -379,21 +197,23 @@ object WebServer {
       config: WebConfig,
       pages: WebPages
   ): Boolean =
-    start(State(workspace), config, Some(pages), run = false) match {
+    start(workspace, config, Some(pages), None) match {
       case None    => false
       case Some(_) =>
         new java.util.concurrent.CountDownLatch(1).await()
         true
     }
 
-  private def start(
-      state: State,
+  // Starts serving `pages` and `run`; None if it can't (the reason is
+  // printed)
+  def start(
+      workspace: os.Path,
       config: WebConfig,
       pages: Option[WebPages],
-      run: Boolean
+      run: Option[RunView]
   ): Option[WebServer] =
     try {
-      val (ks, password) = keystore(state, config)
+      val (ks, password) = keystore(workspace, config)
       val kmf = KeyManagerFactory
         .getInstance(KeyManagerFactory.getDefaultAlgorithm)
         .nn
@@ -407,16 +227,16 @@ object WebServer {
       val http = HttpsServer.create(address, 0).nn
       http.setHttpsConfigurator(HttpsConfigurator(ssl))
       val server =
-        WebServer(state, config, http, session_secret(state), pages, run)
+        WebServer(config, http, session_secret(workspace), pages, run)
       server.start()
-      if (run) state.control.enable()
       val host = config.bind.getOrElse(
         java.net.InetAddress.getLocalHost.nn.getCanonicalHostName
       )
-      val what = if (run) "this run" else pages.fold("")(_.prefix)
+      val what =
+        if (run.nonEmpty) "this run" else pages.fold("")(_.prefix)
       println(s"serving $what at https://$host:${config.port}/")
       pages
-        .filter(_ => run)
+        .filter(_ => run.nonEmpty)
         .foreach(w =>
           println(
             s"  and ${w.prefix} at https://$host:${config.port}/${w.prefix}/"
@@ -426,33 +246,33 @@ object WebServer {
     } catch {
       case NonFatal(e) =>
         println(
-          s"not serving ${if (run) "this run" else "pages"}: ${e.toString}"
+          s"not serving ${if (run.nonEmpty) "this run" else "pages"}: ${e.toString}"
         )
         None
     }
 
-  private def web_dir(state: State): os.Path = state.workspace / "web"
+  private def web_dir(workspace: os.Path): os.Path = workspace / "web"
 
   // A random key for signing session cookies, kept in the workspace so
   // sessions outlive a run. Removing it ends every session.
-  private def session_secret(state: State): Array[Byte] = {
-    val f = web_dir(state) / "session.key"
+  private def session_secret(workspace: os.Path): Array[Byte] = {
+    val f = web_dir(workspace) / "session.key"
     if (!os.isFile(f)) {
       val key = new Array[Byte](32)
       random.nextBytes(key)
-      os.makeDir.all(web_dir(state))
+      os.makeDir.all(web_dir(workspace))
       os.write.over(f, key, perms = "rw-------")
     }
     os.read.bytes(f)
   }
 
   private def keystore(
-      state: State,
+      workspace: os.Path,
       config: WebConfig
   ): (KeyStore, Array[Char]) = {
     val (path, password) = config.keystore match {
       case Some(k) => (k.path, k.password)
-      case None    => self_signed(state)
+      case None    => self_signed(workspace)
     }
     val ks = KeyStore.getInstance("PKCS12").nn
     val in = os.read.inputStream(path)
@@ -464,8 +284,8 @@ object WebServer {
   // A self-signed certificate for this host, made with keytool on first use
   // and kept in the workspace. Its fingerprint is printed every time, to check
   // against what the browser shows.
-  private def self_signed(state: State): (os.Path, String) = {
-    val dir = web_dir(state)
+  private def self_signed(workspace: os.Path): (os.Path, String) = {
+    val dir = web_dir(workspace)
     val ks = dir / "self-signed.p12"
     val pass = dir / "self-signed.pass"
     if (!os.isFile(ks) || !os.isFile(pass)) {
@@ -524,7 +344,7 @@ object WebServer {
 
   ///////////// http helpers /////////////
 
-  private def reply(
+  def reply(
       ex: HttpExchange,
       code: Int,
       content_type: String,
@@ -560,7 +380,7 @@ object WebServer {
     } yield java.net.URLDecoder.decode(kv(0), UTF_8).nn ->
       java.net.URLDecoder.decode(kv(1), UTF_8).nn).toMap
 
-  private def html(s: String): String =
+  def html(s: String): String =
     s.flatMap {
       case '&'  => "&amp;"
       case '<'  => "&lt;"

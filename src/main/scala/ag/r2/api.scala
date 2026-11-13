@@ -1,40 +1,20 @@
 package ag.r2
 
-import ag.common.Signer
+import ag.common.{Signer, ToRelPath}
 
 import upickle.default.ReadWriter
-
-object Noise {
-  private var noise: Boolean = false
-
-  def apply(): Boolean = noise
-
-  // Stops at end of input: read() then returns -1 at once, which would spin
-  // and toggle noise at random.
-  Thread.ofPlatform().daemon(true).start { () =>
-    var reading = true
-    while (reading) {
-      println("-- hit enter to toggle noise --")
-      if (System.in.read() < 0) reading = false
-      else noise = !noise
-    }
-  }
-}
 
 def say(ctx: Context[?], msg: => Any): Unit = Context.say(Some(ctx), msg)
 
 // for code that isn't part of any target's computation
-def say(msg: => Any): Unit = Context.say(None, msg)
+def say(msg: => Any): Unit = ag.common.say(msg)
 
 def shout(ctx: Context[?], msg: => Any): Unit = {
   say(ctx, msg)
   println(msg)
 }
 
-def shout(msg: => Any): Unit = {
-  say(msg)
-  println(msg)
-}
+def shout(msg: => Any): Unit = ag.common.shout(msg)
 
 // Called from within a target's function, runs f iff the target's value needs to be recomputed
 def run_if_needed[A: ReadWriter](tracker: Tracker[A])(

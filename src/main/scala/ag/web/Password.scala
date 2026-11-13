@@ -1,4 +1,4 @@
-package ag.r2
+package ag.web
 
 import java.security.{MessageDigest, SecureRandom}
 import java.util.Base64

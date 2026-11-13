@@ -1,7 +1,6 @@
 package ag.grader
 
-import ag.common.down
-import ag.r2.shout
+import ag.common.{down, shout}
 import ag.rules.run
 import scala.collection.SortedSet
 

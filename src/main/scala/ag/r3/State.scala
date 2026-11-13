@@ -1,6 +1,6 @@
 package ag.r3
 
-import ag.r2.Task
+import ag.common.Task
 import org.eclipse.jgit.lib.ObjectId
 
 import scala.collection.mutable

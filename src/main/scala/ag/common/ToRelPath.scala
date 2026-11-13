@@ -1,4 +1,4 @@
-package ag.r2
+package ag.common
 
 import scala.annotation.unused
 import scala.compiletime.summonFrom

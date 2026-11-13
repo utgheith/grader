@@ -1,5 +1,7 @@
 package ag.r2
 
+import ag.common.Task
+
 import os.Path
 
 import scala.collection.mutable

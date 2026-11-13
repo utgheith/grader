@@ -1,11 +1,12 @@
-package ag.r2
+package ag.common
 
 import java.util.concurrent.CountDownLatch
 import scala.util.{Failure, Success, Try}
 
-// The engine's in-flight computations: a value that some thread is working on,
-// which any number of readers can wait for. Nothing outside ag.r2 sees one:
-// targets read each other with Tracker.track and Tracker.track_all.
+// The engines' in-flight computations (ag.r2's and ag.r3's): a value that
+// some thread is working on, which any number of readers can wait for.
+// Nothing outside the engines sees one: targets read each other with their
+// trackers' track and track_all.
 private[ag] final class Task[A] private () {
   private val latch = new CountDownLatch(1)
   @volatile private var outcome: Try[A] | Null = null

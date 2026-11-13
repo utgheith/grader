@@ -1,5 +1,6 @@
 package ag.r2
 
+import ag.web.{Password, WebConfig}
 import munit.FunSuite
 
 import java.net.URI
@@ -8,19 +9,7 @@ import java.security.KeyStore
 import javax.net.ssl.{SSLContext, TrustManagerFactory}
 import scala.jdk.CollectionConverters.*
 
-class PasswordTests extends FunSuite {
-  test("a hash checks its password, and only it") {
-    val h = Password.hash("secret".toCharArray)
-    assert(h.startsWith("pbkdf2-sha256$"))
-    assert(Password.check("secret".toCharArray, h))
-    assert(!Password.check("Secret".toCharArray, h))
-    assertNotEquals(Password.hash("secret".toCharArray), h, "salted")
-    assert(!Password.check("secret".toCharArray, "nonsense"))
-    assert(!Password.check("secret".toCharArray, "pbkdf2-sha256$1$!!$!!"))
-  }
-}
-
-class WebServerTests extends FunSuite {
+class LiveRunTests extends FunSuite {
   private def free_port(): Int = {
     val s = java.net.ServerSocket(0)
     try s.getLocalPort
@@ -44,7 +33,7 @@ class WebServerTests extends FunSuite {
   test("paused, the run's first target waits until someone resumes") {
     val root = State(os.temp.dir(deleteOnExit = true))
     val only: Target[Int] = Scope("start_paused").target(EmptyTuple)((_, _) => 5)
-    WebServer.serving(root, Some(config()), paused = true) {
+    LiveRun.serving(root, Some(config()), paused = true) {
       assert(root.control.status.paused)
       @volatile var value = 0
       val t = Thread.ofVirtual().start(() => value = root.track(only))
@@ -62,7 +51,7 @@ class WebServerTests extends FunSuite {
     @volatile var exited = false
     val t = Thread.ofVirtual().start { () =>
       try
-        WebServer.serving(root, Some(config()), pause_at_end = true) {
+        LiveRun.serving(root, Some(config()), pause_at_end = true) {
           throw Exception("the run failed")
         }
       catch { case _: Exception => exited = true }
@@ -80,7 +69,7 @@ class WebServerTests extends FunSuite {
   test("without a server, neither pause applies") {
     val root = State(os.temp.dir(deleteOnExit = true))
     val only: Target[Int] = Scope("no_server").target(EmptyTuple)((_, _) => 7)
-    val v = WebServer.serving(root, None, paused = true, pause_at_end = true)(root.track(only))
+    val v = LiveRun.serving(root, None, paused = true, pause_at_end = true)(root.track(only))
     assertEquals(v, 7)
   }
 
@@ -95,7 +84,7 @@ class WebServerTests extends FunSuite {
     os.write(workspace / "targets" / "x" / "log.txt", "logged", createFolders = true)
     os.write(workspace / "secret.txt", "not served")
     val root = State(workspace)
-    WebServer.serving(root, Some(config)) {
+    LiveRun.serving(root, Some(config)) {
       // trusts just the certificate the server made
       val trust = KeyStore.getInstance("PKCS12")
       val pass = os.read(workspace / "web" / "self-signed.pass").trim.toCharArray

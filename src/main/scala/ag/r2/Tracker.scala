@@ -1,6 +1,6 @@
 package ag.r2
 
-import ag.common.{Signature, Signer}
+import ag.common.{Signature, Signer, Task}
 import upickle.default.{ReadWriter, read, write}
 
 import scala.collection.{mutable, SortedMap}

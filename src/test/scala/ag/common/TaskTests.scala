@@ -1,4 +1,4 @@
-package ag.r2
+package ag.common
 
 import munit.FunSuite
 

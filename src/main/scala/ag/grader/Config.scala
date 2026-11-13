@@ -160,7 +160,7 @@ case class CloudflareConfig(
     api_result("GET", s"$projects/${query(project)}") match {
       case Right(_)       => ()
       case Left((404, _)) =>
-        ag.r2.shout(s"creating Cloudflare Pages project $project")
+        ag.common.shout(s"creating Cloudflare Pages project $project")
         val _ = api(
           "POST",
           projects,
@@ -280,7 +280,7 @@ case class CloudflareConfig(
             s"deploying $project failed $n times (wrangler exit ${r.exitCode})"
           )
         val wait = 30L * n
-        ag.r2.shout(
+        ag.common.shout(
           s"deploying $project failed (wrangler exit ${r.exitCode}); trying again in ${wait}s"
         )
         Thread.sleep(wait * 1000)
@@ -301,8 +301,8 @@ case class Config(
     can_send_mail: Option[Boolean],
     can_push_repo: Option[Boolean],
     cloudflare: Option[CloudflareConfig],
-    // serve each run's graph live; see ag.r2.WebConfig
-    web: Option[ag.r2.WebConfig] = None
+    // serve each run's graph live; see ag.web.WebConfig
+    web: Option[ag.web.WebConfig] = None
 ) derives ReadWriter {}
 
 object Config extends Scope(".") {
@@ -326,7 +326,7 @@ object Config extends Scope(".") {
   }
 
   // Read straight from config.json, never through a target, like cloudflare.
-  def web: Option[ag.r2.WebConfig] = load().web
+  def web: Option[ag.web.WebConfig] = load().web
 
   // The git server, read straight from config.json: for what runs outside
   // any State (LocalMirror).

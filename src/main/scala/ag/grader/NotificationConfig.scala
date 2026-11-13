@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.{say, shout}
+import ag.common.{say, shout}
 import upickle.default.ReadWriter
 import ag.rules.check
 

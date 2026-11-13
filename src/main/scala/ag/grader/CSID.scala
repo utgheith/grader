@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.ToRelPath
+import ag.common.ToRelPath
 import upickle.default.{readwriter, ReadWriter}
 import scala.math.Ordering
 

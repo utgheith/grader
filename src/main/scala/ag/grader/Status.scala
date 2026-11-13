@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r2.{WebPage, WebPages}
+import ag.web.{WebPage, WebPages}
 import ag.r3.{State, Target, Tree}
 
 import java.net.{URLDecoder, URLEncoder}
