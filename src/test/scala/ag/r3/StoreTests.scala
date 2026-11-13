@@ -169,3 +169,66 @@ class StoreTests extends FunSuite {
     }
   }
 }
+
+// checking a tree out over a directory, and copying one file out of a tree
+class StoreCheckoutTests extends FunSuite {
+  private def git(dir: os.Path, args: String*): String =
+    os.proc(Seq("git", "-c", "user.name=t", "-c", "user.email=t@x") ++ args)
+      .call(cwd = dir, stderr = os.Pipe)
+      .out
+      .text()
+      .trim
+
+  // a repo with a file, an executable, a link, a big-ish file and a
+  // submodule entry; its tree's id
+  private def repo(): (os.Path, String) = {
+    val d = os.temp.dir(deleteOnExit = true)
+    val _ = git(d, "init", "-q", "-b", "master")
+    os.write(d / "a.txt", "new")
+    os.write(d / "run.sh", "#!/bin/sh")
+    os.perms.set(d / "run.sh", "rwxr-xr-x")
+    os.symlink(d / "link", os.rel / "a.txt")
+    // as written: java.nio would drop the slash
+    val _ = os.proc("ln", "-s", "dir/", (d / "slash").toString).call()
+    os.write(d / "dir" / "big", "x" * (3 << 20), createFolders = true)
+    val _ = git(d, "add", "-A")
+    // a submodule: a gitlink, with no commit behind it here
+    val _ = git(d, "update-index", "--add", "--cacheinfo", s"160000,${"1" * 40},sub")
+    val _ = git(d, "commit", "-q", "-m", "c")
+    (d, git(d, "rev-parse", "HEAD^{tree}"))
+  }
+
+  test("checkout_to writes over what's there, merges directories, and makes a submodule an empty directory") {
+    val (d, tree) = repo()
+    val store = Store(d / ".git", create = false)
+    val dest = os.temp.dir(deleteOnExit = true)
+    os.write(dest / "a.txt", "old")
+    os.write(dest / "link", "a file where the link goes")
+    os.write(dest / "dir" / "kept", "mine", createFolders = true)
+    store.checkout_to(org.eclipse.jgit.lib.ObjectId.fromString(tree).nn, dest, writable = true)
+    assertEquals(os.read(dest / "a.txt"), "new")
+    assert(os.isLink(dest / "link"))
+    assertEquals(os.readLink(dest / "slash").toString, "dir/")
+    assertEquals(os.read(dest / "dir" / "kept"), "mine")
+    assertEquals(os.size(dest / "dir" / "big"), 3L << 20)
+    assert(os.perms(dest / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+    assert(os.isDir(dest / "sub"))
+    assertEquals(os.list(dest / "sub"), IndexedSeq())
+  }
+
+  test("copy_file: a file (streamed), a link, nothing for a directory or a missing path") {
+    val (d, tree) = repo()
+    val store = Store(d / ".git", create = false)
+    val id = org.eclipse.jgit.lib.ObjectId.fromString(tree).nn
+    val out = os.temp.dir(deleteOnExit = true)
+    assert(store.copy_file(id, os.rel / "dir" / "big", out / "big"))
+    assertEquals(os.size(out / "big"), 3L << 20)
+    assert(store.copy_file(id, os.rel / "link", out / "link"))
+    assertEquals(os.readLink(out / "link"), os.rel / "a.txt")
+    assert(store.copy_file(id, os.rel / "run.sh", out / "run.sh"))
+    assert(os.perms(out / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+    assert(!store.copy_file(id, os.rel / "dir", out / "dir"))
+    assert(!store.copy_file(id, os.rel / "sub", out / "sub"))
+    assert(!store.copy_file(id, os.rel / "nope", out / "nope"))
+  }
+}

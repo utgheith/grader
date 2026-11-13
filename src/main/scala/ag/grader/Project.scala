@@ -72,8 +72,8 @@ object Phase:
     case Phase.Two    => os.RelPath("phase2")
   }
 
-private val started_runs = AtomicLong(0)
-private val finished_runs = AtomicLong(0)
+private[grader] val started_runs = AtomicLong(0)
+private[grader] val finished_runs = AtomicLong(0)
 
 @upickle.implicits.allowUnknownKeys(false)
 case class Project(course: Course, project_name: String)

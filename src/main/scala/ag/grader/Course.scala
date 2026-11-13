@@ -208,14 +208,9 @@ case class Course(course_name: String)
       }
     }
 
-  // Each course is its own Cloudflare Pages project: a deploy replaces a
-  // project's whole site, so courses sharing one would erase each other.
-  // Project names allow only lowercase letters, digits and dashes.
-  lazy val cloudflare_project: String =
-    course_name.toLowerCase.nn.map(c => if (c.isLetterOrDigit) c else '-')
-
   // Deploys the site repo's pages whenever they change (or cloudflare's
-  // settings do), and serves them at <cloudflare_project>.<domain> when a
+  // settings do), and serves them at <project>.<domain> (see
+  // CloudflareConfig.project_of) when a
   // domain is configured. The data directory holds exactly what was
   // deployed; the value is the site's address, or None if not deployed.
   lazy val push_to_cloudflare: Target[WithData[Option[String]]] =
@@ -223,7 +218,8 @@ case class Course(course_name: String)
       (
         site = publish_site,
         enabled = Config.cloudflare_enabled,
-        domain = Config.cloudflare_domain
+        domain = Config.cloudflare_domain,
+        prefix = Config.cloudflare_project_prefix
       )
     ) { (producer, deps) =>
       create_data(producer)(_ => false) { dir =>
@@ -238,16 +234,11 @@ case class Course(course_name: String)
 
         Config.cloudflare.filter(_ => deps.enabled) match {
           case Some(cf) =>
-            say(producer, s"deploying ${site_repo_name} to $cloudflare_project")
-            cf.deploy(site_dir, cloudflare_project)
-            val host = deps.domain match {
-              case Some(zone) =>
-                val host = s"$cloudflare_project.$zone"
-                cf.ensure_domain(cloudflare_project, host, zone)
-                host
-              case None => cf.pages_host(cloudflare_project)
-            }
-            Some(s"https://$host")
+            say(
+              producer,
+              s"deploying ${site_repo_name} to ${cf.project_of(course_name)}"
+            )
+            Some(cf.publish(site_dir, course_name))
           case None =>
             say(
               producer,

@@ -60,6 +60,11 @@ final class Source(val root: os.Path) {
       }
   }
 
+  // whether there's a repo `name` (even one with no commits)
+  lazy val exists: String => Target[Boolean] = scope.fun { (name: String) =>
+    scope.target((all = repos))((_, deps) => deps.all.contains(name))
+  }
+
   def master(name: String): Target[Option[Commit]] =
     ref(name, "refs/heads/master")
 }

@@ -17,11 +17,7 @@ import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.treewalk.TreeWalk
 
 import java.nio.charset.StandardCharsets.UTF_8
-import java.nio.file.{
-  FileAlreadyExistsException,
-  DirectoryNotEmptyException,
-  Files
-}
+import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
 import scala.collection.SortedMap
@@ -289,6 +285,39 @@ final class Store(val dir: os.Path, create: Boolean = true) {
       }
     }
 
+  // where the link at `path` in `tree` points, as written; None if there's
+  // no link there
+  def link_target(tree: ObjectId, path: os.RelPath): Option[String] =
+    Using.resource(repo.newObjectReader().nn) { reader =>
+      walk_to(reader, tree, path).collect {
+        case (id, mode) if mode == FileMode.SYMLINK =>
+          String(reader.open(id).nn.getBytes.nn, UTF_8)
+      }
+    }
+
+  // The file (or link) at `path` in `tree`, written to `dest` (streamed: it
+  // may be bigger than memory); false if there's no file there
+  def copy_file(tree: ObjectId, path: os.RelPath, dest: os.Path): Boolean =
+    Using.resource(repo.newObjectReader().nn) { reader =>
+      walk_to(reader, tree, path) match {
+        case Some((id, mode)) if mode == FileMode.SYMLINK =>
+          os.remove.all(dest)
+          val target = String(reader.open(id).nn.getBytes.nn, UTF_8)
+          ag.common.Links.create(dest, target)
+          true
+        case Some((id, mode))
+            if mode != FileMode.TREE && mode != FileMode.GITLINK =>
+          os.remove.all(dest)
+          Using.resource(reader.open(id).nn.openStream().nn)(in =>
+            os.write(dest, in, createFolders = true)
+          )
+          if (mode == FileMode.EXECUTABLE_FILE)
+            os.perms.set(dest, os.PermSet.fromString("rwxr-xr-x"))
+          true
+        case _ => false
+      }
+    }
+
   // the names in directory `path` of `tree`, if it's a directory
   def list(tree: ObjectId, path: os.RelPath): Option[Seq[String]] =
     Using.resource(repo.newObjectReader().nn) { reader =>
@@ -314,6 +343,9 @@ final class Store(val dir: os.Path, create: Boolean = true) {
 
   // Writes `tree` to `dest`, which mustn't exist; files are read-only unless
   // `writable`.
+  // `tree`'s files into `dest`, over what's there (a file or link in the way
+  // is replaced; directories are merged). A submodule becomes an empty
+  // directory, as git checks it out.
   def checkout_to(tree: ObjectId, dest: os.Path, writable: Boolean): Unit =
     Using.resource(repo.newObjectReader().nn) { reader =>
       os.makeDir.all(dest)
@@ -322,14 +354,21 @@ final class Store(val dir: os.Path, create: Boolean = true) {
       while (tw.next()) {
         val p = dest / os.RelPath(tw.getPathString.nn)
         val mode = tw.getFileMode(0).nn
-        if (mode == FileMode.TREE) {
+        val dir = mode == FileMode.TREE || mode == FileMode.GITLINK
+        if (
+          os.exists(p, followLinks = false) && (!dir || !os.isDir(
+            p,
+            followLinks = false
+          ))
+        )
+          os.remove.all(p)
+        if (dir) {
           os.makeDir.all(p)
-          tw.enterSubtree()
+          if (mode == FileMode.TREE) tw.enterSubtree()
         } else if (mode == FileMode.SYMLINK) {
           val target =
             String(reader.open(tw.getObjectId(0)).nn.getBytes.nn, UTF_8)
-          val _ =
-            Files.createSymbolicLink(p.toNIO, java.nio.file.Path.of(target))
+          ag.common.Links.create(p, target)
         } else {
           Using.resource(reader.open(tw.getObjectId(0)).nn.openStream().nn)(
             in => os.write(p, in)
@@ -357,8 +396,9 @@ final class Store(val dir: os.Path, create: Boolean = true) {
       checkout_to(tree, tmp, writable = false)
       try os.move(tmp, dest, atomicMove = true)
       catch {
-        // another reader got there first
-        case _: (FileAlreadyExistsException | DirectoryNotEmptyException) =>
+        // another reader got there first (which the move may report as just
+        // a FileSystemException: "Directory not empty")
+        case _: java.nio.file.FileSystemException if os.exists(dest) =>
           os.remove.all(tmp)
       }
     }

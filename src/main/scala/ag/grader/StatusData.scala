@@ -29,24 +29,11 @@ final class StatusData(val source: Source) extends Scope("status") {
   private def text(ctx: Context[?], c: Commit, file: String): Option[String] =
     ctx.read_text(ctx.commit(c).tree, os.RelPath(file))
 
-  lazy val courses: Target[SortedMap[String, RawCourse]] =
-    target((m = master("courses_config"))) { (producer, deps) =>
-      (for {
-        c <- deps.m
-        json <- text(producer, c, "courses.json")
-      } yield upickle.default
-        .read[Map[String, RawCourseNotSorted]](json)
-        .view
-        .mapValues(_.sorted)
-        .to(SortedMap)).getOrElse(SortedMap())
-    }
-
-  lazy val project: (String, String) => Target[Option[RawProject]] = fun {
-    (c: String, p: String) =>
-      target((cs = courses))((_, deps) =>
-        deps.cs.get(c).flatMap(_.projects.get(p))
-      )
-  }
+  // what the courses and projects are: shared with grading
+  val definitions: Definitions = Definitions(source)
+  def courses: Target[SortedMap[String, RawCourse]] = definitions.courses
+  def project(c: String, p: String): Target[Option[RawProject]] =
+    definitions.find_project(c, p)
 
   // a phase's published results, by alias, and when they were committed
   lazy val phase_results: (String, String, Phase) => Target[PhaseResults] =

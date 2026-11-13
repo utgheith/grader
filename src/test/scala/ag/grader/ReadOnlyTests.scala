@@ -76,7 +76,8 @@ class ReadOnlyTests extends FunSuite {
   test("deploying a site is refused") {
     val site = os.temp.dir(deleteOnExit = true) / "site"
     os.makeDir.all(site)
-    refused("won't run wrangler") {
+    // (it makes sure the project's there first, through the API)
+    refused("won't call Cloudflare") {
       CloudflareConfig(enabled = true, id = "x", api_key = "y", domain = None).deploy(site, "p")
     }
   }

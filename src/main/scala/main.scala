@@ -780,7 +780,11 @@ object Main {
 
   @main
   def publish_results(
-      commonArgs: CommonArgs
+      commonArgs: CommonArgs,
+      @arg(doc =
+        "grade the picked projects to this many tries (default: as their iterations and work say)"
+      )
+      tries: Option[Int] = None
   ): Unit = in_workspace(commonArgs) { root =>
     val candidates = root.track(commonArgs.selected_projects)
     def name(p: Project) = s"${p.course.course_name}_${p.project_name}"
@@ -808,7 +812,8 @@ object Main {
     // Priority); named projects are graded as far as their work goes
     val named = commonArgs.projects_.regex != ".*"
     val projects: Seq[(Project, Int)] =
-      if (named || candidates.size <= 1)
+      if (tries.isDefined) candidates.toSeq.map(p => (p, tries.get))
+      else if (named || candidates.size <= 1)
         for (p <- candidates.toSeq) yield {
           val w = work(p)
           report(p, w)
@@ -1042,6 +1047,652 @@ object Main {
   def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit =
     in_workspace(workspace) { root =>
       pprint.pprintln(root.track(PlTools(prefix).fstar))
+    }
+
+  // r3's workspace for grading, inside the run's: r3 keeps its own state
+  // (r3.git, checkouts, ...) beside ag.r2's targets/
+  private def r3_workspace(workspace: os.Path): os.Path = workspace / "r3"
+
+  // Checks the r3 port of the course and project definitions
+  // (ag.grader.Definitions, on the local mirror) against ag.r2's (Course,
+  // Project, on the git server): every course's and project's settings, and
+  // each phase's deadline for every student with an extension. Prints what
+  // differs; meant for a mirror that's up to date with the server.
+  @main
+  def compare_definitions(commonArgs: CommonArgs): Unit =
+    in_workspace(commonArgs) { root =>
+      val r2 = scala.collection.mutable.SortedMap[String, Any]()
+      val r3 = scala.collection.mutable.SortedMap[String, Any]()
+      val nobody = ag.grader.CSID("nobody")
+
+      val courses = root.track(Course.all)
+      r2("courses") = courses.map(_.course_name).to(SortedSet)
+      r2("active courses") =
+        root.track(Course.active_courses).map(_.course_name).to(SortedSet)
+      for (c <- courses) {
+        val cn = c.course_name
+        r2(s"$cn active") = root.track(c.active)
+        r2(s"$cn staff") = root.track(c.staff)
+        r2(s"$cn notifications") = root.track(c.notifications)
+        val ps = root.track(c.projects)
+        r2(s"$cn projects") = ps.keySet
+        r2(s"$cn active projects") = root.track(c.active_projects).keySet
+        for (p <- ps.values) {
+          val k = s"$cn/${p.project_name}"
+          r2(s"$k active") = root.track(p.active)
+          r2(s"$k phase1_tests") = root.track(p.phase1_tests)
+          r2(s"$k phase1_weight") = root.track(p.phase1_weight)
+          r2(s"$k phase2_tests") = root.track(p.phase2_tests)
+          r2(s"$k phase2_weight") = root.track(p.phase2_weight)
+          r2(s"$k test_weights") = root.track(p.test_weights)
+          r2(s"$k bad_tests") = root.track(p.bad_tests)
+          r2(s"$k iterations") = root.track(p.iterations)
+          r2(s"$k test_cutoff") = root.track(p.test_cutoff)
+          r2(s"$k code_cutoff") = root.track(p.code_cutoff)
+          r2(s"$k extensions") = root.track(p.extensions)
+          r2(s"$k test_extensions") = root.track(p.test_extensions)
+          r2(s"$k docker_file") = root.track(p.docker_file)
+          r2(s"$k staff") = root.track(p.staff)
+          val e = root.track(p.extensions)
+          for {
+            csid <- (e.phase1.keySet ++ e.phase2.keySet + nobody).toSeq
+            phase <- Phase.values
+          } r2(s"$k deadline ${csid.value} ${phase.toString}") =
+            root.track(p.deadline(csid, phase))
+        }
+      }
+
+      val d = ag.grader.Definitions(ag.r3.Source(mirror_root(root.workspace)))
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      r3("courses") = s.track(d.course_names)
+      r3("active courses") = s.track(d.active_courses)
+      for (cn <- s.track(d.course_names)) {
+        r3(s"$cn active") = s.track(d.course_active(cn))
+        r3(s"$cn staff") = s.track(d.course_staff(cn))
+        r3(s"$cn notifications") = s.track(d.notifications(cn))
+        r3(s"$cn projects") = s.track(d.project_names(cn))
+        r3(s"$cn active projects") = s.track(d.active_projects(cn))
+        for (pn <- s.track(d.project_names(cn))) {
+          val k = s"$cn/$pn"
+          r3(s"$k active") = s.track(d.project_active(cn, pn))
+          r3(s"$k phase1_tests") = s.track(d.phase1_tests(cn, pn))
+          r3(s"$k phase1_weight") = s.track(d.phase1_weight(cn, pn))
+          r3(s"$k phase2_tests") = s.track(d.phase2_tests(cn, pn))
+          r3(s"$k phase2_weight") = s.track(d.phase2_weight(cn, pn))
+          r3(s"$k test_weights") = s.track(d.test_weights(cn, pn))
+          r3(s"$k bad_tests") = s.track(d.bad_tests(cn, pn))
+          r3(s"$k iterations") = s.track(d.iterations(cn, pn))
+          r3(s"$k test_cutoff") = s.track(d.test_cutoff(cn, pn))
+          r3(s"$k code_cutoff") = s.track(d.code_cutoff(cn, pn))
+          r3(s"$k extensions") = s.track(d.extensions(cn, pn))
+          r3(s"$k test_extensions") = s.track(d.test_extensions(cn, pn))
+          r3(s"$k docker_file") = s.track(d.docker_file(cn, pn))
+          r3(s"$k staff") = s.track(d.project_staff(cn, pn))
+          val e = s.track(d.extensions(cn, pn))
+          for {
+            csid <- (e.phase1.keySet ++ e.phase2.keySet + nobody).toSeq
+            phase <- Phase.values
+          } r3(s"$k deadline ${csid.value} ${phase.toString}") =
+            s.track(d.deadline(cn, pn, csid, phase))
+        }
+      }
+
+      val keys = r2.keySet ++ r3.keySet
+      val differ = keys.filter(k => r2.get(k) != r3.get(k))
+      for (k <- differ)
+        println(s"$k\n  r2: ${r2.get(k).toString}\n  r3: ${r3.get(k).toString}")
+      println(
+        s"${keys.size - differ.size} of ${keys.size} the same, ${differ.size} differ"
+      )
+    }
+
+  // A directory's files, for comparing data: path -> its link's target or
+  // its contents' hash (directories aren't listed: git trees can't keep
+  // empty ones)
+  private def files_of(dir: os.Path): SortedMap[String, String] =
+    if (!os.isDir(dir)) SortedMap()
+    else
+      os.walk(dir, followLinks = false)
+        .filter(p => !os.isDir(p, followLinks = false))
+        .map { p =>
+          val what =
+            if (os.isLink(p)) s"link ${os.readLink(p).toString}"
+            else {
+              // streamed: a file can be bigger than memory
+              val md = java.security.MessageDigest.getInstance("SHA-256").nn
+              scala.util.Using.resource(os.read.inputStream(p)) { in =>
+                val buf = new Array[Byte](1 << 20)
+                var n = in.read(buf)
+                while (n >= 0) { md.update(buf, 0, n); n = in.read(buf) }
+              }
+              md.digest().nn.map(b => f"$b%02x").mkString
+            }
+          (p.relativeTo(dir).toString, what)
+        }
+        .to(SortedMap)
+
+  // Checks the r3 port of the submissions (ag.grader.Submissions, on the
+  // local mirror) against ag.r2's (Course, Project, on the git server), for
+  // the projects (active or not) and students the arguments pick: each
+  // submission, its graded commit and what's prepared from it per phase,
+  // its late commits and own test, and what's read back from the aliases
+  // and results repos. ag.r2 goes first (it may push, e.g. the override
+  // repo), then the mirror is brought up to date, then r3. Prints what
+  // differs.
+  @main
+  def compare_submissions(commonArgs: CommonArgs): Unit =
+    in_workspace(commonArgs) { root =>
+      val r2 = scala.collection.mutable.SortedMap[String, Any]()
+      val r3 = scala.collection.mutable.SortedMap[String, Any]()
+      val course_re = root.track(commonArgs.courses)
+      val project_re = root.track(commonArgs.projects)
+      val student_re = root.track(commonArgs.students)
+      val picked = for {
+        c <- root.track(Course.all)
+        if course_re.matches(c.course_name)
+        p <- root.track(c.projects).values.toSeq
+        if project_re.matches(p.project_name)
+      } yield p
+      println(s"${picked.size} projects")
+      // the commits prepared, per project and student: the same on both sides
+      val shas = scala.collection.mutable
+        .Map[String, scala.collection.immutable.SortedSet[String]]()
+      def key(p: Project, csid: ag.grader.CSID) =
+        s"${p.course.course_name}/${p.project_name}/${csid.value}"
+
+      for (p <- picked) {
+        val k = s"${p.course.course_name}/${p.project_name}"
+        val csids =
+          root
+            .track(p.course.enrolled_csids)
+            .filter(s => student_re.matches(s.value))
+        r2(s"$k enrolled") = csids
+        r2(s"$k with submission") =
+          root.track(p.students_with_submission).filter(csids.contains)
+        r2(s"$k aliases") = root.track(p.get_aliases)
+        // prepare reads it, and it's pushed if it isn't there: before the
+        // mirror is brought up to date, so r3 sees the same
+        val _ = root.track(p.publish_override_repo)
+        val tests = root.track(p.student_tests_by_csid)
+        for (csid <- csids) {
+          val ks = key(p, csid)
+          r2(s"$ks student test") = tests.get(csid).map(_.value)
+          r2(s"$ks student test files") =
+            tests.get(csid).map(t => files_of(t.get_data_path(root)))
+          r2(s"$ks late commits") = root.track(p.late_commits(csid)).value
+          r2(s"$ks results") = root.track(p.get_student_results(csid))
+          for (phase <- Phase.values) {
+            r2(s"$ks ${phase.toString} graded") =
+              root.track(p.graded_commit(csid, phase))
+            val info = root.track(p.prepare_info(csid, phase))
+            r2(s"$ks ${phase.toString} info") = info
+            r2(s"$ks ${phase.toString} late") =
+              root.track(p.is_late(csid, phase))
+            info.foreach(i =>
+              shas(ks) = shas.getOrElse(
+                ks,
+                scala.collection.immutable.SortedSet[String]()
+              ) + i.sha
+            )
+          }
+        }
+      }
+
+      println("bringing the mirror up to date")
+      ag.grader.LocalMirror.update(
+        ag.grader.Config.gitolite_server,
+        mirror_root(root.workspace),
+        _ => ()
+      )
+
+      val defs =
+        ag.grader.Definitions(ag.r3.Source(mirror_root(root.workspace)))
+      val subs = ag.grader.Submissions(defs)
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      for (p <- picked) {
+        val (c, pn) = (p.course.course_name, p.project_name)
+        val k = s"$c/$pn"
+        val csids = s
+          .track(subs.enrolled_csids(c))
+          .filter(x => student_re.matches(x.value))
+        r3(s"$k enrolled") = csids
+        r3(s"$k with submission") =
+          s.track(subs.students_with_submission(c, pn)).filter(csids.contains)
+        r3(s"$k aliases") = s.track(subs.aliases(c, pn))
+        val tests = s.track(subs.student_tests_by_csid(c, pn))
+        for (csid <- csids) {
+          val ks = key(p, csid)
+          r3(s"$ks student test") = tests.get(csid).map(_.value)
+          r3(s"$ks student test files") =
+            tests.get(csid).map(t => files_of(s.checkout(t.data)))
+          r3(s"$ks late commits") = s.track(subs.late_commits(c, pn, csid))
+          r3(s"$ks results") = s.track(subs.student_results(c, pn, csid))
+          for (phase <- Phase.values) {
+            r3(s"$ks ${phase.toString} graded") =
+              s.track(subs.graded_commit(c, pn, csid, phase))
+            val info = s.track(subs.prepare_info(c, pn, csid, phase))
+            r3(s"$ks ${phase.toString} info") = info
+            r3(s"$ks ${phase.toString} late") =
+              s.track(subs.is_late(c, pn, csid, phase))
+            info.foreach(i =>
+              shas(ks) = shas.getOrElse(
+                ks,
+                scala.collection.immutable.SortedSet[String]()
+              ) + i.sha
+            )
+          }
+        }
+      }
+
+      // what's prepared from each commit graded, on either side
+      println(s"comparing ${shas.values.map(_.size).sum} prepared commits")
+      for {
+        p <- picked
+        csid <- root.track(p.course.enrolled_csids).toSeq
+        ks = key(p, csid)
+        sha <- shas
+          .getOrElse(ks, scala.collection.immutable.SortedSet[String]())
+          .toSeq
+      } {
+        r2(s"$ks prepared $sha") =
+          files_of(root.track(p.prepare(csid, sha)).get_data_path(root))
+        r3(s"$ks prepared $sha") = files_of(
+          s.checkout(
+            s.track(
+              subs.prepare(p.course.course_name, p.project_name, csid, sha)
+            ).data
+          )
+        )
+      }
+
+      val keys = r2.keySet ++ r3.keySet
+      val differ = keys.filter(k => r2.get(k) != r3.get(k))
+      for (k <- differ)
+        println(
+          s"$k\n  r2: ${r2.get(k).toString.take(2000)}\n  r3: ${r3.get(k).toString.take(2000)}"
+        )
+      println(
+        s"${keys.size - differ.size} of ${keys.size} the same, ${differ.size} differ"
+      )
+    }
+
+  // Checks the r3 port of the tests (ag.grader.TestRuns) against ag.r2's
+  // (Project), for the projects (active or not) the arguments pick: the
+  // aliases, the test sets, each test's files and the docker image. r2's
+  // side publishes the aliases and tests repos, as its runs do, before the
+  // mirror is brought up to date and r3's side reads it. With --run, it also
+  // runs the tests -t picks on the latest commits of the students -s picks,
+  // once on each side, and compares the outcomes and the files each run
+  // left (not their contents: times, say, differ from run to run).
+  @main
+  def compare_tests(
+      commonArgs: CommonArgs,
+      @arg(doc = "also run the tests, once on each side")
+      run: Flag = Flag(false)
+  ): Unit =
+    in_workspace(commonArgs) { root =>
+      val r2 = scala.collection.mutable.SortedMap[String, Any]()
+      val r3 = scala.collection.mutable.SortedMap[String, Any]()
+      val course_re = root.track(commonArgs.courses)
+      val project_re = root.track(commonArgs.projects)
+      val student_re = root.track(commonArgs.students)
+      val test_re = root.track(commonArgs.tests)
+      val picked = for {
+        c <- root.track(Course.all)
+        if course_re.matches(c.course_name)
+        p <- root.track(c.projects).values.toSeq
+        if project_re.matches(p.project_name)
+      } yield p
+      println(s"${picked.size} projects")
+      val sets: Seq[ag.grader.TestSet] =
+        Seq[ag.grader.TestSet]("all", "good", "chosen", "phase1", "phase2")
+      def picks(id: ag.grader.TestId): Boolean =
+        test_re.matches(id.external_name) || test_re.matches(id.internal_name)
+      def outcome(o: ag.grader.Outcome, files: Iterable[String]) =
+        (o.outcomes.map(_._1), files.toSeq.sorted)
+
+      for (p <- picked) {
+        val k = s"${p.course.course_name}/${p.project_name}"
+        r2(s"$k aliases") = root.track(p.anti_aliases).map(_.swap)
+        for (set <- sets)
+          r2(s"$k ${set: String}") = root.track(p.test_ids_for(set))
+        for (id <- root.track(p.test_ids))
+          r2(s"$k test ${id.toString}") =
+            files_of(root.track(p.test_info(id)).get_data_path(root))
+        r2(s"$k image") = root.track(p.docker_image)
+      }
+      if (run.value) {
+        val runs = for {
+          p <- picked
+          csid <- root.track(p.students_with_submission).toSeq
+          if student_re.matches(csid.value)
+          info <- root.track(p.prepare_info(csid, Phase.Latest)).toSeq
+          id <- root.track(p.test_ids).toSeq
+          if picks(id)
+        } yield (p, csid, id, p.run_one(false, 1)(csid, info.sha, id))
+        println(s"running ${runs.size} tests with r2")
+        for (((p, csid, id, _), o) <- runs.zip(root.track_all(runs.map(_._4))))
+          r2(
+            s"${p.course.course_name}/${p.project_name}/${csid.value} run ${id.toString}"
+          ) = outcome(o.value, os.list(o.get_data_path(root)).map(_.last))
+      }
+
+      println("bringing the mirror up to date")
+      ag.grader.LocalMirror.update(
+        ag.grader.Config.gitolite_server,
+        mirror_root(root.workspace),
+        _ => ()
+      )
+
+      val defs =
+        ag.grader.Definitions(ag.r3.Source(mirror_root(root.workspace)))
+      val subs = ag.grader.Submissions(defs)
+      val t = ag.grader.TestRuns(subs)
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      for (p <- picked) {
+        val (c, pn) = (p.course.course_name, p.project_name)
+        val k = s"$c/$pn"
+        r3(s"$k aliases") = s.track(t.aliases(c, pn))
+        for (set <- sets)
+          r3(s"$k ${set: String}") = s.track(t.test_ids_for(c, pn, set))
+        for (id <- s.track(t.test_ids(c, pn)))
+          r3(s"$k test ${id.toString}") =
+            files_of(s.checkout(s.track(t.test_info(c, pn, id)).data))
+        r3(s"$k image") = s.track(t.docker_image(c, pn))
+      }
+      if (run.value) {
+        val runs = for {
+          p <- picked
+          (c, pn) = (p.course.course_name, p.project_name)
+          csid <- s.track(subs.students_with_submission(c, pn)).toSeq
+          if student_re.matches(csid.value)
+          info <- s.track(subs.prepare_info(c, pn, csid, Phase.Latest)).toSeq
+          id <- s.track(t.test_ids(c, pn)).toSeq
+          if picks(id)
+        } yield (p, csid, id, t.run_one(false, 1)(c, pn, csid, info.sha, id))
+        println(s"running ${runs.size} tests with r3")
+        for (((p, csid, id, _), o) <- runs.zip(s.track_all(runs.map(_._4))))
+          r3(
+            s"${p.course.course_name}/${p.project_name}/${csid.value} run ${id.toString}"
+          ) = outcome(o.value, s.list(o.data).getOrElse(Seq()))
+      }
+
+      val keys = r2.keySet ++ r3.keySet
+      val differ = keys.filter(k => r2.get(k) != r3.get(k))
+      for (k <- differ)
+        println(
+          s"$k\n  r2: ${r2.get(k).toString.take(2000)}\n  r3: ${r3.get(k).toString.take(2000)}"
+        )
+      println(
+        s"${keys.size - differ.size} of ${keys.size} the same, ${differ.size} differ"
+      )
+    }
+
+  private def outbox_of(workspace: os.Path): ag.grader.Outbox =
+    ag.grader.Outbox(
+      workspace / "outbox",
+      mirror_root(workspace),
+      r3_workspace(workspace) / "r3.git"
+    )
+
+  // Works out, from the local mirror, what the repos the arguments pick
+  // should hold (ag.grader.Publishers), and records what differs in the
+  // outbox, for `sync` to push: the students' keys and each active course's
+  // enrollment (from the dropbox), grades repo and site; each project's
+  // override, aliases, submitted tests and tests repos; and each enrolled
+  // student's work repo for each active project. The results repos are
+  // `grade`'s. Run it again after a sync: what's read from the mirror (the
+  // tests from the override repo, the students from the enrollment) takes
+  // a round to get there.
+  @main
+  def outbox(commonArgs: CommonArgs): Unit =
+    in_workspace(commonArgs) { root =>
+      val course_re = root.track(commonArgs.courses)
+      val project_re = root.track(commonArgs.projects)
+      val student_re = root.track(commonArgs.students)
+      val pubs = publishers_of(root.workspace)
+      val subs = pubs.grading.runs.subs
+      val defs = subs.defs
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      val picked = for {
+        c <- s.track(defs.course_names).toSeq
+        if course_re.matches(c)
+        p <- s.track(defs.project_names(c)).toSeq
+        if project_re.matches(p)
+      } yield (c, p)
+      val courses = s.track(defs.active_courses).toSeq.filter(course_re.matches)
+      // with no dropbox, the keys and enrollments are left alone: they're
+      // written from it, and an empty one would unenroll everyone
+      val has_dropbox = pubs.dropbox.root.isDefined
+      if (!has_dropbox)
+        println(
+          "no dropbox_path in config.json: keys and enrollments left alone"
+        )
+      // each enrolled student's repo for each active project
+      val work_repos = for {
+        c <- courses
+        p <- s.track(defs.active_projects(c)).toSeq
+        if project_re.matches(p)
+        csid <- s.track(subs.enrolled_csids(c)).toSeq
+        if student_re.matches(csid.value)
+      } yield pubs.work_repo(c, p, csid)
+      val wanted = s.track_all(
+        (if (has_dropbox) pubs.keys +: courses.map(pubs.enrollment)
+         else Seq()) ++
+          courses.flatMap(c => Seq(pubs.grades(c), pubs.site(c))) ++
+          picked.flatMap((c, p) => pubs.all(c, p)) ++
+          work_repos
+      )
+      val ob = outbox_of(root.workspace)
+      val n = wanted.count(ob.record)
+      println(
+        s"${courses.size} courses, ${picked.size} projects, ${work_repos.size} work repos; " +
+          s"${wanted.size} repos, $n to push; ${ob.pending.size} pending in all"
+      )
+    }
+
+  // the r3 layers, on the workspace's local mirror
+  private def publishers_of(workspace: os.Path): ag.grader.Publishers =
+    ag.grader.Publishers(
+      ag.grader.Grading(
+        ag.grader.TestRuns(
+          ag.grader.Submissions(
+            ag.grader.Definitions(ag.r3.Source(mirror_root(workspace)))
+          )
+        )
+      ),
+      ag.grader.Dropbox(ag.grader.Config.dropbox_root)
+    )
+
+  // Grades the active projects the arguments pick, from the local mirror,
+  // and records their results repos (the project's and each student's) in
+  // the outbox, for `sync` to push: the r3 form of publish_results. The
+  // phases, tests and keep-going come from each project's state. With no
+  // -p, one project with work to do, picked by priority (see Priority);
+  // named projects are graded as far as their work goes. --tries grades the
+  // picked projects to that many tries instead.
+  @main
+  def grade(
+      commonArgs: CommonArgs,
+      @arg(doc = "how many tries (default: as the project's iterations say)")
+      tries: Option[Int] = None
+  ): Unit =
+    in_workspace(commonArgs) { root =>
+      val course_re = root.track(commonArgs.courses)
+      val project_re = root.track(commonArgs.projects)
+      val pubs = publishers_of(root.workspace)
+      val grading = pubs.grading
+      val subs = grading.runs.subs
+      val defs = subs.defs
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      val candidates = for {
+        c <- s.track(defs.active_courses).toSeq
+        if course_re.matches(c)
+        p <- s.track(defs.active_projects(c)).toSeq
+        if project_re.matches(p)
+      } yield (c, p)
+      def name(c: String, p: String) = s"${c}_$p"
+      def state(c: String, p: String) = s.track(grading.state(c, p))
+      def phases(c: String, p: String): Seq[Phase] =
+        Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
+      def work(c: String, p: String): Option[(ag.grader.Band, Int)] =
+        ag.grader.Priority.band(
+          state(c, p).is_live,
+          s.track(defs.iterations(c, p)),
+          n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
+        )
+      def report(c: String, p: String, w: Option[(ag.grader.Band, Int)]) =
+        println(
+          s"${name(c, p)}: ${state(c, p).description}; ${w.fold("up to date")(
+              (band, n) => s"work to do (${band.description}, to $n tries)"
+            )}"
+        )
+      val named = commonArgs.projects_.regex != ".*"
+      val projects: Seq[(String, String, Int)] = tries match {
+        case Some(n) => candidates.map((c, p) => (c, p, n))
+        case None if named || candidates.size <= 1 =>
+          for ((c, p) <- candidates) yield {
+            val w = work(c, p)
+            report(c, p, w)
+            (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
+          }
+        case None =>
+          val busy = for {
+            (c, p) <- candidates
+            w = work(c, p)
+            _ = report(c, p, w)
+            (band, n) <- w
+          } yield ((c, p, n), p, band)
+          val picked = ag.grader.Priority.pick(busy).toSeq
+          if (picked.isEmpty) println("nothing to do")
+          picked
+      }
+      for ((c, p, n) <- projects)
+        println(
+          s"grading ${name(c, p)} to $n tries: ${state(c, p).description}; " +
+            phases(c, p)
+              .map(ph =>
+                s"${HtmlGen.phase_label(ph)}: ${state(c, p).tests(ph): String}" +
+                  (if (state(c, p).keeps_going(ph)) ", keep-going" else "")
+              )
+              .mkString("; ")
+        )
+      val wanted = s.track_all(projects.flatMap { (c, p, n) =>
+        pubs.graded(c, p, s.track(subs.students_with_submission(c, p)), n)
+      })
+      val ob = outbox_of(root.workspace)
+      val k = wanted.count(ob.record)
+      println(
+        s"${projects.size} projects, ${wanted.size} repos, $k to push; ${ob.pending.size} pending in all"
+      )
+    }
+
+  // Each student's score for `phase`: the weights of the phase 2 tests they
+  // passed at least once in `tries` tries, halved if late (as
+  // compute_scores, for one round), from the local mirror
+  @main
+  def scores(
+      commonArgs: CommonArgs,
+      @arg(short = 'n', doc = "how many tries")
+      tries: Int = 1,
+      @arg(doc = "1 or 2 (default: the latest)")
+      phase: Phase = Phase.Latest
+  ): Unit =
+    in_workspace(commonArgs) { root =>
+      val course_re = root.track(commonArgs.courses)
+      val project_re = root.track(commonArgs.projects)
+      val grading = publishers_of(root.workspace).grading
+      val runs = grading.runs
+      val defs = runs.subs.defs
+      val s = ag.r3.State(r3_workspace(root.workspace))
+      for {
+        c <- s.track(defs.active_courses).toSeq
+        if course_re.matches(c)
+        p <- s.track(defs.active_projects(c)).toSeq
+        if project_re.matches(p)
+      } {
+        val weights = s.track(defs.test_weights(c, p))
+        val weight = (for {
+          t <- s.track(runs.test_ids(c, p)).toSeq
+          w <- weights
+          if Regex(w.pattern).matches(t.external_name)
+        } yield (t, w.weight)).to(SortedMap)
+        val total = weight.values.sum
+        println(s"${c}_$p after 1 runs, total $total:")
+        for ((csid, passed) <- s.track(grading.scores(c, p, phase, tries))) {
+          val raw = passed.toSeq.map(weight).sum
+          val late = s.track(runs.subs.is_late(c, p, csid, phase))
+          val score = if (late) raw.toDouble / 2.0 else raw.toDouble
+          println(
+            f"    ${csid.toString} ${score.toString} ${100.0 * (score / total.toDouble)}%0.2f ${
+                if (late) "late" else "ontime"
+              }"
+          )
+        }
+      }
+    }
+
+  // Pushes the outbox to the git server (see ag.grader.Outbox), then brings
+  // the local mirror up to date. Needs config.json's can_push_repo.
+  @main
+  def sync(workspace: os.Path = os.pwd / "workspace"): Unit =
+    if (!ag.grader.Config.pushes_allowed)
+      println("config.json doesn't allow pushing (can_push_repo)")
+    else {
+      val ob = outbox_of(workspace)
+      println(s"${ob.pending.size} repos to push")
+      ob.sync(ag.grader.Config.gitolite_server, println)
+      println(s"${ob.pending.size} still pending")
+    }
+
+  // Deploys each active course's site repo, as the local mirror has it, to
+  // its Cloudflare Pages project (see CloudflareConfig), if it changed since
+  // it was last deployed from this workspace (workspace/cloudflare/<course>
+  // says what was): the r3 form of push_to_cloudflare. Needs config.json's
+  // cloudflare, enabled.
+  @main
+  def deploy(commonArgs: CommonArgs): Unit =
+    ag.grader.Config.cloudflare.filter(_.enabled) match {
+      case None     => println("cloudflare isn't enabled in config.json")
+      case Some(cf) =>
+        in_workspace(commonArgs) { root =>
+          val course_re = root.track(commonArgs.courses)
+          val defs = publishers_of(root.workspace).grading.runs.subs.defs
+          val s = ag.r3.State(r3_workspace(root.workspace))
+          val dir = root.workspace / "cloudflare"
+          for {
+            c <- s.track(defs.active_courses).toSeq
+            if course_re.matches(c)
+          } {
+            val project = cf.project_of(c)
+            s.track(defs.source.master(s"${c}__site")) match {
+              case None         => println(s"$c: no site yet")
+              case Some(commit) =>
+                val tree = s.commit(commit).tree
+                // what's deployed: where, and which tree
+                val what = s"$project ${cf.domain.getOrElse("")} ${tree.id}"
+                val stamp = dir / c
+                if (scala.util.Try(os.read(stamp)).toOption.contains(what))
+                  println(s"$c: up to date ($project)")
+                else {
+                  // the repo's files, less its dot files; wrangler runs in
+                  // the site's parent, where its .wrangler cache goes
+                  val work = dir / s".tmp-$c"
+                  os.remove.all(work)
+                  val site = work / "site"
+                  os.makeDir.all(site)
+                  s.copy_to(tree, site)
+                  for (f <- os.list(site) if f.last.startsWith("."))
+                    os.remove.all(f)
+                  println(s"$c: deploying to $project")
+                  val url = cf.publish(site, c)
+                  os.write.over(stamp, what, createFolders = true)
+                  os.remove.all(work)
+                  println(s"$c: deployed, at $url")
+                }
+            }
+          }
+        }
     }
 
   // The local mirror of the git server: kept up to date by `mirror`, read

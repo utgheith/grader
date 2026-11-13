@@ -49,6 +49,21 @@ class Scope(base_ : os.RelPath | String | Scope) {
     )
   }
 
+  def fun[
+      A: ToRelPath,
+      B: ToRelPath,
+      C: ToRelPath,
+      D: ToRelPath,
+      E: ToRelPath,
+      Out
+  ](
+      f: (A, B, C, D, E) => Target[Out]
+  ): (A, B, C, D, E) => Target[Out] = { (a: A, b: B, c: C, d: D, e: E) =>
+    f(a, b, c, d, e).append(
+      ToRelPath(a) / ToRelPath(b) / ToRelPath(c) / ToRelPath(d) / ToRelPath(e)
+    )
+  }
+
   def complex_target[Out](f: Tracker[Out] => Result[Out])(using
       fn: sourcecode.FullName
   ): Target[Out] = Target(ToRelPath(fn) / base, ToRelPath(fn))(f)

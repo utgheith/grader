@@ -62,13 +62,39 @@ case class CloudflareConfig(
     enabled: Boolean,
     id: String,
     api_key: String,
-    // a zone on this Cloudflare account; each course's site is served at
+    // a zone on this Cloudflare account, or a name in one (e.g.
+    // test.classprojects.net); each course's site is served at
     // https://<course project>.<domain>
-    domain: Option[String]
+    domain: Option[String],
+    // put before each course's project name, e.g. "test-": a test setup's
+    // projects are then its own, never the live ones
+    project_prefix: Option[String] = None
 ) derives ReadWriter {
   // keep the api_key out of logs and pprint output
   override def toString: String =
-    s"CloudflareConfig(enabled = $enabled, id = $id, api_key = <redacted>, domain = ${domain.toString})"
+    s"CloudflareConfig(enabled = $enabled, id = $id, api_key = <redacted>, domain = ${domain.toString}, project_prefix = ${project_prefix.toString})"
+
+  // Each course is its own Pages project: a deploy replaces a project's
+  // whole site, so courses sharing one would erase each other. Project
+  // names allow only lowercase letters, digits and dashes.
+  def project_of(course_name: String): String =
+    project_prefix.getOrElse("") +
+      course_name.toLowerCase.nn.map(c => if (c.isLetterOrDigit) c else '-')
+
+  // Deploys `site_dir` as the course's whole site, and serves it at
+  // <project>.<domain> if there's a domain. The site's address.
+  def publish(site_dir: os.Path, course_name: String): String = {
+    val project = project_of(course_name)
+    deploy(site_dir, project)
+    val host = domain match {
+      case Some(d) =>
+        val host = s"$project.$d"
+        ensure_domain(project, host, d)
+        host
+      case None => pages_host(project)
+    }
+    s"https://$host"
+  }
 
   // ---- Cloudflare's REST API, for what wrangler doesn't do (custom domains)
 
@@ -80,7 +106,21 @@ case class CloudflareConfig(
       method: String,
       path: String,
       body: Option[ujson.Value] = None
-  ): ujson.Value = {
+  ): ujson.Value =
+    api_result(method, path, body).fold(
+      (status, errors) =>
+        throw new IllegalStateException(
+          s"Cloudflare API $method $path failed (HTTP $status): $errors"
+        ),
+      identity
+    )
+
+  // The call's `result`, or its HTTP status and Cloudflare's errors
+  private def api_result(
+      method: String,
+      path: String,
+      body: Option[ujson.Value] = None
+  ): Either[(Int, String), ujson.Value] = {
     ag.rules.refuse_if_read_only(s"call Cloudflare ($method $path)")
     val request = HttpRequest
       .newBuilder(URI.create(s"https://api.cloudflare.com/client/v4$path"))
@@ -102,14 +142,33 @@ case class CloudflareConfig(
     val json = scala.util.Try(ujson.read(response.body().nn)).toOption
     json match {
       case Some(j) if j.obj.get("success").exists(_.boolOpt.contains(true)) =>
-        j("result")
+        Right(j("result"))
       case _ =>
         val errors = json
           .flatMap(_.obj.get("errors"))
           .map(ujson.write(_))
           .getOrElse(response.body().nn.take(500))
+        Left((response.statusCode(), errors))
+    }
+  }
+
+  // Makes Pages project `project` (deployed from branch main) if it isn't
+  // there. Through the API, not wrangler: wrangler's `pages project create`
+  // now hands off to Workers, which fails for a site like ours.
+  def ensure_project(project: String): Unit = {
+    val projects = s"/accounts/$id/pages/projects"
+    api_result("GET", s"$projects/${query(project)}") match {
+      case Right(_)       => ()
+      case Left((404, _)) =>
+        ag.r2.shout(s"creating Cloudflare Pages project $project")
+        val _ = api(
+          "POST",
+          projects,
+          Some(ujson.Obj("name" -> project, "production_branch" -> "main"))
+        )
+      case Left((status, errors)) =>
         throw new IllegalStateException(
-          s"Cloudflare API $method $path failed (HTTP ${response.statusCode()}): $errors"
+          s"can't tell if Cloudflare Pages project $project exists (HTTP $status): $errors"
         )
     }
   }
@@ -134,12 +193,20 @@ case class CloudflareConfig(
     }
 
     // The dashboard adds this record itself; the API isn't documented to,
-    // so add it if it isn't there.
-    val zone_id = api("GET", s"/zones?name=${query(zone)}").arr.headOption
-      .map(_("id").str)
+    // so add it if it isn't there. `zone` may be a name in a zone (e.g.
+    // test.classprojects.net in classprojects.net): the nearest zone up.
+    val zone_id = zone
+      .split('.')
+      .tails
+      .filter(_.length >= 2)
+      .map(_.mkString("."))
+      .flatMap(z =>
+        api("GET", s"/zones?name=${query(z)}").arr.headOption.map(_("id").str)
+      )
+      .nextOption()
       .getOrElse(
         throw new IllegalStateException(
-          s"zone $zone not found: is it on this account, and can the API token read it?"
+          s"no zone for $zone: is it on this account, and can the API token read it?"
         )
       )
     val records = s"/zones/$zone_id/dns_records"
@@ -160,6 +227,11 @@ case class CloudflareConfig(
     }
   }
 
+  // The wrangler that's known to work: pinned, so a new one can't change
+  // how sites are deployed (4.152's `pages project create` hands off to
+  // Workers; a later `pages deploy` might too)
+  private val wrangler_version = "4.152.0"
+
   // Credentials go only to wrangler's process. CI=true keeps wrangler from
   // ever stopping to prompt.
   private def wrangler(cwd: os.Path, check: Boolean, quiet: Boolean)(
@@ -167,7 +239,9 @@ case class CloudflareConfig(
   ): os.CommandResult = {
     ag.rules.refuse_if_read_only("run wrangler")
     val output = if (quiet) os.Pipe else os.Inherit
-    val p = os.proc(os.Shellable(Seq("npx", "--yes", "wrangler")) +: args*)
+    val p = os.proc(
+      os.Shellable(Seq("npx", "--yes", s"wrangler@$wrangler_version")) +: args*
+    )
     recorded(p, cwd) {
       p.call(
         cwd = cwd,
@@ -188,24 +262,35 @@ case class CloudflareConfig(
   // Wrangler runs in `site_dir`'s parent, where it leaves its .wrangler cache.
   def deploy(site_dir: os.Path, project: String): Unit = {
     val cwd = site_dir / os.up
-    // fails harmlessly once the project exists; a real problem (e.g. a bad
-    // token) shows up in the deploy below
-    val _ = wrangler(cwd, check = false, quiet = true)(
-      "pages",
-      "project",
-      "create",
-      project,
-      "--production-branch=main"
-    )
-    val _ = wrangler(cwd, check = true, quiet = false)(
-      "pages",
-      "deploy",
-      site_dir,
-      s"--project-name=$project",
-      "--branch=main", // the production branch: deploy straight to live
-      "--commit-dirty=true"
-    )
+    ensure_project(project)
+    // Cloudflare's API fails now and then (e.g. 503 "no healthy upstream"):
+    // tried again after a while, a few times
+    def attempt(n: Int): Unit = {
+      val r = wrangler(cwd, check = false, quiet = false)(
+        "pages",
+        "deploy",
+        site_dir,
+        s"--project-name=$project",
+        "--branch=main", // the production branch: deploy straight to live
+        "--commit-dirty=true"
+      )
+      if (r.exitCode != 0) {
+        if (n >= deploy_tries)
+          throw new IllegalStateException(
+            s"deploying $project failed $n times (wrangler exit ${r.exitCode})"
+          )
+        val wait = 30L * n
+        ag.r2.shout(
+          s"deploying $project failed (wrangler exit ${r.exitCode}); trying again in ${wait}s"
+        )
+        Thread.sleep(wait * 1000)
+        attempt(n + 1)
+      }
+    }
+    attempt(1)
   }
+
+  private val deploy_tries = 3
 }
 
 @upickle.implicits.allowUnknownKeys(false)
@@ -247,6 +332,14 @@ object Config extends Scope(".") {
   // any State (LocalMirror).
   def gitolite_server: RemoteServer = load().gitolite
 
+  // whether pushing to the git server is allowed, read straight from
+  // config.json: for what runs outside any State (Outbox.sync)
+  def pushes_allowed: Boolean = load().can_push_repo.getOrElse(false)
+
+  // where the students drop their keys (dropbox_path, under the home
+  // directory), read straight from config.json; None if it has none
+  def dropbox_root: Option[os.Path] = load().dropbox_path.map(os.home / _)
+
   // Read straight from config.json on every call, never through a target,
   // so the api_key is never cached under workspace/.
   def cloudflare: Option[CloudflareConfig] = load().cloudflare
@@ -262,6 +355,11 @@ object Config extends Scope(".") {
     (_, _) =>
       load().cloudflare.flatMap(_.domain)
   }
+
+  lazy val cloudflare_project_prefix: Target[Option[String]] =
+    target(EmptyTuple) { (_, _) =>
+      load().cloudflare.flatMap(_.project_prefix)
+    }
 
   lazy val gitolite: Target[RemoteServer] =
     target((c = config))((_, deps) => deps.c.gitolite)

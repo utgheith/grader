@@ -131,8 +131,17 @@ object LocalMirror {
         } finally os.remove.all(tmp)
         "cloned"
       } else {
+        // from the configured server, not the repo's origin (which names
+        // whatever server it was cloned from); the refspec --mirror uses
         server
-          .SshProc("git", "fetch", "-q", "--prune", "origin")
+          .SshProc(
+            "git",
+            "fetch",
+            "-q",
+            "--prune",
+            server.git_uri(repo),
+            "+refs/*:refs/*"
+          )
           .check(cwd = dir)
         "fetched"
       }

@@ -9,6 +9,17 @@ object Docker {
 
   private val cache = TrieMap[os.Path, String]()
 
+  // the image's name: from the file's contents
+  def image_name(docker_file: os.Path): String = {
+    val sha = MessageDigest
+      .getInstance("MD5")
+      .nn
+      .digest(os.read(docker_file).getBytes)
+      .nn
+    s"grader:${sha.map(b => f"$b%02x").mkString}"
+  }
+
+  // the image for `docker_file`, built if it isn't there
   def of(docker_file: os.Path): String =
     cache.getOrElseUpdate(
       docker_file, {
@@ -16,13 +27,7 @@ object Docker {
           println(s"${docker_file.toString} does not exist")
         }
 
-        val sha = MessageDigest
-          .getInstance("MD5")
-          .nn
-          .digest(os.read(docker_file).getBytes)
-          .nn
-        val sha_string = sha.map(b => f"$b%02x").mkString
-        val image_name = s"grader:$sha_string"
+        val image_name = Docker.image_name(docker_file)
 
         val images = os.proc("docker", "images", "-q", image_name)
         val existing = recorded(images, os.pwd)(images.call()).out.lines()

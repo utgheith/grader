@@ -1,5 +1,10 @@
 package ag.grader
 
+import ag.common.{
+  given_ReadWriter_LocalDateTime,
+  given_ReadWriter_SortedMap,
+  given_ReadWriter_SortedSet
+}
 import ag.r2.{say, Target, update_data, WithData}
 
 import java.time.LocalDateTime
@@ -33,6 +38,35 @@ final case class ReportData(
     // which results these are: the latest, or a phase's
     phase: Phase = Phase.Latest
 )
+
+// What a project's report pages show, but the time they're made: the
+// inputs of HtmlGen.reports, kept by whatever makes the pages
+@upickle.implicits.allowUnknownKeys(false)
+final case class ReportInputs(
+    // <course>_<project>
+    title: String,
+    project_name: String,
+    test_cutoff: LocalDateTime,
+    code_cutoff: LocalDateTime,
+    enrollments: Int,
+    // each phase's published results (see Project.results), and whether
+    // they're published yet
+    results: Seq[
+      (
+          Phase,
+          Either[String, Option[SortedMap[Alias, RedactedStudentResults]]],
+          Boolean
+      )
+    ],
+    phase1_tests: SortedSet[String],
+    phase1_weight: Int,
+    phase2_tests: SortedSet[String],
+    phase2_weight: Int,
+    weights: Seq[Weight],
+    bad_tests: SortedSet[String],
+    staff_aliases: SortedSet[Alias],
+    tabs: Seq[(String, String)]
+) derives upickle.default.ReadWriter
 
 class HtmlGen(p: Project) {
 
@@ -91,60 +125,35 @@ class HtmlGen(p: Project) {
       )
     ) { (producer, deps) =>
       update_data(producer)(_ => false) { dir =>
-        val tab_names = (deps.projects.keys.toSeq :+ p.project_name).distinct
-          .sortBy(n => (n.length, n))
-        val written = for ((phase, r, published) <- deps.results) yield {
-          val deadline = phase.deadline(deps.test_cutoff, deps.code_cutoff)
-          val data = ReportData(
-            title = title,
-            generated = LocalDateTime.now().nn,
-            test_cutoff = deps.test_cutoff,
-            code_cutoff = deps.code_cutoff,
-            enrollments = deps.enrollment.size,
-            results =
-              if (published) r.toOption.flatten.getOrElse(SortedMap())
-              else SortedMap(),
-            notice =
-              if (!published)
-                Some(
-                  s"${HtmlGen.phase_label(phase).capitalize} results will be published after its deadline" +
-                    deadline.fold("")(d =>
-                      s", ${HtmlGen.display_format.format(d)}"
-                    ) + "."
-                )
-              else
-                r.left.toOption.map { why =>
-                  say(
-                    producer,
-                    s"can't show $title's ${HtmlGen.phase_label(phase)} results: $why"
-                  )
-                  "The results for this project are being updated; they'll be back shortly."
-                },
-            phase1_tests = deps.phase1_tests,
-            phase1_weight = deps.phase1_weight,
-            phase2_tests = deps.phase2_tests,
-            phase2_weight = deps.phase2_weight,
-            weights = deps.weights,
-            bad_tests = deps.bad_tests,
-            staff_aliases = deps.anti_aliases.collect {
-              case (alias, csid)
-                  if deps.course_staff.contains(csid) || deps.project_staff
-                    .contains(
-                      csid
-                    ) =>
-                alias
-            }.toSet,
-            tabs = tab_names.map(n => n -> s"${p.course.course_name}_$n"),
-            project_name = p.project_name,
-            phase = phase
+        val inputs = ReportInputs(
+          title = title,
+          project_name = p.project_name,
+          test_cutoff = deps.test_cutoff,
+          code_cutoff = deps.code_cutoff,
+          enrollments = deps.enrollment.size,
+          results = deps.results,
+          phase1_tests = deps.phase1_tests,
+          phase1_weight = deps.phase1_weight,
+          phase2_tests = deps.phase2_tests,
+          phase2_weight = deps.phase2_weight,
+          weights = deps.weights,
+          bad_tests = deps.bad_tests,
+          staff_aliases = HtmlGen.staff_aliases(
+            deps.anti_aliases.map(_.swap),
+            deps.course_staff ++ deps.project_staff
+          ),
+          tabs = HtmlGen.tabs(
+            p.course.course_name,
+            p.project_name,
+            deps.projects.keys
           )
-          val f = dir / HtmlGen.page_file(title, phase)
-          val version = HtmlGen.version(data)
-          val same =
-            os.isFile(f) && HtmlGen.version_of(os.read(f)).contains(version)
-          if (!same) os.write.over(f, HtmlGen.render_with(data, version))
-          f.last
-        }
+        )
+        val reports = HtmlGen.reports(
+          inputs,
+          LocalDateTime.now().nn,
+          why => say(producer, why)
+        )
+        val written = reports.map(HtmlGen.write_page(dir, _))
         // (pages this target no longer makes)
         for (f <- os.list(dir) if !written.contains(f.last)) os.remove.all(f)
       }
@@ -167,6 +176,81 @@ class HtmlGen(p: Project) {
 }
 
 object HtmlGen {
+
+  // the aliases of `staff`, by `aliases` (csid -> alias)
+  def staff_aliases(
+      aliases: collection.Map[CSID, Alias],
+      staff: collection.Set[CSID]
+  ): SortedSet[Alias] =
+    aliases
+      .collect { case (csid, alias) if staff.contains(csid) => alias }
+      .to(SortedSet)
+
+  // the tabs of a course's pages: its active projects and this one, shortest
+  // name first, as (label, page title)
+  def tabs(
+      course_name: String,
+      project_name: String,
+      active: Iterable[String]
+  ): Seq[(String, String)] =
+    (active.toSeq :+ project_name).distinct
+      .sortBy(n => (n.length, n))
+      .map(n => n -> s"${course_name}_$n")
+
+  // A project's pages, one per phase, made at `generated`; `log` hears why
+  // results that should be shown can't be
+  def reports(
+      i: ReportInputs,
+      generated: LocalDateTime,
+      log: String => Unit
+  ): Seq[ReportData] =
+    for ((phase, r, published) <- i.results) yield {
+      val deadline = phase.deadline(i.test_cutoff, i.code_cutoff)
+      ReportData(
+        title = i.title,
+        generated = generated,
+        test_cutoff = i.test_cutoff,
+        code_cutoff = i.code_cutoff,
+        enrollments = i.enrollments,
+        results =
+          if (published) r.toOption.flatten.getOrElse(SortedMap())
+          else SortedMap(),
+        notice =
+          if (!published)
+            Some(
+              s"${phase_label(phase).capitalize} results will be published after its deadline" +
+                deadline.fold("")(d => s", ${display_format.format(d)}") + "."
+            )
+          else
+            r.left.toOption.map { why =>
+              log(
+                s"can't show ${i.title}'s ${phase_label(phase)} results: $why"
+              )
+              "The results for this project are being updated; they'll be back shortly."
+            },
+        phase1_tests = i.phase1_tests,
+        phase1_weight = i.phase1_weight,
+        phase2_tests = i.phase2_tests,
+        phase2_weight = i.phase2_weight,
+        weights = i.weights,
+        bad_tests = i.bad_tests,
+        staff_aliases = i.staff_aliases.toSet,
+        tabs = i.tabs,
+        project_name = i.project_name,
+        phase = phase
+      )
+    }
+
+  // Writes `data`'s page into `dir`, unless the page there shows the same
+  // (the same version; see render): a page's bytes change only when what it
+  // shows does. Its file name.
+  def write_page(dir: os.Path, data: ReportData): String = {
+    val f = dir / page_file(data.title, data.phase)
+    val v = version(data)
+    if (!(os.isFile(f) && version_of(os.read(f)).contains(v)))
+      os.write.over(f, render_with(data, v))
+    f.last
+  }
   // ScalaTags: typed tags and attributes; text and attribute values are
   // escaped, and only `raw` (the page's own CSS, JS and JSON) is not.
   import scalatags.Text.all.*

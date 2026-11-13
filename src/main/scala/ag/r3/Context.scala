@@ -25,6 +25,29 @@ trait Context[A] {
   // a read-only directory with `tree`'s files, for tools that need a path;
   // shared by everyone who reads that tree
   def checkout(tree: Tree): os.Path = state.checkout_tree(tree)
+  // `tree`'s files, writable, into `dir` (e.g. one create_data is filling),
+  // over what's there
+  def copy_to(tree: Tree, dir: os.Path): Unit =
+    state.store_at(tree.at).checkout_to(id(tree.id), dir, writable = true)
+  // the file at `path` in `tree`, written to `dest` (streamed); false if
+  // there's no file there
+  def copy_file(tree: Tree, path: os.RelPath, dest: os.Path): Boolean =
+    state.store_at(tree.at).copy_file(id(tree.id), path, dest)
+  // where the link at `path` in `tree` points, as written; None if it's not
+  // a link
+  def link_target(tree: Tree, path: os.RelPath): Option[String] =
+    state.store_at(tree.at).link_target(id(tree.id), path)
+  // what's at `path` in `tree` (a file, link or directory), written to
+  // `dest`; false if there's nothing there
+  def copy_path(tree: Tree, path: os.RelPath, dest: os.Path): Boolean =
+    if (list(tree, path).isDefined)
+      id_at(tree, path) match {
+        case Some(sub) =>
+          copy_to(Tree(sub, tree.at), dest)
+          true
+        case None => false
+      }
+    else copy_file(tree, path, dest)
 
   def commit(c: Commit): CommitInfo =
     state.store_at(Some(c.at)).commit_info(id(c.id))
