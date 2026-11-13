@@ -47,19 +47,26 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
       )
   }
 
-  // A student's graded commit for `phase`, run on the phase's tests (each
-  // test's runs); none if there's nothing to grade
+  // A student's graded commit for `phase`, run on the tests the phase runs
+  // (each test's runs), and the other tests it shows, as far as they've run
+  // already (see TestRuns.run_one's n = 0; as Project.results_runs). A test
+  // without runs is left out; none if there's nothing to grade.
   lazy val outcomes
       : (String, String, CSID, Phase, Int) => Target[Seq[WithData[Outcome]]] =
     fun { (c: String, p: String, csid: CSID, phase: Phase, n: Int) =>
       complex_target[Seq[WithData[Outcome]]] { tracker =>
         val st = tracker.track(state(c, p))
+        val keep_going = st.keeps_going(phase)
+        val run = tracker.track(runs.test_ids_for(c, p, st.tests(phase)))
+        val others = tracker
+          .track(runs.test_ids_for(c, p, st.shows(phase)))
+          .filterNot(run.contains)
         val wanted = for {
           info <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
-          id <- tracker.track(runs.test_ids_for(c, p, st.tests(phase))).toSeq
-        } yield runs.run_one(st.keeps_going(phase), n)(c, p, csid, info.sha, id)
+          (id, tries) <- run.toSeq.map((_, n)) ++ others.toSeq.map((_, 0))
+        } yield runs.run_one(keep_going, tries)(c, p, csid, info.sha, id)
         val done = tracker.track_all(wanted)
-        tracker.run_if_needed(_ => done)
+        tracker.run_if_needed(_ => done.filter(_.value.outcomes.nonEmpty))
       }
     }
 
@@ -137,8 +144,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
 
   // Whether grading `phase` to `n` tries has tests to run, as far as the
   // published results tell (as Project.has_work): a student's graded commit
-  // isn't in them, they don't cover the phase's tests, or a test has tries
-  // to go. Missing or unreadable results are work too.
+  // isn't in them, they don't cover the tests the phase runs (or have ones
+  // it doesn't show), or a test it runs has tries to go. Missing or
+  // unreadable results are work too.
   lazy val has_work: (String, String, Phase, Int) => Target[Boolean] = fun {
     (c: String, p: String, phase: Phase, n: Int) =>
       complex_target[Boolean] { tracker =>
@@ -149,6 +157,12 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
         val ids =
           tracker
             .track(runs.test_ids_for(c, p, st.tests(phase)))
+            .map(_.redacted)
+        // the tests that may be shown besides, with the runs they have:
+        // never work
+        val shown =
+          tracker
+            .track(runs.test_ids_for(c, p, st.shows(phase)))
             .map(_.redacted)
         val infos =
           tracker.track_all(students.map(subs.prepare_info(c, p, _, phase)))
@@ -164,12 +178,16 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
                     case None    => true
                     case Some(r) =>
                       r.prepare_info.sha != info.sha ||
-                      r.outcomes.keySet != ids ||
-                      r.outcomes.values.exists { o =>
-                        o.outcomes.size < n &&
-                        (keep_going || o.outcomes
-                          .forall(_._1 == OutcomeStatus.pass))
-                      }
+                      !ids.subsetOf(r.outcomes.keySet) ||
+                      !r.outcomes.keySet.subsetOf(shown) ||
+                      r.outcomes.view
+                        .filterKeys(ids.contains)
+                        .values
+                        .exists { o =>
+                          o.outcomes.size < n &&
+                          (keep_going || o.outcomes
+                            .forall(_._1 == OutcomeStatus.pass))
+                        }
                   }
                 case _ => false
               }

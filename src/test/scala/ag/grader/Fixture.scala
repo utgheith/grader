@@ -60,7 +60,13 @@ object Fixture {
     }
   }
 
-  def setup(root: os.Path, change: RawProject => RawProject = identity): (Repos, Submissions) = {
+  val quiet: NotificationConfig = NotificationConfig(false, None, false, false, false, None)
+
+  def setup(
+      root: os.Path,
+      change: RawProject => RawProject = identity,
+      notifications: NotificationConfig = quiet
+  ): (Repos, Submissions) = {
     val r = Repos(root)
     val raw = RawProject(
       active = true, cores = 1, code_cutoff = code_cutoff, test_cutoff = test_cutoff,
@@ -71,7 +77,7 @@ object Fixture {
     )
     val rc = RawCourseNotSorted(
       active = true,
-      notifications = NotificationConfig(false, None, false, false, false, None),
+      notifications = notifications,
       projects = Map("p1" -> change(raw)),
       staff = SortedSet()
     )

@@ -21,14 +21,16 @@ final case class Create(
 // out from: the repo's master on the mirror, or, if there's no such repo
 // (`exists`), the master of the repo `create` forks it from, which is where
 // the fork starts (None: no master). The Outbox records it, and `sync`
-// makes the repo if needed (it can't without `create`) and pushes it.
+// makes the repo if needed (it can't without `create`) and pushes it, then
+// sends its `notices`.
 @upickle.implicits.allowUnknownKeys(false)
 final case class Publish(
     repo: String,
     exists: Boolean,
     base: Option[String],
     message: String,
-    create: Option[Create]
+    create: Option[Create],
+    notices: Seq[Notice] = Seq()
 ) derives ReadWriter
 
 // The repos the grader keeps up to date, as r3 targets on the local mirror:
@@ -57,6 +59,22 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
       Tuple.Union[V] <:< (Target[?] | Many[?]),
       sourcecode.FullName
   ): Target[WithData[Publish]] =
+    publisher_with_notices(repo, message, create)(targets) { (pr, v, dir) =>
+      f(pr, v, dir)
+      Seq()
+    }
+
+  // The same, but `f` also says who to tell once it's synced
+  private def publisher_with_notices[N <: Tuple, V <: Tuple](
+      repo: String,
+      message: String,
+      create: Option[Create]
+  )(targets: NamedTuple[N, V])(
+      f: (Producer[?], Target.Values[N, V], os.Path) => Seq[Notice]
+  )(using
+      Tuple.Union[V] <:< (Target[?] | Many[?]),
+      sourcecode.FullName
+  ): Target[WithData[Publish]] =
     complex_target[WithData[Publish]] { tracker =>
       val exists = tracker.track(source.exists(repo))
       val base = tracker.track(
@@ -69,29 +87,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
       tracker.run_if_needed { producer =>
         create_data(producer) { dir =>
           base.foreach(b => producer.copy_to(producer.commit(b).tree, dir))
-          f(producer, values, dir)
-          Publish(repo, exists, base.map(_.id), message, create)
+          val notices = f(producer, values, dir)
+          Publish(repo, exists, base.map(_.id), message, create, notices)
         }
-      }
-    }
-
-  // A repo that's only ever made, never changed (e.g. a student's): its
-  // data is the tree it has or would start with, as is. No copy is made, so
-  // nothing in it is touched (a copy can't keep everything: submodules, say).
-  private def creator(
-      repo: String,
-      message: String,
-      create: Create
-  )(using sourcecode.FullName): Target[WithData[Publish]] =
-    complex_target[WithData[Publish]] { tracker =>
-      val exists = tracker.track(source.exists(repo))
-      val base =
-        tracker.track(source.master(if (exists) repo else create.fork_from))
-      tracker.run_if_needed { producer =>
-        WithData(
-          Publish(repo, exists, base.map(_.id), message, Some(create)),
-          base.fold(Tree(Outbox.empty_tree))(b => producer.commit(b).tree)
-        )
       }
     }
 
@@ -305,28 +303,42 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // ---- the courses' repos ----------------------------------------------
 
-  // every active course's students' keys (a later course's key for the same
-  // student wins)
-  private lazy val all_keys: Target[SortedMap[CSID, String]] =
-    complex_target[SortedMap[CSID, String]] { tracker =>
-      val courses = tracker.track(defs.active_courses).toSeq
-      val keys = tracker.track_all(courses.map(dropbox.keys))
-      tracker.run_if_needed(_ =>
-        keys.foldLeft(SortedMap[CSID, String]())(_ ++ _)
-      )
-    }
+  // every active course's students' keys, and how it tells them about
+  // changes, by course
+  private lazy val keys_by_course: Target[
+    Seq[(String, SortedMap[CSID, String], NotificationConfig)]
+  ] = complex_target[
+    Seq[(String, SortedMap[CSID, String], NotificationConfig)]
+  ] { tracker =>
+    val courses = tracker.track(defs.active_courses).toSeq
+    val keys = tracker.track_all(courses.map(dropbox.keys))
+    val notifications = tracker.track_all(courses.map(defs.notifications))
+    tracker.run_if_needed(_ =>
+      courses.lazyZip(keys).lazyZip(notifications).toSeq
+    )
+  }
 
   // The students' keys in gitolite-admin, as they are in the dropbox: added
   // or changed, never removed (as Course.publish_keys, for every course at
-  // once, since they share the repo). It's never made.
+  // once, since they share the repo); each student whose key is added or
+  // changed is told (for the first course that has it), as their course
+  // says. It's never made.
   lazy val keys: Target[WithData[Publish]] =
-    publisher("gitolite-admin", "updated keys", None)((keys = all_keys)) {
-      (_, deps, dir) =>
-        for ((csid, key) <- deps.keys) {
-          val f = dir / "keydir" / s"${csid.value}.pub"
-          if (!os.exists(f) || os.read(f).trim.nn != key)
-            os.write.over(f, key, createFolders = true)
+    publisher_with_notices("gitolite-admin", "updated keys", None)(
+      (courses = keys_by_course)
+    ) { (_, deps, dir) =>
+      for {
+        (c, keys, n) <- deps.courses
+        (csid, key) <- keys.toSeq
+        f = dir / "keydir" / s"${csid.value}.pub"
+        if !os.exists(f) || os.read(f).trim.nn != key
+        notice <- {
+          os.write.over(f, key, createFolders = true)
+          if (n.key_update)
+            Notice.routed(n, csid, Notice.What.KeyUpdated(c, csid))
+          else Seq()
         }
+      } yield notice
     }
 
   // the course's enrollment: its students, as the dropbox has their keys
@@ -370,19 +382,48 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   }
 
   // A student's repo for a project: made by forking the project's repo,
-  // then theirs, never touched (as Project.publish_work_repo, without its
-  // email)
+  // then theirs, never touched (as Project.publish_work_repo); when it's
+  // made, they're told, with the project's README, as the course says. Its
+  // data is the tree it has or would start with, as is: no copy is made, so
+  // nothing in it is touched (a copy can't keep everything: submodules,
+  // say).
   lazy val work_repo: (String, String, CSID) => Target[WithData[Publish]] =
     fun { (c: String, p: String, csid: CSID) =>
-      creator(
-        subs.work_repo(c, p, csid),
-        "create",
-        Create(
-          subs.project_repo(c, p),
-          Seq(csid.value, staff(c)),
-          Seq(csid.value)
-        )
+      val repo = subs.work_repo(c, p, csid)
+      val create = Create(
+        subs.project_repo(c, p),
+        Seq(csid.value, staff(c)),
+        Seq(csid.value)
       )
+      complex_target[WithData[Publish]] { tracker =>
+        val exists = tracker.track(source.exists(repo))
+        val base =
+          tracker.track(source.master(if (exists) repo else create.fork_from))
+        val n = tracker.track(defs.notifications(c))
+        tracker.run_if_needed { producer =>
+          val notices =
+            if (exists || !n.repo_create) Seq()
+            else {
+              val readme = base
+                .flatMap(b =>
+                  producer.read_text(producer.commit(b).tree, os.rel / "README")
+                )
+                .getOrElse("")
+              Notice.routed(n, csid, Notice.What.RepoCreated(repo, readme))
+            }
+          WithData(
+            Publish(
+              repo,
+              exists,
+              base.map(_.id),
+              "create",
+              Some(create),
+              notices
+            ),
+            base.fold(Tree(Outbox.empty_tree))(b => producer.commit(b).tree)
+          )
+        }
+      }
     }
 
   // The report pages of the course's active projects, and the front page

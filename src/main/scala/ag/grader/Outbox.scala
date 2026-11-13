@@ -128,9 +128,14 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
 
   // Makes the repos that are to be made (by forking: what's pushed goes on
   // top of where the fork starts) and pushes what's pending to `server` (a
-  // fast-forward or nothing); then brings the mirror up to date. What can't
-  // be done stays pending, and is reported.
-  def sync(server: RemoteServer, log: String => Unit): Unit = {
+  // fast-forward or nothing), sending each one's notices once it's done;
+  // then brings the mirror up to date. What can't be done stays pending, and
+  // is reported.
+  def sync(
+      server: RemoteServer,
+      can_send_mail: Boolean,
+      log: String => Unit
+  ): Unit = {
     // whether `repo` is on the server: asked without reading it, which would
     // make it (gitolite makes a missing repo its reader may create)
     def on_server(repo: String): Boolean =
@@ -168,8 +173,15 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
             .check(cwd = d)
         }
       }
-      if (done.isSuccess) os.remove.all(d)
-      else
+      if (done.isSuccess) {
+        os.remove.all(d)
+        // the emails about it, now that it's done (a failed one is only
+        // logged: it isn't sent again)
+        for (n <- p.notices)
+          Try(n.send(server, can_send_mail, log)).failed.foreach(e =>
+            log(s"$repo: mailing ${n.to.toString} failed: ${e.getMessage}")
+          )
+      } else
         log(
           s"$repo: not done (the server's moved on? update the mirror and run again): ${done.failed.get.getMessage}"
         )

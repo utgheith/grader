@@ -14,8 +14,13 @@ class CoursePublishersTests extends FunSuite {
   // the dropbox's files must be owned by the student they're named for
   private val me = CSID(System.getProperty("user.name").nn)
 
-  private def setup(root: os.Path, keys: (String, String)*) = {
-    val (r, subs) = Fixture.setup(root)
+  // telling students, copying staff member s9
+  private val tell = NotificationConfig(true, Some(CSID("s9")), true, false, true, None)
+
+  private def setup(root: os.Path, keys: (String, String)*) = setup_with(root, quiet, keys*)
+
+  private def setup_with(root: os.Path, n: NotificationConfig, keys: (String, String)*) = {
+    val (r, subs) = Fixture.setup(root, notifications = n)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val box = root / "dropbox"
     os.makeDir.all(box / "c1")
@@ -39,6 +44,63 @@ class CoursePublishersTests extends FunSuite {
     val dir = s.checkout(p.data)
     assertEquals(files(dir), Seq("conf/gitolite.conf", "keydir/gone.pub", s"keydir/${me.value}.pub").sorted)
     assertEquals(os.read(dir / "keydir" / s"${me.value}.pub"), "ssh-ed25519 new")
+  }
+
+  test("a key added or changed is told about, as the course says; an unchanged one isn't") {
+    val root = os.temp.dir()
+    val (r, pubs, _) = setup_with(root, tell, me.value -> "ssh-ed25519 new")
+    val _ = r.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
+    val p = State(root / "ws").track(pubs.keys)
+    assertEquals(
+      p.value.notices,
+      Seq(Notice(me, Some(CSID("s9")), Notice.What.KeyUpdated("c1", me)))
+    )
+    // once it's there, nothing to tell
+    val _ = r.commit("gitolite-admin", test_cutoff, s"keydir/${me.value}.pub" -> "ssh-ed25519 new")()
+    assertEquals(State(root / "ws").track(pubs.keys).value.notices, Seq())
+    // the course doesn't tell about keys
+    val root2 = os.temp.dir()
+    val (r2, pubs2, _) = setup_with(root2, tell.copy(key_update = false), me.value -> "k")
+    val _ = r2.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
+    assertEquals(State(root2 / "ws").track(pubs2.keys).value.notices, Seq())
+  }
+
+  test("a work repo that's made: the student is told, with the project's README") {
+    val root = os.temp.dir()
+    val (r, pubs, _) = setup_with(root, tell)
+    val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "README" -> "read me")()
+    val p = State(root / "ws").track(pubs.work_repo("c1", "p1", s1))
+    assertEquals(
+      p.value.notices,
+      Seq(Notice(s1, Some(CSID("s9")), Notice.What.RepoCreated("c1_p1_s1", "read me")))
+    )
+    // once it's there, nothing to tell
+    val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
+    assertEquals(State(root / "ws").track(pubs.work_repo("c1", "p1", s1)).value.notices, Seq())
+  }
+
+  test("who's told: the student (copying cc), just cc, or nobody") {
+    val what = Notice.What.KeyUpdated("c1", s1)
+    val cc = CSID("s9")
+    assertEquals(Notice.routed(tell, s1, what), Seq(Notice(s1, Some(cc), what)))
+    assertEquals(Notice.routed(tell, cc, what), Seq(Notice(cc, None, what)))
+    assertEquals(Notice.routed(tell.copy(cc = None), s1, what), Seq(Notice(s1, None, what)))
+    assertEquals(Notice.routed(tell.copy(send_to_student = false), s1, what), Seq(Notice(cc, None, what)))
+    assertEquals(Notice.routed(quiet, s1, what), Seq())
+  }
+
+  test("the emails' words (as NotificationConfig's)") {
+    val server = RemoteServer("git", "git.example.com", 22)
+    val key = Notice(s1, None, Notice.What.KeyUpdated("c1", s1))
+    assertEquals(key.subject(server), "key updated for c1::s1")
+    assert(key.body(server).contains(s"ssh ${server.ssh_uri} info"))
+    val repo = Notice(s1, None, Notice.What.RepoCreated("c1_p1_s1", "read me"))
+    assertEquals(repo.subject(server), s"git clone ${server.git_uri("c1_p1_s1")}")
+    assert(repo.body(server).startsWith("read me\n\nTo clone:\n    git clone "))
+    // nothing is sent unless config.json allows it
+    val said = scala.collection.mutable.Buffer[String]()
+    repo.send(server, can_send = false, said += _)
+    assertEquals(said.toSeq, Seq(s"not mailing (can_send_mail) s1: ${repo.subject(server)}"))
   }
 
   test("a key file not owned by its student fails") {

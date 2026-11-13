@@ -336,6 +336,9 @@ object Config extends Scope(".") {
   // config.json: for what runs outside any State (Outbox.sync)
   def pushes_allowed: Boolean = load().can_push_repo.getOrElse(false)
 
+  // whether sending mail is allowed, the same way
+  def mail_allowed: Boolean = load().can_send_mail.getOrElse(false)
+
   // where the students drop their keys (dropbox_path, under the home
   // directory), read straight from config.json; None if it has none
   def dropbox_root: Option[os.Path] = load().dropbox_path.map(os.home / _)

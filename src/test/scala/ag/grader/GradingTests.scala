@@ -19,8 +19,9 @@ class GradingTests extends FunSuite {
 
   private val t0 = TestId("t0", "t0")
 
-  // s1 submits; t0 passes, t1 doesn't; phase 1 is t0, phase 2 both
-  private def setup(root: os.Path) = {
+  // s1 submits; t0 passes, t1 doesn't; phase 1 is t0, phase 2 both; and
+  // `more` override files (other tests)
+  private def setup(root: os.Path, more: (String, String)*) = {
     val (r, subs) = Fixture.setup(
       root,
       _.copy(phase1_tests = Seq("t0"), phase2_tests = Seq("t0", "t1"))
@@ -28,7 +29,7 @@ class GradingTests extends FunSuite {
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val sha = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(30),
-      "Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "", "t1.cc" -> "nope", "t1.ok" -> "")()
+      (Seq("Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "", "t1.cc" -> "nope", "t1.ok" -> "") ++ more)*)()
     val pubs = Publishers(Grading(TestRuns(subs)), Dropbox(None))
     val ob = Outbox(root / "outbox", r.mirror, root / "ws" / "r3.git")
     (r, pubs, ob, sha)
@@ -132,5 +133,26 @@ class GradingTests extends FunSuite {
     val mine = upickle.default.read[StudentResults](os.read(dir / "the_results.json"))
     assertEquals((mine.csid, mine.prepare_info.sha), (s1, sha))
     assertEquals(os.read(dir / "t0.result").trim, "pass")
+  }
+
+  test("latest results show the other good tests, as far as they've run") {
+    val root = os.temp.dir()
+    // t2: good but not chosen
+    val (_, pubs, _, sha) = setup(root, "t2.cc" -> "pass", "t2.ok" -> "")
+    val g = pubs.grading
+    def latest = State(root / "ws")
+      .track(g.student_results("c1", "p1", s1, Phase.Latest, 1))
+      .get
+      .outcomes
+      .keySet
+      .map(_.external_name)
+    // t2 isn't run for them
+    assertEquals(latest, SortedSet("t0", "t1"))
+    // once it has run, it's shown (but not in phase 2)
+    val t2 = TestId("t2", "t2")
+    val _ = State(root / "ws").track(pubs.grading.runs.run_one(false, 1)("c1", "p1", s1, sha, t2))
+    assertEquals(latest, SortedSet("t0", "t1", "t2"))
+    val two = State(root / "ws").track(g.student_results("c1", "p1", s1, Phase.Two, 1)).get
+    assertEquals(two.outcomes.keySet.map(_.external_name), SortedSet("t0", "t1"))
   }
 }

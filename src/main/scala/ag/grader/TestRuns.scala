@@ -256,6 +256,8 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // outcome of each run so far, the latest run's output files as its data.
   // It runs again while it has fewer than `n` runs, but stops at a failure
   // unless `keep_going`; and from scratch when what it depends on changes.
+  // With n = 0, never runs: just the runs it has, none if it has none (or
+  // what they were for changed).
   def run_one(
       keep_going: Boolean,
       n: Int
@@ -279,6 +281,17 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
                   _._1 == OutcomeStatus.pass
                 )) =>
               s
+            case _ if n == 0 =>
+              () =>
+                create_data(producer) { _ =>
+                  Outcome(
+                    project = Project(Course(c), p),
+                    csid = csid,
+                    test_id = id,
+                    outcomes = Seq(),
+                    commit_id = Some(sha)
+                  )
+                }
             case _ =>
               () =>
                 create_data(producer) { out =>

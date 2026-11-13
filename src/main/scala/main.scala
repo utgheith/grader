@@ -1641,7 +1641,11 @@ object Main {
     else {
       val ob = outbox_of(workspace)
       println(s"${ob.pending.size} repos to push")
-      ob.sync(ag.grader.Config.gitolite_server, println)
+      ob.sync(
+        ag.grader.Config.gitolite_server,
+        ag.grader.Config.mail_allowed,
+        println
+      )
       println(s"${ob.pending.size} still pending")
     }
 
