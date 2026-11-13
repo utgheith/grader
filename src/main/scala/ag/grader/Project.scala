@@ -689,7 +689,9 @@ case class Project(course: Course, project_name: String)
     one("stderr")
   }
 
-  // Run a submission/test combination once and report the outcome
+  // Run a submission/test combination once and report the outcome: runs
+  // again while it has fewer than `n` runs (but stops at a failure unless
+  // `keep_going`). With n = 0, never runs: just the runs it has, if any.
   def run_one(
       keep_going: Boolean,
       n: Int
@@ -721,6 +723,21 @@ case class Project(course: Course, project_name: String)
                   _._1 == OutcomeStatus.pass
                 )) =>
               cs
+            // n = 0: the runs there are, never one more; none if there
+            // are none (or what they were for changed)
+            case _ if n == 0 => { () =>
+              update_data(producer)(_ => false) { dir =>
+                os.remove.all(dir)
+                os.makeDir.all(dir)
+                Outcome(
+                  project = this,
+                  test_id = test_id,
+                  csid = csid,
+                  commit_id = Some(sha),
+                  outcomes = Seq()
+                )
+              }
+            }
             case _ => { () =>
               val (test_info, test_extensions, prepared, cores, docker_image) =
                 deps
@@ -759,19 +776,38 @@ case class Project(course: Course, project_name: String)
   def student_results_repo_name(csid: CSID): String =
     s"${course.course_name}_${project_name}_${csid.value}_results"
 
+  // The runs a student's results are made from, for commit `sha`: the
+  // `tests`, run to `n` tries, and the other `shown` tests (a superset), as
+  // far as they've run already (see run_one's n = 0). A shown test that
+  // hasn't run has no runs, and is left out of the results.
+  private def results_runs(
+      tracker: ag.r2.Tracker[?],
+      keep_going: Boolean,
+      tests: TestSet,
+      shown: TestSet,
+      csid: CSID,
+      sha: String,
+      n: Int
+  ): Seq[Target[WithData[Outcome]]] = {
+    val run = tracker.track(test_ids_for(tests))
+    val others = tracker.track(test_ids_for(shown)).filterNot(run.contains)
+    run.toSeq.map(run_one(keep_going, n)(csid, sha, _)) ++
+      others.toSeq.map(run_one(keep_going, 0)(csid, sha, _))
+  }
+
   // A student's results for `phase`: their graded commit for the phase, run
   // on `tests`. None if there's nothing to grade.
   private def student_results(
       keep_going: Boolean,
-      tests: TestSet
+      tests: TestSet,
+      shown: TestSet
   ): (CSID, Phase, Int) => Target[Option[StudentResults]] = fun {
     (csid, phase, n) =>
       complex_target { tracker =>
         val info = tracker.track(prepare_info(csid, phase))
-        val runs = for {
-          info <- info.toSeq
-          id <- tracker.track(test_ids_for(tests)).toSeq
-        } yield run_one(keep_going, n)(csid, info.sha, id)
+        val runs = info.toSeq.flatMap(info =>
+          results_runs(tracker, keep_going, tests, shown, csid, info.sha, n)
+        )
         val deps = tracker.track_all(
           (
             outcomes = Many(runs),
@@ -789,6 +825,7 @@ case class Project(course: Course, project_name: String)
               // keyed by alias: a student test's internal name is its
               // author's CSID
               outcomes = deps.outcomes
+                .filter(_.value.outcomes.nonEmpty)
                 .map(o => o.value.test_id.redacted -> o.value.redacted)
                 .to(SortedMap)
             )
@@ -801,19 +838,27 @@ case class Project(course: Course, project_name: String)
   // repo (which the result emails are made from).
   private def publish_student_results(
       keep_going: Boolean,
-      tests: TestSet
+      tests: TestSet,
+      shown: TestSet
   ): (CSID, Int) => Target[WithData[Option[StudentResults]]] = fun {
     (csid, n) =>
       complex_target { tracker =>
         val results =
           tracker.track(
-            student_results(keep_going, tests)(csid, Phase.Latest, n)
+            student_results(keep_going, tests, shown)(csid, Phase.Latest, n)
           )
         // the same runs, for their output files
-        val runs = for {
-          r <- results.toSeq
-          id <- tracker.track(test_ids_for(tests)).toSeq
-        } yield run_one(keep_going, n)(csid, r.prepare_info.sha, id)
+        val runs = results.toSeq.flatMap(r =>
+          results_runs(
+            tracker,
+            keep_going,
+            tests,
+            shown,
+            csid,
+            r.prepare_info.sha,
+            n
+          )
+        )
         val deps = tracker.track_all(
           (
             outcomes = Many(runs),
@@ -838,7 +883,7 @@ case class Project(course: Course, project_name: String)
                 f <- os.list(dir)
                 if !f.last.startsWith(".")
               } os.remove.all(f)
-              for (outcome <- deps.outcomes)
+              for (outcome <- deps.outcomes if outcome.value.outcomes.nonEmpty)
                 copy_results(
                   outcome.get_data_path(producer),
                   dir,
@@ -1009,9 +1054,10 @@ case class Project(course: Course, project_name: String)
 
   // Whether publishing `phase`'s results with `n` tries has tests to run, as
   // far as the published results tell: a student's graded commit isn't in
-  // them, they don't cover the phase's tests, or a test has tries to go (as
-  // run_one decides). Missing or unreadable results are work too. The state
-  // picks the tests and keep-going, as it does for publish_results.
+  // them, they don't cover the tests the phase runs (or have ones it
+  // doesn't show), or a test it runs has tries to go (as run_one decides).
+  // Missing or unreadable results are work too. The state picks the tests
+  // and keep-going, as it does for publish_results.
   lazy val has_work: (Phase, Int) => Target[Boolean] = fun { (phase, n) =>
     complex_target { tracker =>
       val state_v = tracker.track(state)
@@ -1021,12 +1067,16 @@ case class Project(course: Course, project_name: String)
         (
           published = results(phase),
           ids = test_ids_for(state_v.tests(phase)),
+          shown = test_ids_for(state_v.shows(phase)),
           infos = Many(students.map(prepare_info(_, phase))),
           aliases = Many(students.map(csid_to_alias))
         )
       )
       run_if_needed(tracker) { _ =>
+        // the tests run, and those that may be shown besides (with the
+        // runs they have: never work)
         val ids = deps.ids.map(_.redacted)
+        val shown = deps.shown.map(_.redacted)
         deps.published.toOption.flatten match {
           case None            => true
           case Some(published) =>
@@ -1039,11 +1089,13 @@ case class Project(course: Course, project_name: String)
                     case None    => true
                     case Some(r) =>
                       r.prepare_info.sha != info.sha ||
-                      r.outcomes.keySet != ids ||
-                      r.outcomes.values.exists { o =>
-                        o.outcomes.size < n &&
-                        (keep_going || o.outcomes
-                          .forall(_._1 == OutcomeStatus.pass))
+                      !ids.subsetOf(r.outcomes.keySet) ||
+                      !r.outcomes.keySet.subsetOf(shown) ||
+                      r.outcomes.view.filterKeys(ids.contains).values.exists {
+                        o =>
+                          o.outcomes.size < n &&
+                          (keep_going || o.outcomes
+                            .forall(_._1 == OutcomeStatus.pass))
                       }
                   }
                 case _ => false
@@ -1058,7 +1110,8 @@ case class Project(course: Course, project_name: String)
   // also updates each student's own results repo.
   def publish_results(
       keep_going: Boolean,
-      tests: TestSet
+      tests: TestSet,
+      shown: TestSet
   ): (Phase, Int) => Target[
     WithData[SortedMap[Alias, RedactedStudentResults]]
   ] =
@@ -1071,11 +1124,15 @@ case class Project(course: Course, project_name: String)
             // rewrite the file if it stops being readable
             readable = results_readable(phase),
             results = Many(
-              students.map(student_results(keep_going, tests)(_, phase, n))
+              students.map(
+                student_results(keep_going, tests, shown)(_, phase, n)
+              )
             ),
             own_repos = Many(
               if (phase == Phase.Latest)
-                students.map(publish_student_results(keep_going, tests)(_, n))
+                students.map(
+                  publish_student_results(keep_going, tests, shown)(_, n)
+                )
               else Seq()
             ),
             // lateness is from each student's own deadline for the phase

@@ -39,6 +39,21 @@ class ProjectStateTests extends FunSuite {
     }
   }
 
+  test("the latest results show every good test after the second deadline, but run only the chosen") {
+    import ProjectState.*
+    assertEquals(
+      ProjectState.values.toList.map(s => (s, s.tests(Phase.Latest), s.shows(Phase.Latest))),
+      List(
+        (BeforeFirstDeadline, "all", "all"),
+        (BetweenDeadlines, "good", "good"),
+        (AfterSecondDeadline, "chosen", "good")
+      )
+    )
+    // a phase's results show just what they run
+    for (s <- ProjectState.values; phase <- Seq(Phase.One, Phase.Two))
+      assertEquals(s.shows(phase), s.tests(phase))
+  }
+
   test("moving a deadline moves the state") {
     val now = first.plusDays(2)
     assertEquals(at(now), ProjectState.BetweenDeadlines)

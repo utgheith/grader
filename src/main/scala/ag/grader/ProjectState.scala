@@ -58,26 +58,32 @@ enum ProjectState(
     val description: String,
     // for the latest results: keep running a test after it fails?
     val latest_keeps_going: Boolean,
-    // for the latest results: which tests
-    val latest_tests: TestSet
+    // for the latest results: which tests are run
+    val latest_tests: TestSet,
+    // for the latest results: which tests are shown (those run, and others
+    // with runs already)
+    val latest_shown: TestSet
 ):
   case BeforeFirstDeadline
       extends ProjectState(
         "before the first deadline",
         false,
+        "all",
         "all"
       )
   case BetweenDeadlines
       extends ProjectState(
         "between the deadlines",
         false,
+        "good",
         "good"
       )
   case AfterSecondDeadline
       extends ProjectState(
         "after the second deadline",
         true,
-        "chosen"
+        "chosen",
+        "good"
       )
 
   // Whether the project is still taking submissions for its second deadline
@@ -95,6 +101,13 @@ enum ProjectState(
     case Phase.Latest => latest_tests
     case Phase.One    => "phase1"
     case Phase.Two    => "phase2"
+
+  // Which tests `phase`'s results show: those it runs (see tests), and, for
+  // the latest results, the other good tests too, with whatever runs they
+  // have already (none are run for them)
+  def shows(phase: Phase): TestSet = phase match
+    case Phase.Latest => latest_shown
+    case _            => tests(phase)
 
   // Whether `phase`'s results are published: once its deadline has passed
   // (the latest results always are).

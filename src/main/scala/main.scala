@@ -818,14 +818,16 @@ object Main {
       }
     for ((p, n) <- projects) {
       // the latest results, and each phase's once its deadline has passed;
-      // the state and the phase say which tests, and whether to keep going
+      // the state and the phase say which tests are run and shown, and
+      // whether to keep going
       phases(p).foreach { (phase, tests, kg) =>
+        val shown = state_of(p, root).shows(phase)
         println(
-          s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p, root).description}; tests: ${tests: String}, keep-going ${
-              if (kg) "on" else "off"
-            }"
+          s"${name(p)} (${HtmlGen.phase_label(phase)}): ${state_of(p, root).description}; tests: ${tests: String}" +
+            (if (shown != tests) s" (shown: ${shown: String})" else "") +
+            s", keep-going ${if (kg) "on" else "off"}"
         )
-        val _ = root.track(p.publish_results(kg, tests)(phase, n))
+        val _ = root.track(p.publish_results(kg, tests, shown)(phase, n))
       }
     }
   }
