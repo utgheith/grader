@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
-import ag.r3.{Scope, Target, periodic}
+import ag.rules.{Scope, Target, periodic}
 
 import scala.collection.SortedMap
 

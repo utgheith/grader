@@ -1,11 +1,9 @@
 package ag.grader
 
 import ag.common.TempDirs
-import ag.r2.{Scope, State, Target}
-import ag.rules.{read_only, refuse_if_read_only, ReadOnlyException}
+import ag.rules.{read_only, refuse_if_read_only, ReadOnlyException, Scope, State, Target, Tree}
 import munit.FunSuite
 
-import scala.collection.SortedSet
 import scala.util.Try
 
 // A read-only State's targets can update its workspace, but whatever would
@@ -16,13 +14,15 @@ class ReadOnlyTests extends FunSuite {
   // counts its runs; tries to act beyond the workspace when `act`
   private var runs = 0
   private var act = true
-  // (with a dependency: a target with none always runs again)
   private lazy val constant: Target[Int] = scope.target(EmptyTuple)((_, _) => 1)
   private lazy val acting: Target[Int] = scope.target((c = constant)) { (_, _) =>
     runs += 1
     if (act) refuse_if_read_only("act")
     runs
   }
+
+  private def caused_by_read_only(e: Throwable): Boolean =
+    Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).exists(_.isInstanceOf[ReadOnlyException])
 
   test("only a read-only State's targets are read-only") {
     assert(!read_only.get, "not outside any target")
@@ -37,7 +37,7 @@ class ReadOnlyTests extends FunSuite {
     runs = 0
     act = true
     val e = intercept[Exception](State(ws, read_only = true).track(acting))
-    assert(Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).exists(_.isInstanceOf[ReadOnlyException]), e)
+    assert(caused_by_read_only(e), e)
     // a run that may act runs it again: the failure wasn't kept as a value
     assertEquals(State(ws).track(acting), 2)
     // and once it's done, a read-only State reuses it
@@ -55,23 +55,16 @@ class ReadOnlyTests extends FunSuite {
     assert(message.contains(what), message)
   }
 
-  test("running a test is refused") {
-    val dir = TempDirs.dir()
-    refused("won't run t1") {
-      doit(
-        project = Project(Course("c"), "p"),
-        csid = CSID("s"),
-        cores = 1,
-        prepared_path = dir,
-        test_id = TestId("t1", "t1"),
-        test_path = dir,
-        test_extensions = SortedSet("ok"),
-        n = 1,
-        out_path = dir,
-        docker_image = None
-      )
-    }
-    assert(os.list(dir).isEmpty, "nothing ran")
+  test("running a test is refused, before it starts") {
+    val ws = TempDirs.dir()
+    val empty = Tree(Outbox.empty_tree)
+    val run = repos.TestRun(empty, empty, "t1", 1, None, None)
+    val before = runs_started()
+    val e = intercept[Exception](
+      State(ws, read_only = true).track(run.runs(TestId("t1", "t1"), "c_p_s", true, 1))
+    )
+    assert(caused_by_read_only(e), e)
+    assertEquals(runs_started(), before, "nothing ran")
   }
 
   test("deploying a site is refused") {

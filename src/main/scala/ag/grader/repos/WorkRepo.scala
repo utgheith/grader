@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CSID, CourseName, Create, Notice, ProjectName, Publish}
-import ag.r3.{Target, WithData}
+import ag.rules.{Target, WithData}
 
 // A student's repo for a project (as Project.publish_work_repo): forked
 // from the project's repo, then theirs, never touched. The student and the

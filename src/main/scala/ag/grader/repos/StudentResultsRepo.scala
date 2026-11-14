@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CSID, CourseName, Create, Phase, ProjectName, Publish}
-import ag.r3.{Target, WithData}
+import ag.rules.{Target, WithData}
 
 // A student's latest results for a project, with each test's output, in
 // their own results repo (as Project.publish_student_results): the

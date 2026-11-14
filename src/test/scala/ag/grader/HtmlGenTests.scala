@@ -6,7 +6,8 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
 
 class HtmlGenTests extends FunSuite {
-  private val project = Project(Course("cs439t_f26"), "p4")
+  private val course = CourseName("cs439t_f26")
+  private val project = ProjectName("p4")
   private val cutoff = LocalDateTime.of(2026, 10, 1, 23, 59)
 
   private def student(
@@ -34,6 +35,7 @@ class HtmlGenTests extends FunSuite {
       outcomes = outcomes
         .map((t, s) =>
           RedactedTestId(t) -> RedactedOutcome(
+            course,
             project,
             RedactedTestId(t),
             Seq((s, Some(1.5)), (s, Some(2.25)))
@@ -229,7 +231,7 @@ class HtmlGenTests extends FunSuite {
 
   test("a try's worst status wins: fail, then timeout, then didn't run") {
     def worst(s: OutcomeStatus*) =
-      RedactedOutcome(project, RedactedTestId("t"), s.map(_ -> None)).worst
+      RedactedOutcome(course, project, RedactedTestId("t"), s.map(_ -> None)).worst
     assertEquals(worst(pass, timeout, failed), Some(failed))
     assertEquals(worst(timeout, pass), Some(timeout))
     assertEquals(worst(pass, unknown), Some(unknown))

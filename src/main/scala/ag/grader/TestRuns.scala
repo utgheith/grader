@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_SortedMap, given_ReadWriter_SortedSet}
-import ag.r3.{Producer, Scope, Target, Tree, WithData, create_data}
+import ag.rules.{Producer, Scope, Target, Tree, WithData, create_data}
 
 import scala.collection.{SortedMap, SortedSet}
 
@@ -307,7 +307,8 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
           tracker.run_if_needed { _ =>
             WithData(
               Outcome(
-                project = Project(Course(c.value), p.value),
+                course = c,
+                project = p,
                 csid = csid,
                 test_id = id,
                 outcomes = runs.value.outcomes,

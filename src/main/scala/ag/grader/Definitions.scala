@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r3.{Source, Target}
+import ag.rules.{Source, Target}
 
 import java.time.LocalDateTime
 import scala.collection.{SortedMap, SortedSet}

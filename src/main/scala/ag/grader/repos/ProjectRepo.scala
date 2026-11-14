@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, ProjectName}
-import ag.r3.Target
+import ag.rules.Target
 
 // A project's repo, which the staff keep: the starting point of the
 // students' work repos. The grader only reads it.

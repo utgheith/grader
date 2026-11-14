@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r3.WithData
+import ag.rules.WithData
 
 import scala.util.Try
 

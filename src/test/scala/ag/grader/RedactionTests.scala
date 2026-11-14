@@ -7,7 +7,8 @@ import java.time.{ZoneOffset, ZonedDateTime}
 import scala.collection.SortedMap
 
 class RedactionTests extends FunSuite {
-  private val project = Project(Course("cs439t_f26"), "p4")
+  private val course = CourseName("cs439t_f26")
+  private val project = ProjectName("p4")
   private val cutoff =
     ZonedDateTime.of(2026, 10, 1, 23, 59, 0, 0, ZoneOffset.UTC).nn
   private val commit = cutoff.plusHours(6)
@@ -29,6 +30,7 @@ class RedactionTests extends FunSuite {
     ),
     outcomes = SortedMap(
       classmate_test.redacted -> RedactedOutcome(
+        course,
         project,
         classmate_test.redacted,
         Seq(OutcomeStatus.pass -> Some(1.0))

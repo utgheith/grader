@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{Definitions, Dropbox, Grading, Submissions, TestRuns}
-import ag.r3.Source
+import ag.rules.Source
 
 // What the target definitions work from: the local mirror and the dropbox.
 // Passed explicitly to every definition's targets; it isn't part of a

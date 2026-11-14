@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, Publish}
-import ag.r3.{Target, WithData}
+import ag.rules.{Target, WithData}
 
 // A course's grades repo: the staff's workspace for grading data (as
 // r2's Course.create_grades_repo). The grader makes it, with a README, and

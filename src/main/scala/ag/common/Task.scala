@@ -3,7 +3,7 @@ package ag.common
 import java.util.concurrent.CountDownLatch
 import scala.util.{Failure, Success, Try}
 
-// The engines' in-flight computations (ag.r2's and ag.r3's): a value that
+// The engine's in-flight computations (ag.rules): a value that
 // some thread is working on, which any number of readers can wait for.
 // Nothing outside the engines sees one: targets read each other with their
 // trackers' track and track_all.

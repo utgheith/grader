@@ -1,7 +1,16 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_Instant, given_ReadWriter_SortedMap}
-import ag.r3.{Commit, CommitInfo, Context, Scope, Source, State, Target, Tree}
+import ag.rules.{
+  Commit,
+  CommitInfo,
+  Context,
+  Scope,
+  Source,
+  State,
+  Target,
+  Tree
+}
 import upickle.default.ReadWriter
 
 import java.time.{Instant, OffsetDateTime, ZoneId, ZonedDateTime}

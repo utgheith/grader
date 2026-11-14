@@ -2,7 +2,7 @@ package ag.grader
 
 import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
-import ag.r3.State
+import ag.rules.State
 import munit.FunSuite
 
 import scala.collection.{SortedMap, SortedSet}
@@ -117,7 +117,7 @@ class TestRunsTests extends FunSuite {
     val again = State(root / "ws").track(t.run_one(true, 1)(c1, p1, s1, Phase.Latest, TestId("t0", "t0")))
     assertEquals((again.value.outcomes.size, ag.grader.started_runs.get - started), (1, 0L))
     // where the runs are kept is fixed: it mustn't move with the code
-    val in = repos.TestRun(ag.r3.Tree("a"), ag.r3.Tree("b"), "t0", 1, None, None)
+    val in = repos.TestRun(ag.rules.Tree("a"), ag.rules.Tree("b"), "t0", 1, None, None)
     assertEquals(in.runs(TestId("t0", "t0"), "", true, 1).path, os.rel / "keyed" / "test_runs" / in.key)
     // every field is in the key
     assertNotEquals(in.copy(cores = 2).key, in.key)

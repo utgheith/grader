@@ -1,9 +1,7 @@
 package ag.grader
 
 import ag.common.{down, given_ReadWriter_RelPath}
-import ag.r2.{Scope, Target}
-import ag.rules.{recorded, run}
-import os.RelPath
+import ag.rules.run
 import upickle.default.{ReadWriter, read}
 
 import java.net.{URI, URLEncoder}
@@ -247,19 +245,17 @@ case class CloudflareConfig(
     val p = os.proc(
       os.Shellable(Seq("npx", "--yes", s"wrangler@$wrangler_version")) +: args*
     )
-    recorded(p, cwd) {
-      p.call(
-        cwd = cwd,
-        env = Map(
-          "CLOUDFLARE_API_TOKEN" -> api_key,
-          "CLOUDFLARE_ACCOUNT_ID" -> id,
-          "CI" -> "true"
-        ),
-        check = check,
-        stdout = output,
-        stderr = output
-      )
-    }
+    p.call(
+      cwd = cwd,
+      env = Map(
+        "CLOUDFLARE_API_TOKEN" -> api_key,
+        "CLOUDFLARE_ACCOUNT_ID" -> id,
+        "CI" -> "true"
+      ),
+      check = check,
+      stdout = output,
+      stderr = output
+    )
   }
 
   // Publish `site_dir` as the whole of Pages project `project`, creating the
@@ -310,7 +306,7 @@ case class Config(
     web: Option[ag.web.WebConfig] = None
 ) derives ReadWriter {}
 
-object Config extends Scope(".") {
+object Config {
 
   private def config_file: os.Path = {
     @tailrec
@@ -322,13 +318,6 @@ object Config extends Scope(".") {
   }
 
   private def load(): Config = read[Config](os.read(config_file))
-
-  // `cloudflare` and `web` are dropped here: a target's value is saved to
-  // workspace/targets/.../saved.json, and their secrets shouldn't be.
-  private lazy val config: Target[Config] = target(EmptyTuple) { (_, _) =>
-    // logger.info(s"loading config from $config_file")
-    load().copy(cloudflare = None, web = None)
-  }
 
   // Read straight from config.json, never through a target, like cloudflare.
   def web: Option[ag.web.WebConfig] = load().web
@@ -351,39 +340,4 @@ object Config extends Scope(".") {
   // Read straight from config.json on every call, never through a target,
   // so the api_key is never cached under workspace/.
   def cloudflare: Option[CloudflareConfig] = load().cloudflare
-
-  // Safe to cache: just the flag. No dependencies, so it's re-read from
-  // config.json on every run, and targets that depend on it notice changes.
-  lazy val cloudflare_enabled: Target[Boolean] = target(EmptyTuple) { (_, _) =>
-    load().cloudflare.exists(_.enabled)
-  }
-
-  // Likewise safe to cache, and re-read on every run.
-  lazy val cloudflare_domain: Target[Option[String]] = target(EmptyTuple) {
-    (_, _) =>
-      load().cloudflare.flatMap(_.domain)
-  }
-
-  lazy val cloudflare_project_prefix: Target[Option[String]] =
-    target(EmptyTuple) { (_, _) =>
-      load().cloudflare.flatMap(_.project_prefix)
-    }
-
-  lazy val gitolite: Target[RemoteServer] =
-    target((c = config))((_, deps) => deps.c.gitolite)
-
-  lazy val dropbox_path: Target[Option[RelPath]] =
-    target((c = config))((_, deps) => deps.c.dropbox_path)
-
-  lazy val site_base: Target[Option[String]] =
-    target((c = config))((_, deps) => deps.c.site_base)
-
-  // TODO: peek
-  lazy val can_send_mail: Target[Boolean] = target((config = config)) {
-    (_, deps) =>
-      deps.config.can_send_mail.getOrElse(false)
-  }.peek
-
-  lazy val can_push_repo: Target[Boolean] =
-    target((c = config))((_, deps) => deps.c.can_push_repo.getOrElse(false))
 }

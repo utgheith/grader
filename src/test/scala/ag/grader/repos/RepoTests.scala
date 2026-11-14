@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.{TempDirs, ToRelPath}
 import ag.grader.{Create, Fixture, Notice}
-import ag.r3.{State, Target, WithData}
+import ag.rules.{State, Target, WithData}
 import ag.grader.Publish
 import munit.FunSuite
 

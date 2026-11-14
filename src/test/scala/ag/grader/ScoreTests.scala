@@ -6,7 +6,8 @@ import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
 
 class ScoreTests extends FunSuite {
-  private val project = Project(Course("cs439t_f26"), "p4")
+  private val course = CourseName("cs439t_f26")
+  private val project = ProjectName("p4")
   private val cutoff_local = LocalDateTime.of(2026, 10, 1, 23, 59)
   private val cutoff = ZonedDateTime.of(cutoff_local, ZoneId.systemDefault()).nn
 
@@ -21,6 +22,7 @@ class ScoreTests extends FunSuite {
     outcomes = runs
       .map((t, ss) =>
         RedactedTestId(t) -> RedactedOutcome(
+          course,
           project,
           RedactedTestId(t),
           ss.map(_ -> Some(1.0))

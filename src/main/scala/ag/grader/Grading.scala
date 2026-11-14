@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.{given_ReadWriter_SortedMap, given_ReadWriter_SortedSet}
-import ag.r3.{Scope, Target, WithData, periodic}
+import ag.rules.{Scope, Target, WithData, periodic}
 
 import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
@@ -11,8 +11,8 @@ import scala.collection.{SortedMap, SortedSet}
 // r2's Project. What's published from them is in Publishers.
 //
 // Which tests a phase runs, and whether a test keeps running after it fails,
-// come from the project's state (as the publish_results command picks them
-// in ag.r2); `n` is how many tries each test gets (see TestRuns.run_one).
+// come from the project's state (as r2's publish_results picked
+// them); `n` is how many tries each test gets (see TestRuns.run_one).
 final class Grading(val runs: TestRuns) extends Scope("grading") {
   private val subs = runs.subs
   private val defs = subs.defs

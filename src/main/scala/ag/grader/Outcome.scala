@@ -11,7 +11,8 @@ enum OutcomeStatus derives ReadWriter:
   def isHappy: Boolean = this == pass
 
 trait OutcomeApi {
-  def project: Project
+  def course: CourseName
+  def project: ProjectName
   def csid_opt: Option[CSID]
   def outcomes: Seq[(OutcomeStatus, Option[Double])]
   def test_id_opt: TestId | RedactedTestId
@@ -40,7 +41,8 @@ trait OutcomeApi {
 
 @upickle.implicits.allowUnknownKeys(false)
 case class RedactedOutcome(
-    project: Project,
+    course: CourseName,
+    project: ProjectName,
     test_id: RedactedTestId,
     outcomes: Seq[(OutcomeStatus, Option[Double])]
 ) extends OutcomeApi derives ReadWriter {
@@ -51,7 +53,8 @@ case class RedactedOutcome(
 
 @upickle.implicits.allowUnknownKeys(false)
 case class Outcome(
-    project: Project,
+    course: CourseName,
+    project: ProjectName,
     csid: CSID,
     test_id: TestId,
     outcomes: Seq[(OutcomeStatus, Option[Double])],
@@ -62,6 +65,7 @@ case class Outcome(
   def test_id_opt: TestId | RedactedTestId = test_id
 
   lazy val redacted: RedactedOutcome = RedactedOutcome(
+    course = course,
     project = project,
     test_id = test_id.redacted,
     outcomes = outcomes

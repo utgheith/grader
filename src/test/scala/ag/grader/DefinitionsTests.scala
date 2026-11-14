@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.TempDirs
-import ag.r3.{Source, State}
+import ag.rules.{Source, State}
 import munit.FunSuite
 
 import java.time.LocalDateTime

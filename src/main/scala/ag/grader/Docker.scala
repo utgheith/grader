@@ -1,7 +1,5 @@
 package ag.grader
 
-import ag.rules.recorded
-
 import java.security.MessageDigest
 import scala.collection.concurrent.TrieMap
 
@@ -30,21 +28,19 @@ object Docker {
         val image_name = Docker.image_name(docker_file)
 
         val images = os.proc("docker", "images", "-q", image_name)
-        val existing = recorded(images, os.pwd)(images.call()).out.lines()
+        val existing = images.call().out.lines()
         if (existing.isEmpty) {
           ag.rules.refuse_if_read_only(s"build docker image $image_name")
           println(s"$image_name not found, creating")
           val build =
             os.proc("docker", "build", "-t", image_name, "-f", docker_file, ".")
           val build_dir = os.temp.dir(deleteOnExit = true)
-          val _ = recorded(build, build_dir) {
-            build.call(
-              cwd = build_dir,
-              check = true,
-              stdout = os.Inherit,
-              stderr = os.Inherit
-            )
-          }
+          val _ = build.call(
+            cwd = build_dir,
+            check = true,
+            stdout = os.Inherit,
+            stderr = os.Inherit
+          )
         } else if (existing.size > 1) {
           println(s"    found ${existing.size} of them")
           existing.sorted.foreach { n =>
@@ -70,11 +66,14 @@ object Docker {
         "-w",
         "/work",
         "-u",
-        s"${Project.uid}:${Project.gid}",
+        s"$uid:$gid",
         "-t",
         dockerImage
       )
     }
   }
 
+  // who runs a container: the grader's user and group
+  private lazy val uid: String = os.proc("id", "-u").call().out.lines().head
+  private lazy val gid: String = os.proc("id", "-g").call().out.lines().head
 }

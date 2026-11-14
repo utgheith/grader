@@ -15,7 +15,7 @@ import ag.grader.{
   RawProject,
   Weight
 }
-import ag.r3.Target
+import ag.rules.Target
 
 import java.time.LocalDateTime
 import scala.collection.SortedSet

@@ -6,7 +6,7 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.grader.{CourseName, RawCourse, RawCourseNotSorted}
-import ag.r3.Target
+import ag.rules.Target
 
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.matching.Regex

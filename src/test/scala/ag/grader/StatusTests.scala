@@ -3,7 +3,7 @@ package ag.grader
 import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import munit.FunSuite
-import ag.r3.{Source, State}
+import ag.rules.{Source, State}
 
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
@@ -32,8 +32,8 @@ class StatusTests extends FunSuite {
   }
 
   private val now = LocalDateTime.now().nn
-  private val course = Course("c1")
-  private val project = Project(course, "p1")
+  private val course = CourseName("c1")
+  private val project = ProjectName("p1")
   private val s1 = CSID("s1")
   private val s2 = CSID("s2")
 
@@ -56,7 +56,7 @@ class StatusTests extends FunSuite {
   }
 
   private def outcome(test: String, runs: (OutcomeStatus, Option[Double])*) =
-    RedactedTestId(test) -> RedactedOutcome(project, RedactedTestId(test), runs)
+    RedactedTestId(test) -> RedactedOutcome(course, project, RedactedTestId(test), runs)
 
   private def setup(root: os.Path, tweak: RawProject => RawProject = identity): String = {
     val raw = tweak(RawProject(

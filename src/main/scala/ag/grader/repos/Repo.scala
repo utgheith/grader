@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.grader.{Create, Notice, Outbox, Publish}
 import scala.annotation.unused
-import ag.r3.{Commit, Producer, Target, Tracker, Tree, WithData, create_data}
+import ag.rules.{Commit, Producer, Target, Tracker, Tree, WithData, create_data}
 
 // A repo on the git server, one kind per file, each a case class whose
 // fields say which repo (see Instance).

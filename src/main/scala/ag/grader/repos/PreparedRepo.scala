@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CSID, CourseName, Create, Phase, ProjectName, Publish}
-import ag.r3.{Target, Tree, WithData}
+import ag.rules.{Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
 // (see Submissions.prepare): a directory for each phase that has a commit to

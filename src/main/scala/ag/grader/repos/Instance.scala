@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.r3.Scoped
+import ag.rules.Scoped
 
 // A target definition for one thing (a repo, a course, a project): a case
 // class whose fields say which, with `derives ToRelPath`. Its targets are

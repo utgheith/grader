@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, HtmlGen, Publish}
-import ag.r3.{Target, Tree, WithData}
+import ag.rules.{Target, Tree, WithData}
 
 // A course's report site (as r2's Course.publish_site): the report pages of its
 // active projects, and a front page listing every project's page in the

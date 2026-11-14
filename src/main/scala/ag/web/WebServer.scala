@@ -49,17 +49,7 @@ trait WebPages {
 
 case class WebPage(content_type: String, body: String)
 
-// A run, shown as it goes (see ag.r2.LiveRun), at the server's root: the
-// requests it answers once logged in, besides the pages'
-trait RunView {
-  // answers `ex` if it's one of its requests; false if it isn't
-  def handle(ex: HttpExchange, method: String, path: String): Boolean
-  def start(): Unit
-  // the run is over
-  def stop(): Unit
-}
-
-// Serves `pages`, and a run if there's one (`run`), behind a password.
+// Serves `pages` behind a password.
 // Everything but the login page needs a session cookie, which a login gets
 // and which stays good across runs until it expires or the password changes.
 // The workspace keeps the session key and the self-signed certificate.
@@ -67,8 +57,7 @@ final class WebServer private (
     config: WebConfig,
     http: HttpsServer,
     secret: Array[Byte],
-    pages: Option[WebPages],
-    run: Option[RunView]
+    pages: Option[WebPages]
 ) {
   import WebServer.*
 
@@ -76,14 +65,9 @@ final class WebServer private (
     http.createContext("/", ex => handle(ex))
     http.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     http.start()
-    run.foreach(_.start())
   }
 
-  // tells the run's viewers it's over, and stops
-  def stop(): Unit = {
-    run.foreach(_.stop())
-    http.stop(1)
-  }
+  def stop(): Unit = http.stop(1)
 
   ///////////// sessions /////////////
 
@@ -141,7 +125,7 @@ final class WebServer private (
             s"$cookie_name=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
           )
           reply(ex, 200, "text/plain", "")
-        case ("GET", "/") if run.isEmpty && pages.nonEmpty =>
+        case ("GET", "/") if pages.nonEmpty =>
           h.set("Location", s"${pages.get.prefix}/")
           reply(ex, 303, "text/plain", "")
         case ("GET", p) if pages.exists(w => p == s"/${w.prefix}") =>
@@ -155,7 +139,6 @@ final class WebServer private (
             case Some(page) => reply(ex, 200, page.content_type, page.body)
             case None       => reply(ex, 404, "text/plain", "not found")
           }
-        case (method, p) if run.exists(_.handle(ex, method, p)) => ()
         case _ => reply(ex, 404, "text/plain", "not found")
       }
     } catch {
@@ -189,28 +172,26 @@ object WebServer {
   private val failed_logins = new Object
   private val random = new SecureRandom()
 
-  // Serves just `pages` (no run) until the program is stopped. The
-  // workspace holds the server's keys and certificate, as for runs. False if
+  // Serves just `pages` until the program is stopped. The workspace holds
+  // the server's keys and certificate, as for runs. False if
   // the server can't start (the reason is printed).
   def serve_pages(
       workspace: os.Path,
       config: WebConfig,
       pages: WebPages
   ): Boolean =
-    start(workspace, config, Some(pages), None) match {
+    start(workspace, config, Some(pages)) match {
       case None    => false
       case Some(_) =>
         new java.util.concurrent.CountDownLatch(1).await()
         true
     }
 
-  // Starts serving `pages` and `run`; None if it can't (the reason is
-  // printed)
+  // Starts serving `pages`; None if it can't (the reason is printed)
   def start(
       workspace: os.Path,
       config: WebConfig,
-      pages: Option[WebPages],
-      run: Option[RunView]
+      pages: Option[WebPages]
   ): Option[WebServer] =
     try {
       val (ks, password) = keystore(workspace, config)
@@ -227,26 +208,19 @@ object WebServer {
       val http = HttpsServer.create(address, 0).nn
       http.setHttpsConfigurator(HttpsConfigurator(ssl))
       val server =
-        WebServer(config, http, session_secret(workspace), pages, run)
+        WebServer(config, http, session_secret(workspace), pages)
       server.start()
       val host = config.bind.getOrElse(
         java.net.InetAddress.getLocalHost.nn.getCanonicalHostName
       )
-      val what =
-        if (run.nonEmpty) "this run" else pages.fold("")(_.prefix)
-      println(s"serving $what at https://$host:${config.port}/")
-      pages
-        .filter(_ => run.nonEmpty)
-        .foreach(w =>
-          println(
-            s"  and ${w.prefix} at https://$host:${config.port}/${w.prefix}/"
-          )
-        )
+      println(
+        s"serving ${pages.fold("")(_.prefix)} at https://$host:${config.port}/"
+      )
       Some(server)
     } catch {
       case NonFatal(e) =>
         println(
-          s"not serving ${if (run.nonEmpty) "this run" else "pages"}: ${e.toString}"
+          s"not serving pages: ${e.toString}"
         )
         None
     }

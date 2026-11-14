@@ -4,14 +4,14 @@ import ag.common.{down, shout}
 import ag.grader.{
   Docker,
   OutcomeStatus,
-  Project,
+  TimeFormat,
   TestId,
   finished_runs,
   governor,
   limit,
   started_runs
 }
-import ag.r3.{Keyed, Producer, Target, Tree, WithData, create_data}
+import ag.rules.{Keyed, Producer, Target, Tree, WithData, create_data}
 import ag.rules.run
 import upickle.default.ReadWriter
 
@@ -192,7 +192,7 @@ object TestRun {
             createFolders = true
           )
 
-          (outcome, Project.parseTime(time).orElse(run_time))
+          (outcome, TimeFormat.parse(time).orElse(run_time))
         } finally remove(work)
       }
     } finally { val _ = finished_runs.incrementAndGet() }

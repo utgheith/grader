@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, ProjectName, Publish}
-import ag.r3.{Target, WithData}
+import ag.rules.{Target, WithData}
 
 // A project's override repo: its tests and Makefiles, which the staff keep
 // (as Project.publish_override_repo). Everyone can read it, the staff

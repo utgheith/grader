@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{Alias, CSID, CourseName, Create, ProjectName, Publish}
-import ag.r3.{Producer, Target, WithData}
+import ag.rules.{Producer, Target, WithData}
 
 import scala.collection.SortedMap
 

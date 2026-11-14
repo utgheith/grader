@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.web.{WebPage, WebPages}
-import ag.r3.{State, Target, Tree}
+import ag.rules.{State, Target, Tree}
 
 import java.net.{URLDecoder, URLEncoder}
 import java.nio.charset.StandardCharsets.UTF_8

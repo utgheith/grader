@@ -30,7 +30,7 @@ object Say {
     p
   }
 
-  // `prefix` is put before the thread's name (ag.r2's nesting dots), `where`
+  // `prefix` is put before the thread's name (e.g. nesting dots), `where`
   // after it (the target being worked on)
   def line(prefix: String, where: Option[String], msg: => Any): Unit = {
     val t = if (msg == null) "<null>" else msg.toString

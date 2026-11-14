@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.{ToRelPath, given_ReadWriter_SortedSet}
 import ag.grader.{CSID, CourseName, NotificationConfig, ProjectName, RawCourse}
-import ag.r3.Target
+import ag.rules.Target
 
 import scala.collection.SortedSet
 import scala.util.matching.Regex

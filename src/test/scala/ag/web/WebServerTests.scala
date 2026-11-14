@@ -41,7 +41,7 @@ class WebServerTests extends FunSuite {
       password_hash = Password.hash("pw".toCharArray),
       bind = Some("127.0.0.1")
     )
-    val server = WebServer.start(workspace, config, Some(pages), None).get
+    val server = WebServer.start(workspace, config, Some(pages)).get
     try {
       val trust = KeyStore.getInstance("PKCS12")
       val pass = os.read(workspace / "web" / "self-signed.pass").trim.toCharArray

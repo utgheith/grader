@@ -7,7 +7,7 @@ import scala.collection.mutable
 // `report`. Counts are summed across nested loops; a stage shows once it's
 // first reached, so the stages after one that let nothing through don't
 // show. Only counts are shown, never names. An r3 State keeps one, which
-// Target.tally adds to (see ag.r3.Measure).
+// Target.tally adds to (see ag.rules.Measure).
 //
 //   val f = Tally()
 //   for {

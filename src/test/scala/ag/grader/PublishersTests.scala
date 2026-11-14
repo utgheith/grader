@@ -2,7 +2,7 @@ package ag.grader
 
 import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
-import ag.r3.State
+import ag.rules.State
 import munit.FunSuite
 
 import scala.collection.SortedMap
@@ -88,7 +88,7 @@ class PublishersTests extends FunSuite {
     assertEquals(git(d, "rev-parse", "master^"), start)
     // nothing but the fork's files: the fork is all there is to do
     val q = s.track(pubs.aliases(c1, p1))
-    assert(ob.record(q.copy(data = ag.r3.Tree(git(r.mirror / "empty.git", "rev-parse", "master^{tree}")))))
+    assert(ob.record(q.copy(data = ag.rules.Tree(git(r.mirror / "empty.git", "rev-parse", "master^{tree}")))))
     assert(os.proc("git", "rev-parse", "--verify", "-q", "master")
       .call(cwd = ob.dir("c1_p1__aliases"), check = false).exitCode != 0)
   }

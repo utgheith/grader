@@ -1,6 +1,6 @@
 package ag.grader
 
-import ag.r3.Source
+import ag.rules.Source
 
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -8,7 +8,7 @@ import scala.util.Try
 
 // Keeps a local mirror of the git server: a bare clone of each repo,
 // <root>/<repo>.git, with every ref (notes included). The status pages read
-// it as an ag.r3.Source; only this writes to it. A repo is fetched only if the
+// it as an ag.rules.Source; only this writes to it. A repo is fetched only if the
 // server's `history` (each repo's master, as of its last push; repos not
 // pushed to since the server started keeping it aren't listed) says it
 // changed since the last fetch, or if `history` fails or lists nothing, so an
