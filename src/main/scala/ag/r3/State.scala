@@ -60,6 +60,26 @@ class State(
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
 
+  // For a person to look at: every target this run used, by its path, as a
+  // link to a checkout of what's stored for it (value.json, and data/ if
+  // it has data): <dir>/<path>/@, as the store names it (so a target and
+  // those under its path can both be there). What was there goes. Says
+  // how many.
+  def link_used(dir: os.Path): Int = {
+    os.remove.all(dir)
+    val paths = cache.synchronized(cache.keys.toSeq)
+    (for {
+      path <- paths
+      loaded <- store.load(path)
+    } yield {
+      os.makeDir.all(checkouts)
+      val target = store.checkout(loaded.result, checkouts)
+      val link = dir / Store.rel_path(path)
+      os.makeDir.all(link / os.up)
+      os.symlink(link, target.relativeTo(link / os.up))
+    }).size
+  }
+
   private[r3] def start[A](
       target: Target[A],
       tracker: Tracker[?],
@@ -98,9 +118,25 @@ class State(
 }
 
 object State {
-  // Runs `f` with a new State in `path`.
-  def run[A](path: os.Path, force_roots: Boolean = false)(f: State => A): A =
-    f(new State(path, force_roots))
+  // Runs `f` with a new State in `path`; with `browse`, links what it used
+  // under path/browse when it's done, however it ends (see link_used).
+  def run[A](
+      path: os.Path,
+      force_roots: Boolean = false,
+      browse: Boolean = false
+  )(
+      f: State => A
+  ): A = {
+    val state = new State(path, force_roots)
+    try f(state)
+    finally
+      if (browse) {
+        val dir = path / "browse"
+        println(
+          s"linked ${state.link_used(dir).toString} targets under ${dir.toString}"
+        )
+      }
+  }
 }
 
 // a scratch directory, removed afterwards whatever happens

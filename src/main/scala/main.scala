@@ -109,6 +109,10 @@ case class CommonArgs(
     @arg(short = 'v', doc = "verbose output")
     verbose: Flag = Flag(false),
     @arg(doc =
+      "r3: when done, link every target used under <workspace>/r3/browse/<its path>/@, to look at its value and data"
+    )
+    browse: Flag = Flag(false),
+    @arg(doc =
       "rebuild what this command asks for, even if its saved results are current (their inputs are reused)"
     )
     force: Flag = Flag(false),
@@ -1907,7 +1911,11 @@ object Main {
         server <- ag.web.WebServer.start(workspace, web, Some(pages), None)
       } yield server
       try
-        ag.r3.State.run(r3_workspace(workspace), args.force.value)(f)
+        ag.r3.State.run(
+          r3_workspace(workspace),
+          args.force.value,
+          args.browse.value
+        )(f)
       finally server.foreach(_.stop())
     }
   }
