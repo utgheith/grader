@@ -82,31 +82,4 @@ case class NotificationConfig(
         s"    key update notification disabled for ${course.course_name}::${csid.toString}"
       )
     }
-
-  def send_repo_created(
-      project: Project,
-      repo_info: RepoInfo,
-      csid: CSID,
-      can_send: Boolean,
-      path: os.Path
-  ): Unit = if (repo_create) {
-    val subject =
-      s"git clone ${repo_info.server.git_uri(project.work_repo_name(csid))}"
-    val readme = os.read(path / "README")
-    send(
-      csid,
-      subject,
-      s"""$readme
-         |
-         |To clone:
-         |    $subject
-      """.stripMargin,
-      can_send
-    )
-  } else {
-    say(
-      s"    repo creation notification is disabled for ${project.course.course_name}::${project.project_name}::${csid.toString}"
-    )
-
-  }
 }

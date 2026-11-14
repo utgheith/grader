@@ -15,7 +15,6 @@ class GitoliteTargetPathTests extends munit.FunSuite {
       course.publish_enrollment,
       "ag/grader/Course/publish_enrollment/c"
     )
-    check_path(course.publish_site, "ag/grader/Course/publish_site/c")
   }
 
   test("project repo targets are named after their vals") {
@@ -24,16 +23,5 @@ class GitoliteTargetPathTests extends munit.FunSuite {
       "ag/grader/Project/publish_override_repo/c/p"
     )
     check_path(project.publish_tests, "ag/grader/Project/publish_tests/c/p")
-  }
-
-  test("parameters are appended to the path") {
-    check_path(
-      project.publish_work_repo(CSID("s")),
-      "ag/grader/Project/publish_work_repo/c/p/s"
-    )
-    check_path(
-      project.publish_results(true, "all", "all")(Phase.Latest, 1),
-      "ag/grader/Project/publish_results/c/p/latest/1"
-    )
   }
 }

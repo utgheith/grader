@@ -1,7 +1,7 @@
 package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
-import ag.r3.{Many, Producer, Scope, Target, Tree, WithData, create_data}
+import ag.r3.{Many, Producer, Scope, Target, WithData, create_data}
 import upickle.default.ReadWriter
 
 import scala.NamedTuple.NamedTuple
@@ -260,51 +260,13 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   def grades(c: CourseName): Target[WithData[Publish]] =
     repos.GradesRepo(c, env).latest
 
-  // A student's repo for a project: made by forking the project's repo,
-  // then theirs, never touched (as Project.publish_work_repo); when it's
-  // made, they're told, with the project's README, as the course says. Its
-  // data is the tree it has or would start with, as is: no copy is made, so
-  // nothing in it is touched (a copy can't keep everything: submodules,
-  // say).
-  lazy val work_repo
-      : (CourseName, ProjectName, CSID) => Target[WithData[Publish]] =
-    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-      val repo = subs.work_repo(c, p, csid)
-      val create = Create(
-        subs.project_repo(c, p),
-        Seq(csid.value, staff(c)),
-        Seq(csid.value)
-      )
-      complex_target[WithData[Publish]] { tracker =>
-        val exists = tracker.track(source.exists(repo))
-        val base =
-          tracker.track(source.master(if (exists) repo else create.fork_from))
-        val n = tracker.track(defs.notifications(c))
-        tracker.run_if_needed { producer =>
-          val notices =
-            if (exists || !n.repo_create) Seq()
-            else {
-              val readme = base
-                .flatMap(b =>
-                  producer.read_text(producer.commit(b).tree, os.rel / "README")
-                )
-                .getOrElse("")
-              Notice.routed(n, csid, Notice.What.RepoCreated(repo, readme))
-            }
-          WithData(
-            Publish(
-              repo,
-              exists,
-              base.map(_.id),
-              "create",
-              Some(create),
-              notices
-            ),
-            base.fold(Tree(Outbox.empty_tree))(b => producer.commit(b).tree)
-          )
-        }
-      }
-    }
+  // a student's repo for a project (see repos.WorkRepo)
+  def work_repo(
+      c: CourseName,
+      p: ProjectName,
+      csid: CSID
+  ): Target[WithData[Publish]] =
+    repos.WorkRepo(c, p, csid, env).latest
 
   // the course's report site (see repos.SiteRepo)
   def site(c: CourseName): Target[WithData[Publish]] =

@@ -80,31 +80,19 @@ class SubmissionsTests extends FunSuite {
     )
   }
 
-  test("late commits, oldest first; the student's test, as of the test cutoff") {
+  test("the student's test, as of the test cutoff") {
     val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val t1 = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "s1.cc" -> "test", "s1.ok" -> "expected")()
     val _ = r.commit("c1_p1_s1", test_cutoff.plusDays(1), "s1.cc" -> "too late to count")()
-    val l1 = r.commit("c1_p1_s1", code_cutoff.plusHours(1), "main.c" -> "late")()
-    val l2 = r.commit("c1_p1_s1", code_cutoff.plusDays(2), "main.c" -> "later")()
+    val _ = r.commit("c1_p1_s1", code_cutoff.plusHours(1), "main.c" -> "late")()
     val s = State(root / "ws")
-    val late = s.track(subs.late_commits(c1, p1, s1))
-    assertEquals(late.map(_.hash), Seq(l1, l2))
-    assertEquals(late.map(_.delay.toHours), Seq(1L, 48L))
-    assertEquals(late.head.message, s"at ${code_cutoff.plusHours(1).toString}")
     val tests = s.track(subs.student_tests_by_csid(c1, p1))
     assertEquals(tests.get(s1).map(_.value), Some(t1))
     val dir = s.checkout(tests(s1).data)
     assertEquals(os.read(dir / "s1.cc"), "test")
     assertEquals(os.list(dir).map(_.last).toSet, Set("s1.cc", "s1.ok"))
-  }
-
-  test("a commit's subject is git's %s") {
-    val subs = Submissions(Definitions(Source(TempDirs.dir())))
-    assertEquals(subs.subject("\n\n  a  b  \n  c d  \n\nbody"), "  a  b   c d")
-    assertEquals(subs.subject(" x\ny"), " x y")
-    assertEquals(subs.subject("\t\ttab \nnext"), "\t\ttab next")
   }
 
   test("a student test can include a directory (a \"dir\" extension)") {
@@ -149,6 +137,6 @@ class SubmissionsTests extends FunSuite {
     assertEquals(s2.track(subs.student_results_readable(c1, p1, s1)), false)
     val e = intercept[Throwable](s2.track(subs.student_results(c1, p1, s1)))
     val all = Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")
-    assert(clue(all).contains("publish_results -c c1 -p p1 -s s1"))
+    assert(clue(all).contains("run grade -c c1 -p p1"))
   }
 }

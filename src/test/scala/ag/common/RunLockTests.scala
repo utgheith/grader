@@ -5,12 +5,12 @@ import munit.FunSuite
 class RunLockTests extends FunSuite {
   test("a second run is refused, and told who holds the lock") {
     val dir = TempDirs.dir()
-    val first = RunLock.acquire(dir, "run publish_results -p p5")
+    val first = RunLock.acquire(dir, "run grade -p p5")
     assert(first.isRight)
 
     RunLock.acquire(dir, "run gen_html") match {
       case Left(holder) =>
-        assert(clue(holder).contains("run publish_results -p p5"))
+        assert(clue(holder).contains("run grade -p p5"))
         assert(holder.contains(s"pid ${ProcessHandle.current().nn.pid()}"))
       case Right(_) => fail("acquired a lock that's already held")
     }
@@ -31,7 +31,7 @@ class RunLockTests extends FunSuite {
         "-c",
         s"""import fcntl, sys, time
            |f = open("$lock_file", "w")
-           |f.write("pid 4242, started earlier: run publish_results"); f.flush()
+           |f.write("pid 4242, started earlier: run grade"); f.flush()
            |fcntl.lockf(f, fcntl.LOCK_EX)
            |print("locked", flush=True)
            |time.sleep(30)""".stripMargin

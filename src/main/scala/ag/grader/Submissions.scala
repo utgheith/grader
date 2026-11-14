@@ -7,14 +7,7 @@ import ag.common.{
 }
 import ag.r3.{Commit, CommitInfo, Context, Scope, Target, WithData, create_data}
 
-import java.time.{
-  Duration,
-  Instant,
-  OffsetDateTime,
-  ZoneId,
-  ZoneOffset,
-  ZonedDateTime
-}
+import java.time.{Instant, OffsetDateTime, ZoneId, ZoneOffset, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.Try
 import scala.util.matching.Regex
@@ -33,7 +26,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   def project_repo(c: CourseName, p: ProjectName): String =
     defs.project_repo(c, p)
   def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    s"${project_repo(c, p)}_${csid.value}"
+    repos.WorkRepo.name_of(c, p, csid)
   def override_repo(c: CourseName, p: ProjectName): String =
     repos.OverrideRepo.name_of(c, p)
   def aliases_repo(c: CourseName, p: ProjectName): String =
@@ -280,45 +273,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       }
     }
 
-  // ---- late commits, and the student's own test ------------------------
-
-  // git's %s: the message's first paragraph, each line's trailing blanks
-  // dropped (its leading ones kept), joined by spaces
-  private[grader] def subject(message: String): String =
-    message.linesIterator
-      .dropWhile(_.trim.isEmpty)
-      .takeWhile(_.trim.nonEmpty)
-      .map(_.stripTrailing.nn)
-      .mkString(" ")
-
-  // The commits on master (along first parents) after the student's phase 2
-  // deadline, oldest first
-  lazy val late_commits
-      : (CourseName, ProjectName, CSID) => Target[Seq[LateCommit]] =
-    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-      target(
-        (
-          sub = submission(c, p, csid),
-          cutoff = defs.deadline(c, p, csid, Phase.Two)
-        )
-      ) { (producer, deps) =>
-        val cutoff = local(deps.cutoff)
-        (for {
-          m <- deps.sub.toSeq
-          ci <- producer.history(m)
-          t = time(ci)
-          if !t.isBefore(cutoff.toInstant)
-        } yield {
-          val at = ZonedDateTime.ofInstant(t, ZoneOffset.UTC).nn
-          LateCommit(
-            ci.id,
-            at,
-            Duration.between(cutoff, at).nn,
-            subject(ci.message)
-          )
-        }).reverse
-      }
-    }
+  // ---- the student's own test --------------------------------------
 
   // The student's own test: their <csid>.<ext> files (every one of the
   // project's test extensions) at the last commit on master, along first
@@ -474,7 +429,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
                 e =>
                   throw IllegalStateException(
                     s"${student_results_repo(c, p, csid)}'s the_results.json isn't readable by this " +
-                      s"version of the grader; `run publish_results -c $c -p $p -s ${csid.value}` " +
+                      s"version of the grader; `run grade -c $c -p $p` " +
                       s"rewrites it (${e.getMessage})",
                     e
                   ),

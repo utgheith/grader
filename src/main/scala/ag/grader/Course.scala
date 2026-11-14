@@ -160,45 +160,6 @@ case class Course(course_name: String)
       )
       deps.keys.value
     }
-
-  lazy val site_repo_name: String = s"${course_name}__site"
-
-  // The report pages of all active projects, kept in a git repo so the
-  // site is under source control: each change is a commit, and history is
-  // preserved. Pages of projects that are no longer active stay in the repo.
-  lazy val publish_site: Target[WithData[SortedSet[String]]] =
-    complex_gitolite_target(
-      repo = site_repo_name,
-      msg = "update site",
-      readers = Seq("@all")
-    ) { tracker =>
-      val projects = tracker.track(active_projects).values.toSeq
-      val pages = tracker.track_all(projects.map(HtmlGen(_).page))
-
-      (producer, repo) => {
-        val names = for {
-          page <- pages
-          f <- os.list(page.get_data_path(producer))
-        } yield {
-          os.copy.over(f, repo.dir / f.last)
-          f.last
-        }
-        // the front page lists every project's (latest) page in the repo,
-        // including those of projects that are no longer active
-        val all_pages = os
-          .list(repo.dir)
-          .map(_.last)
-          .filter(f =>
-            f.endsWith(".html") && f != "index.html" && !HtmlGen
-              .is_phase_page(f)
-          )
-        os.write.over(
-          repo.dir / "index.html",
-          HtmlGen.render_index(course_name, all_pages)
-        )
-        names.to(SortedSet)
-      }
-    }
 }
 
 object Course extends Scope(os.RelPath(".")) {

@@ -1,8 +1,8 @@
 package ag.grader.repos
 
-import ag.grader.{Create, Notice, Publish}
+import ag.grader.{Create, Notice, Outbox, Publish}
 import scala.annotation.unused
-import ag.r3.{Commit, Producer, Target, Tracker, WithData, create_data}
+import ag.r3.{Commit, Producer, Target, Tracker, Tree, WithData, create_data}
 
 // A repo on the git server, one kind per file, each a case class whose
 // fields say which repo (see Instance).
@@ -14,7 +14,8 @@ import ag.r3.{Commit, Producer, Target, Tracker, WithData, create_data}
 //   OwnedRepo        the grader's: it works out the contents
 //   AdditiveRepo     added to, never taken from (keys, aliases)
 //   HandedOverRepo   made by the grader, then someone else's
-//   ReadOnlyRepo     never published (courses_config, students' work)
+//   CreatedRepo      made by forking, never written (students' work)
+//   ReadOnlyRepo     never published (courses_config)
 trait Repo[S] extends Instance[S] { self: S =>
   // its name on the server
   def repo_name: String
@@ -41,11 +42,7 @@ sealed trait PublishedRepo[S] extends Repo[S] { self: S =>
       update: (I, Producer[?], os.Path, Boolean) => Seq[Notice]
   )(using sourcecode.FullName): Target[WithData[Publish]] =
     complex_target[WithData[Publish]] { tracker =>
-      val exists = tracker.track(env.source.exists(repo_name))
-      val base = tracker.track(create.filterNot(_ => exists) match {
-        case Some(c) => env.source.master(c.fork_from)
-        case None    => inspect
-      })
+      val (exists, base) = exists_and_base(tracker)
       val in = inputs(tracker)
       tracker.run_if_needed { producer =>
         create_data(producer) { dir =>
@@ -55,6 +52,19 @@ sealed trait PublishedRepo[S] extends Repo[S] { self: S =>
         }
       }
     }
+
+  // whether it's there, and what it holds now (or, if it isn't there, what
+  // it'd be forked from)
+  protected final def exists_and_base(
+      tracker: Tracker[?]
+  ): (Boolean, Option[Commit]) = {
+    val exists = tracker.track(env.source.exists(repo_name))
+    val base = tracker.track(create.filterNot(_ => exists) match {
+      case Some(c) => env.source.master(c.fork_from)
+      case None    => inspect
+    })
+    (exists, base)
+  }
 }
 
 object PublishedRepo {
@@ -116,5 +126,26 @@ trait HandedOverRepo[S] extends PublishedRepo[S] { self: S =>
   )(using sourcecode.FullName): Target[WithData[Publish]] =
     published(inputs) { (in, producer, dir, exists) =>
       if (is_handed_over(dir, exists)) Seq() else initial(in, producer, dir)
+    }
+}
+
+// Made by forking (see create), then someone else's, never written: its
+// data is the tree it has or would start with, as is. No copy is made, so
+// nothing in it is touched (a copy can't keep everything: submodules,
+// say). `tell` says who to tell when it's made, given what it starts with.
+trait CreatedRepo[S] extends PublishedRepo[S] { self: S =>
+  protected final def created[I](inputs: Tracker[?] => I)(
+      tell: (I, Producer[?], Option[Commit]) => Seq[Notice]
+  )(using sourcecode.FullName): Target[WithData[Publish]] =
+    complex_target[WithData[Publish]] { tracker =>
+      val (exists, base) = exists_and_base(tracker)
+      val in = inputs(tracker)
+      tracker.run_if_needed { producer =>
+        val notices = if (exists) Seq() else tell(in, producer, base)
+        WithData(
+          Publish(repo_name, exists, base.map(_.id), message, create, notices),
+          base.fold(Tree(Outbox.empty_tree))(b => producer.commit(b).tree)
+        )
+      }
     }
 }

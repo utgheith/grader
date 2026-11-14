@@ -8,7 +8,7 @@ import scala.collection.{SortedMap, SortedSet}
 
 // Grading: the students' results and scores, as r3 targets on the local
 // mirror. The r3 form of student_results, has_work and compute_scores in
-// Project. What's published from them is in Publishers.
+// r2's Project. What's published from them is in Publishers.
 //
 // Which tests a phase runs, and whether a test keeps running after it fails,
 // come from the project's state (as the publish_results command picks them
@@ -201,7 +201,7 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
 
   // ---- report pages ----------------------------------------------------
 
-  // What a project's report pages show (as HtmlGen.page): its published
+  // What a project's report pages show (as r2's HtmlGen.page): its published
   // results, from the mirror, and its settings
   lazy val report_inputs: (CourseName, ProjectName) => Target[ReportInputs] =
     fun { (c: CourseName, p: ProjectName) =>

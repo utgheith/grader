@@ -4,7 +4,7 @@ import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, HtmlGen, Publish}
 import ag.r3.{Target, Tree, WithData}
 
-// A course's report site (as Course.publish_site): the report pages of its
+// A course's report site (as r2's Course.publish_site): the report pages of its
 // active projects, and a front page listing every project's page in the
 // repo. Everyone can read it. A page is rewritten only when what it shows
 // changes, and pages of projects no longer active stay, so it isn't

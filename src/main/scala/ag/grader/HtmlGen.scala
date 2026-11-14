@@ -5,7 +5,6 @@ import ag.common.{
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
 }
-import ag.r2.{say, Target, update_data, WithData}
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -67,113 +66,6 @@ final case class ReportInputs(
     staff_aliases: SortedSet[Alias],
     tabs: Seq[(String, String)]
 ) derives upickle.default.ReadWriter
-
-class HtmlGen(p: Project) {
-
-  private val title = s"${p.course.course_name}_${p.project_name}"
-
-  // The latest results' page's file name, both in site_base and in the
-  // course's site repo; each phase's page is next to it (see page_file).
-  lazy val page_name: String = HtmlGen.page_file(title, Phase.Latest)
-
-  // every phase's results, and whether they're published yet
-  private lazy val results: Target[
-    Seq[
-      (
-          Phase,
-          Either[String, Option[SortedMap[Alias, RedactedStudentResults]]],
-          Boolean
-      )
-    ]
-  ] = p.target(
-    (
-      latest = p.results(Phase.Latest),
-      one = p.results(Phase.One),
-      two = p.results(Phase.Two),
-      state = p.state
-    )
-  ) { (_, deps) =>
-    Seq(
-      Phase.Latest -> deps.latest,
-      Phase.One -> deps.one,
-      Phase.Two -> deps.two
-    ).map((phase, r) => (phase, r, deps.state.publishes(phase)))
-  }
-
-  // Renders every phase's page into this target's data directory. A page
-  // whose content is unchanged (the same version; see HtmlGen.render) is
-  // left as it was, generated time and all: the pages' bytes change only
-  // when what they show does, and so only then does the site (and its
-  // deploy to Cloudflare) change.
-  lazy val page: Target[WithData[Unit]] =
-    p.target(
-      (
-        results = results,
-        phase1_tests = p.phase1_tests,
-        phase1_weight = p.phase1_weight,
-        phase2_tests = p.phase2_tests,
-        phase2_weight = p.phase2_weight,
-        weights = p.test_weights,
-        bad_tests = p.bad_tests,
-        test_cutoff = p.test_cutoff,
-        code_cutoff = p.code_cutoff,
-        enrollment = p.course.enrollment,
-        anti_aliases = p.anti_aliases,
-        course_staff = p.course.staff,
-        project_staff = p.staff,
-        projects = p.course.active_projects
-      )
-    ) { (producer, deps) =>
-      update_data(producer)(_ => false) { dir =>
-        val inputs = ReportInputs(
-          title = title,
-          project_name = p.project_name,
-          test_cutoff = deps.test_cutoff,
-          code_cutoff = deps.code_cutoff,
-          enrollments = deps.enrollment.size,
-          results = deps.results,
-          phase1_tests = deps.phase1_tests,
-          phase1_weight = deps.phase1_weight,
-          phase2_tests = deps.phase2_tests,
-          phase2_weight = deps.phase2_weight,
-          weights = deps.weights,
-          bad_tests = deps.bad_tests,
-          staff_aliases = HtmlGen.staff_aliases(
-            deps.anti_aliases.map(_.swap),
-            deps.course_staff ++ deps.project_staff
-          ),
-          tabs = HtmlGen.tabs(
-            p.course.course_name,
-            p.project_name,
-            deps.projects.keys
-          )
-        )
-        val reports = HtmlGen.reports(
-          inputs,
-          LocalDateTime.now().nn,
-          why => say(producer, why)
-        )
-        val written = reports.map(HtmlGen.write_page(dir, _))
-        // (pages this target no longer makes)
-        for (f <- os.list(dir) if !written.contains(f.last)) os.remove.all(f)
-      }
-    }
-
-  // Copies the pages into site_base, if there is one.
-  val gen_html: Target[Unit] =
-    p.target((page = page, site_base = Config.site_base)) { (producer, deps) =>
-      val site_base = deps.site_base
-      site_base.foreach { site_base =>
-        for (page_file <- os.list(deps.page.get_data_path(producer))) {
-          val f = os.Path(site_base) / page_file.last
-          say(producer, s"  ${f.toString}")
-          os.copy.over(page_file, f, createFolders = true)
-          os.perms.set(f, os.PermSet.fromString("rwxr--r--"))
-        }
-      }
-    }
-
-}
 
 object HtmlGen {
 
