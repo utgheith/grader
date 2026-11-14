@@ -69,12 +69,14 @@ given TokensReader.Simple[Regex] with {
 }
 
 given TokensReader.Simple[Phase] with {
-  override def shortName: String = "1|2"
+  override def shortName: String = "1|2|latest"
   override def read(strings: Seq[String]): Either[String, Phase] =
     strings.headOption match {
-      case Some("1") => Right(Phase.One)
-      case Some("2") => Right(Phase.Two)
-      case s => Left(s"Invalid phase '${s.getOrElse("")}'; phases are 1 and 2")
+      case Some("1")      => Right(Phase.One)
+      case Some("2")      => Right(Phase.Two)
+      case Some("latest") => Right(Phase.Latest)
+      case s              =>
+        Left(s"Invalid phase '${s.getOrElse("")}'; phases are 1, 2 and latest")
     }
 }
 
@@ -763,75 +765,6 @@ object Main {
 
     c = c - r.step
     (c, acc)
-  }
-
-  @main
-  def run(
-      commonArgs: CommonArgs,
-      @arg(doc =
-        "grade phase 1 or 2: the commit its commit_id_<n> file names, else the last before its deadline (default: the latest)"
-      )
-      phase: Phase = Phase.Latest,
-      @arg(
-        name = "result-file",
-        doc = "The json file to write the results summary out to"
-      )
-      result_file: Option[String]
-  ): Unit = in_workspace(commonArgs) { root =>
-    val runs = root.track(commonArgs.runs)
-    // the phase's tests (as publish_results runs them), narrowed by -t
-    val outs = root.track_all {
-      for {
-        (p, csid, test_id) <- runs
-        if root
-          .track(p.test_ids_for(state_of(p, root).tests(phase)))
-          .contains(test_id)
-        info <- root.track(p.prepare_info(csid, phase)).toSeq
-      } yield p
-        .run_one(
-          state_of(p, root).keeps_going(phase),
-          root.track(p.iterations).max
-        )(
-          csid,
-          info.sha,
-          test_id
-        )
-    }
-
-    result_file.foreach(file_name => {
-      val results =
-        outs
-          .groupBy(_.value.csid)
-          .map((csid, signed_paths) => {
-            val outcomes = signed_paths.map(_.value)
-            val test_results = outcomes
-              .groupBy(_.test_id)
-              .map((test_id, runs) => {
-                val passed = runs.count(_.is_happy)
-                val total = runs.size
-                (test_id.external_name, ujson.Arr(passed, total))
-              })
-              .to(Map)
-            val commit_id = outcomes.head.commit_id.getOrElse("")
-            (
-              csid.toString(),
-              Map(
-                "commit_id" -> ujson.Str(commit_id),
-                "results" -> ujson.Obj.from(test_results)
-              )
-            )
-          })
-          .to(Map)
-
-      val path =
-        if (file_name.charAt(0) == '/') os.Path(file_name)
-        else os.pwd / os.RelPath(file_name)
-      os.write(
-        path,
-        upickle.default.write(results, indent = 2)
-      )
-    })
-
   }
 
   // A project's state (from its deadlines and the clock), announced once.
@@ -1582,88 +1515,170 @@ object Main {
       ag.grader.Dropbox(ag.grader.Config.dropbox_root)
     )
 
-  // Grades the active projects the arguments pick, from the local mirror,
-  // and records their results repos (the project's and each student's) in
-  // the outbox, for `sync` to push: the r3 form of publish_results. The
-  // phases, tests and keep-going come from each project's state. With no
-  // -p, one project with work to do, picked by priority (see Priority);
-  // named projects are graded as far as their work goes. --tries grades the
-  // picked projects to that many tries instead.
+  // Picks the active projects to run, from the local mirror (as
+  // publish_results did: with no -p, one with work to do, picked by
+  // priority, see Priority; named ones as far as their work goes; --tries:
+  // all of them, to that many), and works out their results: every phase
+  // they publish (its tests and keep-going from the project's state), and
+  // each student's latest. The tries are a limit, not a promise: a test
+  // runs up to that many times, and stops sooner at a failure unless it
+  // keeps going. Publishes nothing. Says how it went; the projects, each
+  // with its limit.
+  //
+  // With `narrow`, only the students -s picks, the tests -t picks, and the
+  // phase `phase` (if given) are run, and only their outcomes worked out.
+  private def run_projects(
+      s: ag.r3.State,
+      commonArgs: CommonArgs,
+      tries: Option[Int],
+      narrow: Boolean,
+      phase: Option[Phase]
+  ): Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] = {
+    val course_re = commonArgs.courses_
+    val project_re = commonArgs.projects_
+    val grading = publishers_of(commonArgs.workspace).grading
+    val subs = grading.runs.subs
+    val defs = subs.defs
+    val candidates = for {
+      c <- s.track(defs.active_courses(course_re)).toSeq
+      p <- s.track(defs.active_projects(c, project_re)).toSeq
+    } yield (c, p)
+    def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
+    def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
+      s.track(grading.state(c, p))
+    def phases(c: ag.grader.CourseName, p: ag.grader.ProjectName): Seq[Phase] =
+      Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
+    def work(
+        c: ag.grader.CourseName,
+        p: ag.grader.ProjectName
+    ): Option[(ag.grader.Band, Int)] =
+      ag.grader.Priority.band(
+        state(c, p).is_live,
+        s.track(defs.iterations(c, p)),
+        n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
+      )
+    def report(
+        c: ag.grader.CourseName,
+        p: ag.grader.ProjectName,
+        w: Option[(ag.grader.Band, Int)]
+    ) =
+      println(
+        s"${name(c, p)}: ${state(c, p).description}; ${w.fold("up to date")(
+            (band, n) => s"work to do (${band.description}, up to $n tries)"
+          )}"
+      )
+    val named = commonArgs.projects_.regex != ".*"
+    val projects: Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] =
+      tries match {
+        case Some(n) => candidates.map((c, p) => (c, p, n))
+        case None if named || candidates.size <= 1 =>
+          for ((c, p) <- candidates) yield {
+            val w = work(c, p)
+            report(c, p, w)
+            (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
+          }
+        case None =>
+          val busy = for {
+            (c, p) <- candidates
+            w = work(c, p)
+            _ = report(c, p, w)
+            (band, n) <- w
+          } yield ((c, p, n), p.value, band)
+          val picked = ag.grader.Priority.pick(busy).toSeq
+          if (picked.isEmpty) println("nothing to do")
+          picked
+      }
+    for ((c, p, n) <- projects) {
+      val run_phases = phase.fold(phases(c, p))(Seq(_))
+      println(
+        s"running ${name(c, p)}, up to $n tries: ${state(c, p).description}; " +
+          run_phases
+            .map(ph =>
+              s"${HtmlGen.phase_label(ph)}: ${state(c, p).tests(ph): String}" +
+                (if (state(c, p).keeps_going(ph)) ", keep-going" else "")
+            )
+            .mkString("; ")
+      )
+      val started = ag.grader.runs_started()
+      if (narrow) {
+        val f = s.tally
+        val st = state(c, p)
+        val runs = grading.runs
+        val outs = s.track_all(for {
+          ph <- run_phases
+          csid <- subs.students_with_submission(c, p).tally(s).toSeq
+          if f.keep("matching -s", commonArgs.students_.matches(csid.value))
+          // a commit to grade for the phase
+          _ <- subs.prepare_info(c, p, csid, ph).tally(s).toSeq
+          id <- runs.test_ids_for(c, p, st.tests(ph)).tally(s).toSeq
+          if f.keep(
+            "matching -t",
+            commonArgs.tests_.matches(id.external_name) ||
+              commonArgs.tests_.matches(id.internal_name)
+          )
+        } yield runs.run_one(st.keeps_going(ph), n)(c, p, csid, ph, id))
+        val results = outs.map(_.value)
+        println(
+          s"${name(c, p)}: ${(ag.grader.runs_started() - started).toString} runs; " +
+            s"${results.count(_.is_happy)} of ${results.size} test results passed"
+        )
+        f.report("run", results.size, commonArgs.verbose.value)
+      } else {
+        val students = s.track(subs.students_with_submission(c, p)).toSeq
+        val files = s.track(grading.results_files(c, p, n))
+        val latest = s.track_all(
+          students.map(grading.student_results(c, p, _, Phase.Latest, n))
+        )
+        val outcomes = latest.flatten.flatMap(_.outcomes.values)
+        println(
+          s"${name(c, p)}: ${(ag.grader.runs_started() - started).toString} runs; " +
+            s"${files.keys.mkString(", ")} for ${students.size} students; latest: " +
+            s"${outcomes.count(_.is_happy)} of ${outcomes.size} test results passed"
+        )
+      }
+    }
+    projects
+  }
+
+  // Runs the picked projects' tests, here, up to their limit (see
+  // run_projects): nothing is published (grade publishes it). -s, -t and
+  // --phase run just those students, tests and phase.
+  @main
+  def run(
+      commonArgs: CommonArgs,
+      @arg(doc =
+        "the most tries a test gets (default: as the project's iterations say)"
+      )
+      tries: Option[Int] = None,
+      @arg(doc =
+        "run just this phase: 1, 2 or latest (default: every phase the project publishes)"
+      )
+      phase: Option[Phase] = None
+  ): Unit =
+    in_r3_workspace(commonArgs) { s =>
+      val narrow = phase.isDefined ||
+        commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
+      val _ = run_projects(s, commonArgs, tries, narrow, phase)
+    }
+
+  // Runs the picked projects (as run does), then records their results, as
+  // far as they got, in the outbox, for `sync` to push: the project's
+  // results, and each student's own results and prepared code (see
+  // Publishers.graded). The r3 form of publish_results.
   @main
   def grade(
       commonArgs: CommonArgs,
-      @arg(doc = "how many tries (default: as the project's iterations say)")
+      @arg(doc =
+        "the most tries a test gets (default: as the project's iterations say)"
+      )
       tries: Option[Int] = None
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val course_re = commonArgs.courses_
-      val project_re = commonArgs.projects_
       val pubs = publishers_of(commonArgs.workspace)
-      val grading = pubs.grading
-      val subs = grading.runs.subs
-      val defs = subs.defs
-      val candidates = for {
-        c <- s.track(defs.active_courses(course_re)).toSeq
-        p <- s.track(defs.active_projects(c, project_re)).toSeq
-      } yield (c, p)
-      def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
-      def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
-        s.track(grading.state(c, p))
-      def phases(
-          c: ag.grader.CourseName,
-          p: ag.grader.ProjectName
-      ): Seq[Phase] =
-        Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
-      def work(
-          c: ag.grader.CourseName,
-          p: ag.grader.ProjectName
-      ): Option[(ag.grader.Band, Int)] =
-        ag.grader.Priority.band(
-          state(c, p).is_live,
-          s.track(defs.iterations(c, p)),
-          n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
-        )
-      def report(
-          c: ag.grader.CourseName,
-          p: ag.grader.ProjectName,
-          w: Option[(ag.grader.Band, Int)]
-      ) =
-        println(
-          s"${name(c, p)}: ${state(c, p).description}; ${w.fold("up to date")(
-              (band, n) => s"work to do (${band.description}, to $n tries)"
-            )}"
-        )
-      val named = commonArgs.projects_.regex != ".*"
-      val projects: Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] =
-        tries match {
-          case Some(n) => candidates.map((c, p) => (c, p, n))
-          case None if named || candidates.size <= 1 =>
-            for ((c, p) <- candidates) yield {
-              val w = work(c, p)
-              report(c, p, w)
-              (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
-            }
-          case None =>
-            val busy = for {
-              (c, p) <- candidates
-              w = work(c, p)
-              _ = report(c, p, w)
-              (band, n) <- w
-            } yield ((c, p, n), p.value, band)
-            val picked = ag.grader.Priority.pick(busy).toSeq
-            if (picked.isEmpty) println("nothing to do")
-            picked
-        }
-      for ((c, p, n) <- projects)
-        println(
-          s"grading ${name(c, p)} to $n tries: ${state(c, p).description}; " +
-            phases(c, p)
-              .map(ph =>
-                s"${HtmlGen.phase_label(ph)}: ${state(c, p).tests(ph): String}" +
-                  (if (state(c, p).keeps_going(ph)) ", keep-going" else "")
-              )
-              .mkString("; ")
-        )
+      val subs = pubs.grading.runs.subs
+      if (commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*")
+        println("grade publishes whole projects: -s and -t are ignored")
+      val projects = run_projects(s, commonArgs, tries, false, None)
       val wanted = s.track_all(projects.flatMap { (c, p, n) =>
         pubs.graded(c, p, s.track(subs.students_with_submission(c, p)), n)
       })

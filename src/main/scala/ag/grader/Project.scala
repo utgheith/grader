@@ -73,6 +73,8 @@ object Phase:
   }
 
 private[grader] val started_runs = AtomicLong(0)
+// how many test runs this process has started
+def runs_started(): Long = started_runs.get
 private[grader] val finished_runs = AtomicLong(0)
 
 @upickle.implicits.allowUnknownKeys(false)
