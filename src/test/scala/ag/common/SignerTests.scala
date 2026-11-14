@@ -45,11 +45,7 @@ class SignerTests extends FunSuite {
   }
 
   test("signer with exclusion") {
-    val tmpDir = os.temp.dir(
-      dir = os.root / "tmp",
-      prefix = "SignerTests",
-      deleteOnExit = true
-    )
+    val tmpDir = TempDirs.dir("SignerTests")
 
     os.write(tmpDir / "a.txt", "a")
     os.write(tmpDir / "b.txt", "b")

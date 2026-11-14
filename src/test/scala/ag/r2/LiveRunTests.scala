@@ -1,5 +1,6 @@
 package ag.r2
 
+import ag.common.TempDirs
 import ag.web.{Password, WebConfig}
 import munit.FunSuite
 
@@ -31,7 +32,7 @@ class LiveRunTests extends FunSuite {
   }
 
   test("paused, the run's first target waits until someone resumes") {
-    val root = State(os.temp.dir(deleteOnExit = true))
+    val root = State(TempDirs.dir())
     val only: Target[Int] = Scope("start_paused").target(EmptyTuple)((_, _) => 5)
     LiveRun.serving(root, Some(config()), paused = true) {
       assert(root.control.status.paused)
@@ -47,7 +48,7 @@ class LiveRunTests extends FunSuite {
   }
 
   test("pause_at_end waits to exit until someone lets it, even after a failure") {
-    val root = State(os.temp.dir(deleteOnExit = true))
+    val root = State(TempDirs.dir())
     @volatile var exited = false
     val t = Thread.ofVirtual().start { () =>
       try
@@ -67,14 +68,14 @@ class LiveRunTests extends FunSuite {
   }
 
   test("without a server, neither pause applies") {
-    val root = State(os.temp.dir(deleteOnExit = true))
+    val root = State(TempDirs.dir())
     val only: Target[Int] = Scope("no_server").target(EmptyTuple)((_, _) => 7)
     val v = LiveRun.serving(root, None, paused = true, pause_at_end = true)(root.track(only))
     assertEquals(v, 7)
   }
 
   test("the server shows a run behind a password, and controls it") {
-    val workspace = os.temp.dir(deleteOnExit = true)
+    val workspace = TempDirs.dir()
     val port = free_port()
     val config = WebConfig(
       port = port,

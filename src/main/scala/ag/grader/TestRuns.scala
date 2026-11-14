@@ -1,16 +1,9 @@
 package ag.grader
 
-import ag.common.{
-  down,
-  given_ReadWriter_SortedMap,
-  given_ReadWriter_SortedSet,
-  shout
-}
+import ag.common.{given_ReadWriter_SortedMap, given_ReadWriter_SortedSet}
 import ag.r3.{Producer, Scope, Target, Tree, WithData, create_data}
-import ag.rules.run
 
 import scala.collection.{SortedMap, SortedSet}
-import scala.util.control.NonFatal
 
 // The project's tests, and running them on the students' submissions, as r3
 // targets on the local mirror: the r3 form of the tests and run_one in
@@ -263,12 +256,12 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
       target(EmptyTuple)((_, _) => Docker.image_name(os.pwd / os.RelPath(f)))
   }
 
-  // Runs a test on a commit's prepared submission (as Project.run_one): the
-  // outcome of each run so far, the latest run's output files as its data.
-  // It runs again while it has fewer than `n` runs, but stops at a failure
-  // unless `keep_going`; and from scratch when what it depends on changes.
-  // With n = 0, never runs: just the runs it has, none if it has none (or
-  // what they were for changed).
+  // A test's runs on a commit's prepared submission (as Project.run_one):
+  // the outcome of each run so far, the latest run's output files as its
+  // data. The runs are kept by what they ran on (see repos.TestRun), so
+  // they stay whatever this target is called; it runs again while it has
+  // fewer than `n` runs, but stops at a failure unless `keep_going`. With
+  // n = 0, never runs: just the runs it has, none if it has none.
   def run_one(
       keep_going: Boolean,
       n: Int
@@ -287,162 +280,30 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
               image = docker_image(c, p)
             )
           )
-          tracker.run { (producer, saved) =>
-            val history = saved.toSeq.flatMap(_.value.value.outcomes)
-            saved match {
-              case s @ Some(_)
-                  if history.size >= n || !(keep_going || history.forall(
-                    _._1 == OutcomeStatus.pass
-                  )) =>
-                s
-              case _ if n == 0 =>
-                () =>
-                  create_data(producer) { _ =>
-                    Outcome(
-                      project = Project(Course(c.value), p.value),
-                      csid = csid,
-                      test_id = id,
-                      outcomes = Seq(),
-                      commit_id = Some(sha)
-                    )
-                  }
-              case _ =>
-                () =>
-                  create_data(producer) { out =>
-                    val res = run_test(
-                      producer,
-                      s"${c}_${p}_${csid.value}",
-                      id,
-                      deps.prepared.data,
-                      deps.test.data,
-                      deps.cores,
-                      deps.docker_file,
-                      history.size + 1,
-                      out
-                    )
-                    Outcome(
-                      project = Project(Course(c.value), p.value),
-                      csid = csid,
-                      test_id = id,
-                      outcomes = history :+ res,
-                      commit_id = Some(sha)
-                    )
-                  }
-            }
+          val runs = tracker.track(
+            repos
+              .TestRun(
+                prepared = deps.prepared.data,
+                test = deps.test.data,
+                test_name = id.external_name,
+                cores = deps.cores,
+                docker_file = deps.docker_file,
+                image = deps.image
+              )
+              .runs(id, s"${c}_${p}_${csid.value}", keep_going, n)
+          )
+          tracker.run_if_needed { _ =>
+            WithData(
+              Outcome(
+                project = Project(Course(c.value), p.value),
+                csid = csid,
+                test_id = id,
+                outcomes = runs.value.outcomes,
+                commit_id = Some(sha)
+              ),
+              runs.data
+            )
           }
         }
     }
-
-  // a run's directory, gone: whatever the test left in it (read-only files
-  // or directories too); a failure to is only logged
-  private def remove(work: os.Path): Unit =
-    try {
-      val _ = os.proc("chmod", "-R", "u+rwx", work).call(check = false)
-      os.remove.all(work)
-    } catch {
-      case NonFatal(e) =>
-        shout(s"can't remove ${work.toString}: ${e.getMessage}")
-    }
-
-  // the files a run leaves that are kept, by extension
-  private val kept =
-    Seq("ok", "out", "err", "result", "time", "stdout", "stderr")
-
-  // One run (as doit): a copy of the prepared submission, less anything
-  // named like the test (a student's own <test>.result, say), and the test's
-  // files; then `make -k clean` and `make -k <test>.test` there. Its output
-  // files go to `out`.
-  private def run_test(
-      producer: Producer[?],
-      what: String,
-      id: TestId,
-      prepared: Tree,
-      test: Tree,
-      cores: Int,
-      docker_file: Option[String],
-      n: Int,
-      out: os.Path
-  ): (OutcomeStatus, Option[Double]) = {
-    ag.rules.refuse_if_read_only(
-      s"run ${id.external_name} on $what (${n.toString})"
-    )
-    val _ = started_runs.incrementAndGet()
-    try {
-      if (cores > limit)
-        throw Exception(s"need $cores cores, limit is $limit")
-      governor.down(cores) {
-        val root = producer.state.scratch_root
-        os.makeDir.all(root)
-        val work = os.temp.dir(dir = root, deleteOnExit = false)
-        try {
-          producer.copy_to(prepared, work)
-          val tn = id.external_name
-          for (f <- os.list(work) if f.baseName == tn) os.remove.all(f)
-          producer.copy_to(test, work)
-          val image = docker_file.map(f => Docker.of(os.pwd / os.RelPath(f)))
-
-          val m = s"$tn/${id.internal_name} for $what"
-          shout(f"running#$n $m on $cores cores (Docker: ${image.toString})")
-
-          val start = System.currentTimeMillis()
-          val _ = os.proc("make", "-k", "clean").run(cwd = work, check = false)
-          val (_, stdout, stderr) = os
-            .proc(Docker.dockerCommand(work, image), "make", "-k", s"$tn.test")
-            .run(cwd = work, check = false)
-          val run_time =
-            Some((System.currentTimeMillis() - start).toDouble / 1000)
-
-          def first_line(ext: String): Option[String] = {
-            val f = work / s"$tn.$ext"
-            if (os.isFile(f)) os.read.lines(f).headOption else None
-          }
-          val result = first_line("result")
-          val time = first_line("time")
-          val outcome = (
-            result.map(_.toLowerCase.nn),
-            time.map(_.toLowerCase.nn)
-          ) match {
-            case (_, Some("timeout")) => OutcomeStatus.timeout
-            case (Some("pass"), _)    => OutcomeStatus.pass
-            case (Some("fail"), _)    => OutcomeStatus.fail
-            case (_, _)               => OutcomeStatus.unknown
-          }
-
-          val how_long = run_time.map(t => f"$t%.2f")
-          val shown = (if (outcome.isHappy) fansi.Color.Green
-                       else fansi.Color.Red) (outcome.toString)
-          shout(
-            s"    [${finished_runs.get().toString}/${started_runs.get().toString}] finished [${shown.toString}] $m in ${how_long.toString} seconds"
-          )
-
-          // make's own output (not the test's .out/.err), when there is
-          // some, its first 10K: stdout only if the test didn't pass
-          val max_std_size = 10 * 1024
-          val kept_stdout = if (outcome.isHappy) None else Some(stdout)
-          for {
-            (f, ext) <- Seq(kept_stdout -> "stdout", stderr -> "stderr")
-            f <- f
-            size = os.size(f)
-            if size > 0
-          } os.write.over(
-            out / s"$tn.$ext",
-            os.read.bytes(f, 0, math.min(size, max_std_size.toLong).toInt),
-            createFolders = true
-          )
-          for {
-            ext <- kept
-            src = work / s"$tn.$ext"
-            if os.isFile(src)
-          } os.copy.over(
-            from = src,
-            to = out / s"$tn.$ext",
-            followLinks = false,
-            createFolders = true
-          )
-
-          (outcome, Project.parseTime(time).orElse(run_time))
-        } finally remove(work)
-      }
-    } finally { val _ = finished_runs.incrementAndGet() }
-  }
 }

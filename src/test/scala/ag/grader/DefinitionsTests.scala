@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.r3.{Source, State}
 import munit.FunSuite
 
@@ -18,7 +19,7 @@ class DefinitionsTests extends FunSuite {
 
   // a bare repo `name` in `mirror`, with one commit on master holding `files`
   private def repo(mirror: os.Path, name: String, files: (String, String)*): Unit = {
-    val work = os.temp.dir()
+    val work = TempDirs.dir()
     val _ = git(work, "init", "-q", "-b", "master")
     for ((f, text) <- files) os.write.over(work / os.RelPath(f), text, createFolders = true)
     val _ = git(work, "add", "-A")
@@ -54,7 +55,7 @@ class DefinitionsTests extends FunSuite {
   }
 
   test("courses and settings come from courses_config; a project is active only if its repo is there") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
     repo(mirror, "c1_p1", "README" -> "base")
@@ -80,7 +81,7 @@ class DefinitionsTests extends FunSuite {
   }
 
   test("deadlines: phase 1 at the test cutoff, phase 2 and the latest at the code cutoff, plus extensions") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
     val d = Definitions(Source(mirror))
@@ -96,7 +97,7 @@ class DefinitionsTests extends FunSuite {
   }
 
   test("a new State sees a change to courses_config, and to whether a project repo is there") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
     val d = Definitions(Source(mirror))
@@ -109,7 +110,7 @@ class DefinitionsTests extends FunSuite {
   }
 
   test("a missing course or project fails its settings, with its name") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
     val d = Definitions(Source(mirror))

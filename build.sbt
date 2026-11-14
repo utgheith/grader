@@ -20,6 +20,9 @@ nativeImageVersion := "25.0.2"
 nativeImageJvm := "graalvm-community"
 //nativeImageOptions += "-H:-UseServiceLoaderFeature"
 testFrameworks += TestFramework("munit.Framework")
+// in a JVM of their own, so their temporary directories (TempDirs) are
+// removed when it exits: sbt's own JVM unloads the tests' classes first
+Test / fork := true
 
 nativeImageOptions ++= Seq(
       "--no-fallback",

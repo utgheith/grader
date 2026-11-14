@@ -1,12 +1,13 @@
 package ag.r3
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import java.util.concurrent.atomic.AtomicInteger
 
 // what r3 adds: targets kept in git, with history, and data as trees
 class StoreTests extends FunSuite {
-  private def ws(): os.Path = os.temp.dir(deleteOnExit = true)
+  private def ws(): os.Path = TempDirs.dir()
 
   private def git(dir: os.Path, args: String*): String =
     os.proc(Seq("git", "--git-dir", (dir / "r3.git").toString) ++ args)
@@ -182,7 +183,7 @@ class StoreCheckoutTests extends FunSuite {
   // a repo with a file, an executable, a link, a big-ish file and a
   // submodule entry; its tree's id
   private def repo(): (os.Path, String) = {
-    val d = os.temp.dir(deleteOnExit = true)
+    val d = TempDirs.dir()
     val _ = git(d, "init", "-q", "-b", "master")
     os.write(d / "a.txt", "new")
     os.write(d / "run.sh", "#!/bin/sh")
@@ -201,7 +202,7 @@ class StoreCheckoutTests extends FunSuite {
   test("checkout_to writes over what's there, merges directories, and makes a submodule an empty directory") {
     val (d, tree) = repo()
     val store = Store(d / ".git", create = false)
-    val dest = os.temp.dir(deleteOnExit = true)
+    val dest = TempDirs.dir()
     os.write(dest / "a.txt", "old")
     os.write(dest / "link", "a file where the link goes")
     os.write(dest / "dir" / "kept", "mine", createFolders = true)
@@ -220,7 +221,7 @@ class StoreCheckoutTests extends FunSuite {
     val (d, tree) = repo()
     val store = Store(d / ".git", create = false)
     val id = org.eclipse.jgit.lib.ObjectId.fromString(tree).nn
-    val out = os.temp.dir(deleteOnExit = true)
+    val out = TempDirs.dir()
     assert(store.copy_file(id, os.rel / "dir" / "big", out / "big"))
     assertEquals(os.size(out / "big"), 3L << 20)
     assert(store.copy_file(id, os.rel / "link", out / "link"))

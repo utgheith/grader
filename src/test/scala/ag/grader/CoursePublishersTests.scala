@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import ag.r3.State
 import munit.FunSuite
@@ -34,7 +35,7 @@ class CoursePublishersTests extends FunSuite {
     os.walk(dir).filter(os.isFile(_)).map(_.relativeTo(dir).toString).sorted
 
   test("keys: added or changed in gitolite-admin, never removed; never made") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, _) = setup(root, me.value -> "ssh-ed25519 new")
     val _ = r.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n",
       s"keydir/${me.value}.pub" -> "ssh-ed25519 old", "keydir/gone.pub" -> "k")()
@@ -47,7 +48,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("a key added or changed is told about, as the course says; an unchanged one isn't") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, _) = setup_with(root, tell, me.value -> "ssh-ed25519 new")
     val _ = r.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
     val p = State(root / "ws").track(pubs.keys)
@@ -59,14 +60,14 @@ class CoursePublishersTests extends FunSuite {
     val _ = r.commit("gitolite-admin", test_cutoff, s"keydir/${me.value}.pub" -> "ssh-ed25519 new")()
     assertEquals(State(root / "ws").track(pubs.keys).value.notices, Seq())
     // the course doesn't tell about keys
-    val root2 = os.temp.dir()
+    val root2 = TempDirs.dir()
     val (r2, pubs2, _) = setup_with(root2, tell.copy(key_update = false), me.value -> "k")
     val _ = r2.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
     assertEquals(State(root2 / "ws").track(pubs2.keys).value.notices, Seq())
   }
 
   test("a work repo that's made: the student is told, with the project's README") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, _) = setup_with(root, tell)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "README" -> "read me")()
     val p = State(root / "ws").track(pubs.work_repo(c1, p1, s1))
@@ -104,20 +105,20 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("a key file owned by neither its student nor the keeper fails") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (_, pubs, _) = setup(root, "someone_else" -> "k")
     val strict = Dropbox(pubs.dropbox.root, keeper = "nobody_here")
     intercept[Exception](State(root / "ws").track(strict.keys(c1)))
   }
 
   test("a course without a directory in the dropbox has no keys") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (_, pubs, _) = setup(root, s1.value -> "k")
     assertEquals(State(root / "ws").track(pubs.dropbox.keys(c2)), SortedMap[CSID, String]())
   }
 
   test("the keeper (by default, the grader's user) can own anyone's key file") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (_, pubs, _) = setup(root, "someone_else" -> "k")
     assertEquals(
       State(root / "ws").track(pubs.dropbox.keys(c1)),
@@ -126,7 +127,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("enrollment: the dropbox's students and keys") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (_, pubs, _) = setup(root, me.value -> "ssh-ed25519 mine")
     val s = State(root / "ws")
     val p = s.track(pubs.enrollment(c1))
@@ -138,7 +139,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("enrollment: left alone if the dropbox has no directory for the course") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1__enrollment", test_cutoff, "enrollment.json" -> "[]")()
     os.remove.all(pubs.dropbox.root.get / "c1")
@@ -147,7 +148,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("grades: made with a README, then left to the staff") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val s = State(root / "ws")
     val p = s.track(pubs.grades(c1))
@@ -160,7 +161,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("a work repo: a fork of the project's repo, nothing pushed") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val p = State(root / "ws").track(pubs.work_repo(c1, p1, s1))
     assertEquals(p.value.create, Some(Create("c1_p1", Seq("s1", "@c1_staff"), Seq("s1"))))
@@ -183,7 +184,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("a submodule: a work repo is left alone; a commit that would drop one isn't made") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
     add_submodule(r, root, "c1_p1_s1", "sub")
@@ -197,7 +198,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test("site: a page per phase and the front page; old pages stay, unchanged pages aren't rewritten") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1__site", test_cutoff, "c1_p0.html" -> "an old project's page")()
     val s = State(root / "ws")

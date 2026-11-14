@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import ag.r3.State
 import munit.FunSuite
@@ -25,7 +26,7 @@ class PublishersTests extends FunSuite {
     os.proc("git" +: args).call(cwd = dir).out.text().trim
 
   test("a new repo: a commit with no parent; once it's on the mirror, nothing to push") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
@@ -57,7 +58,7 @@ class PublishersTests extends FunSuite {
   }
 
   test("a repo with nothing in it: made, but nothing pushed (as r2)") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val p = State(root / "ws").track(pubs.submitted_tests(c1, p1))
@@ -73,7 +74,7 @@ class PublishersTests extends FunSuite {
   }
 
   test("a new repo starts where its fork does: on the fork source's master, with its files") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "s1.cc" -> "mine", "s1.ok" -> "out")()
@@ -93,7 +94,7 @@ class PublishersTests extends FunSuite {
   }
 
   test("the override repo: made once, from the project's tests and Makefiles") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30),
       "main.c" -> "x", "t0.cc" -> "a test", "t0.ok" -> "its output", "Makefile" -> "all:",
@@ -112,7 +113,7 @@ class PublishersTests extends FunSuite {
   }
 
   test("tests: the students' by alias and the override repo's; submitted tests: only the students'") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, _) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "s1.cc" -> "mine", "s1.ok" -> "my output")()

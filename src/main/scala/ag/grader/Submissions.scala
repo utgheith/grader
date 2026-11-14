@@ -41,7 +41,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   def results_repo(c: CourseName, p: ProjectName): String =
     s"${project_repo(c, p)}__results"
   def student_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    s"${work_repo(c, p, csid)}_results"
+    repos.StudentResultsRepo.name_of(c, p, csid)
   def enrollment_repo(c: CourseName): String = s"${c}__enrollment"
 
   private val report_name = os.rel / "REPORT.txt"

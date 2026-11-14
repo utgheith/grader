@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import ag.r3.State
 import munit.FunSuite
@@ -54,7 +55,7 @@ class GradingTests extends FunSuite {
   }
 
   test("student_results: the phase's tests on the graded commit, by alias") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (_, pubs, _, sha) = setup(root)
     val g = pubs.grading
     val s = State(root / "ws")
@@ -79,7 +80,7 @@ class GradingTests extends FunSuite {
   }
 
   test("the results repo: a file per phase; has_work until the results cover n tries") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, ob, _) = setup(root)
     val g = pubs.grading
     def has_work(n: Int) =
@@ -118,7 +119,7 @@ class GradingTests extends FunSuite {
   }
 
   test("a student's results repo: their outcomes and each test's output files") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, pubs, _, sha) = setup(root)
     // what was there before goes, but its dot files
     val _ = r.commit("c1_p1_s1_results", test_cutoff, ".gitignore" -> "*.o\n", "old.result" -> "x")()
@@ -136,7 +137,7 @@ class GradingTests extends FunSuite {
   }
 
   test("latest results show the other good tests, as far as they've run") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     // t2: good but not chosen
     val (_, pubs, _, sha) = setup(root, "t2.cc" -> "pass", "t2.ok" -> "")
     val g = pubs.grading

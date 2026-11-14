@@ -1,12 +1,13 @@
 package ag.r3
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import scala.collection.SortedSet
 
 // Target.tally: the run's tally counts what's measured, by target kind
 class TallyTests extends FunSuite {
-  private def ws(): os.Path = os.temp.dir(deleteOnExit = true)
+  private def ws(): os.Path = TempDirs.dir()
 
   test(
     "a measured target's value is counted under its kind, summed across calls"

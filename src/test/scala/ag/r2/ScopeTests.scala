@@ -1,5 +1,6 @@
 package ag.r2
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import upickle.default.ReadWriter
@@ -17,7 +18,7 @@ class ScopeTests extends FunSuite {
   }
 
   test("target creation") {
-    val root = State(os.temp.dir(deleteOnExit = true))
+    val root = State(TempDirs.dir())
     val s = Scope("test")
 
     case class Data(i: Int) derives ReadWriter
@@ -47,7 +48,7 @@ class ScopeTests extends FunSuite {
   }
 
   test("target takes a named tuple of targets") {
-    val root = State(os.temp.dir(deleteOnExit = true))
+    val root = State(TempDirs.dir())
     val s = Scope("named")
     val none: Target[Int] = s.target(EmptyTuple) { (_, _) => 1 }
     val one: Target[Int] = s.target((a = none)) { (_, deps) => deps.a + 1 }

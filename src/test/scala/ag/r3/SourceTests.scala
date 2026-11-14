@@ -1,5 +1,6 @@
 package ag.r3
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -17,7 +18,7 @@ class SourceTests extends FunSuite {
 
   // a mirror (root) with bare repos, and a clone of each to push from
   private class Setup {
-    val base: os.Path = os.temp.dir(deleteOnExit = true)
+    val base: os.Path = TempDirs.dir()
     val root: os.Path = base / "mirror"
     val ws: os.Path = base / "ws"
     val source: Source = Source(root)

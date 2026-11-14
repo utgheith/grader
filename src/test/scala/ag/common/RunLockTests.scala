@@ -4,7 +4,7 @@ import munit.FunSuite
 
 class RunLockTests extends FunSuite {
   test("a second run is refused, and told who holds the lock") {
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = TempDirs.dir()
     val first = RunLock.acquire(dir, "run publish_results -p p5")
     assert(first.isRight)
 
@@ -22,7 +22,7 @@ class RunLockTests extends FunSuite {
   }
 
   test("a lock held by another process is respected") {
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = TempDirs.dir()
     val lock_file = (dir / ".grader.lock").toString
     // a separate process holding the same kind of (fcntl) lock Java uses
     val holder = os

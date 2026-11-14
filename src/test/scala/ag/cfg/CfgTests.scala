@@ -1,5 +1,6 @@
 package ag.cfg
 
+import ag.common.TempDirs
 import munit.FunSuite
 import upickle.default.{ReadWriter, macroRW}
 
@@ -10,7 +11,7 @@ object TestConfig {
 
 class CfgTests extends FunSuite {
   test("load config from scoped directory") {
-    val tmpDir = os.temp.dir(prefix = "CfgTests")
+    val tmpDir = TempDirs.dir("CfgTests")
     val configContent = """{"foo": "baz", "bar": 42}"""
 
     // The config loader uses the class name as the file name

@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 // RepoInfo.update with an existing checkout whose origin is a local bare repo
@@ -17,7 +18,7 @@ class RepoInfoTests extends FunSuite {
 
   // a bare origin with one commit, our checkout of it, and someone else's
   private def setup(): Setup = {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val origin = root / "origin.git"
     val _ = git(root, "init", "-q", "--bare", "-b", "master", origin.toString)
     val seed = root / "seed"

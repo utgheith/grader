@@ -1,11 +1,12 @@
 package ag.r2
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import java.util.concurrent.atomic.AtomicInteger
 
 class ControlTests extends FunSuite {
-  private def state() = State(os.temp.dir(deleteOnExit = true))
+  private def state() = State(TempDirs.dir())
 
   // tracks `target` on a thread of its own; join() returns its value
   private class Tracking[A](root: State, target: Target[A]) {

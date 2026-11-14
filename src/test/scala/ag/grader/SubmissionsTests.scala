@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import ag.r3.{Source, State}
 import munit.FunSuite
@@ -14,7 +15,7 @@ class SubmissionsTests extends FunSuite {
   private val base_files = Seq("main.c" -> "int main() {}", "t0.cc" -> "base test", "REPORT.txt" -> "fill me in")
 
   test("a submission is a work repo that's more than the project's starting code") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     // s1 changed something; s2's repo is still the starting code
@@ -28,7 +29,7 @@ class SubmissionsTests extends FunSuite {
   }
 
   test("the commit graded: the last before each deadline, master for the latest, or what commit_id_<n> names") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val sha1 = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "v1")()
@@ -57,7 +58,7 @@ class SubmissionsTests extends FunSuite {
   }
 
   test("prepare: the commit's files, the overrides on top, no tests, and prepared_commit") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(30), base_files*)()
@@ -80,7 +81,7 @@ class SubmissionsTests extends FunSuite {
   }
 
   test("late commits, oldest first; the student's test, as of the test cutoff") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val t1 = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "s1.cc" -> "test", "s1.ok" -> "expected")()
@@ -100,14 +101,14 @@ class SubmissionsTests extends FunSuite {
   }
 
   test("a commit's subject is git's %s") {
-    val subs = Submissions(Definitions(Source(os.temp.dir())))
+    val subs = Submissions(Definitions(Source(TempDirs.dir())))
     assertEquals(subs.subject("\n\n  a  b  \n  c d  \n\nbody"), "  a  b   c d")
     assertEquals(subs.subject(" x\ny"), " x y")
     assertEquals(subs.subject("\t\ttab \nnext"), "\t\ttab next")
   }
 
   test("a student test can include a directory (a \"dir\" extension)") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs0) = setup(root)
     val _ = subs0
     // a project whose tests are <name>.cc and <name>.dir/
@@ -136,7 +137,7 @@ class SubmissionsTests extends FunSuite {
   }
 
   test("published results and aliases, read back; unreadable results fail with what rewrites them") {
-    val root = os.temp.dir()
+    val root = TempDirs.dir()
     val (r, subs) = setup(root)
     val s = State(root / "ws")
     assertEquals(s.track(subs.aliases(c1, p1)), SortedMap[CSID, Alias]())

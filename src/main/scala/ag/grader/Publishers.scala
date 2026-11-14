@@ -44,6 +44,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   private val defs = subs.defs
   private val source = defs.source
 
+  // what the repo definitions (ag.grader.repos) work from
+  val env: repos.Env = repos.Env(source, dropbox)
+
   private def staff(c: CourseName): String = s"@${c}_staff"
 
   // A target that works out `repo`'s files: `f` gets a directory with the
@@ -247,36 +250,14 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // the files a run leaves that are published with a student's results, by
   // extension (as Project.copy_results)
-  private val result_files =
-    Seq("ok", "out", "err", "result", "time", "stdout", "stderr")
-
-  // A student's latest results, with each test's output, in their own
-  // results repo (as Project.publish_student_results), graded to `n` tries
-  lazy val student_results: (CourseName, ProjectName, CSID, Int) => Target[
-    WithData[Publish]
-  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, n: Int) =>
-    publisher(
-      subs.student_results_repo(c, p, csid),
-      "updated results",
-      Some(Create("empty", Seq(csid.value, staff(c)), Seq()))
-    )(
-      (
-        results = grading.student_results(c, p, csid, Phase.Latest, n),
-        outcomes = grading.outcomes(c, p, csid, Phase.Latest, n)
-      )
-    ) { (producer, deps, dir) =>
-      clear(dir)
-      for {
-        o <- deps.outcomes
-        ext <- result_files
-      } {
-        val name = s"${o.value.test_id.external_name}.$ext"
-        val _ = producer.copy_file(o.data, os.RelPath(name), dir / name)
-      }
-      for (r <- deps.results)
-        os.write.over(dir / "the_results.json", upickle.default.write(r))
-    }
-  }
+  // A student's latest results (see repos.StudentResultsRepo)
+  def student_results(
+      c: CourseName,
+      p: ProjectName,
+      csid: CSID,
+      n: Int
+  ): Target[WithData[Publish]] =
+    repos.StudentResultsRepo(c, p, csid, env).latest(n)
 
   // Every student's results, by alias, for each phase the project publishes
   // (Phase.results_file), for the report (as Project.publish_results). One

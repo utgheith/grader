@@ -95,8 +95,25 @@ trait Tracker[A] extends Context[A] {
   // returns it or a computation.
   def run(
       f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
+  )(using ReadWriter[A]): Result[A] = run_with(keyed = false)(f)
+
+  // For a keyed target: its name says everything it reads (say, a hash of
+  // its inputs' contents), so its saved value is good whatever else
+  // changes, whatever its code is called. `f` always gets it (unless the
+  // target was forced, or it can't be read) and decides whether to add to
+  // it. It tracks no other targets: what it reads, it reads by id.
+  def run_keyed(
+      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
+  )(using ReadWriter[A]): Result[A] = run_with(keyed = true)(f)
+
+  private def run_with(keyed: Boolean)(
+      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
   )(using ReadWriter[A]): Result[A] = {
     val target = producing_opt.get
+    if (keyed && dependencies.nonEmpty)
+      throw IllegalStateException(
+        s"${target.path.toString} is keyed, but tracks ${dependencies.keys.map(_.toString).mkString(", ")}"
+      )
     val forced = os.exists(state.forced_path(target))
     val loaded = state.store.load(target.path)
 
@@ -120,7 +137,8 @@ trait Tracker[A] extends Context[A] {
             upickle.default.read[A](String(l.value, UTF_8)),
             s"the saved value of ${target.path.toString}"
           )
-          if (deps.isEmpty) {
+          if (keyed) Some(Result(value, Signature(l.result.name.nn)))
+          else if (deps.isEmpty) {
             because("it has no dependencies")
             None
           } else {

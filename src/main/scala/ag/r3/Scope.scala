@@ -5,14 +5,10 @@ import upickle.default.ReadWriter
 
 import scala.NamedTuple.NamedTuple
 
-// Where targets are defined; as in ag.r2.
-class Scope(base_ : os.RelPath | String | Scope) {
-
-  val base: os.RelPath = base_ match {
-    case r: os.RelPath => r
-    case s: String     => ToRelPath(s)
-    case s: Scope      => s.base
-  }
+// Where targets are defined: a target's name is where its definition is in
+// the code (sourcecode.FullName), under `base`, then `fun`'s arguments.
+trait Scoped {
+  def base: os.RelPath
   def /[A: ToRelPath](more: A): Scope = new Scope(base / ToRelPath(more))
 
   // val x = target((a = ta, b = tb)) { (producer, deps) => ... deps.a ... }
@@ -67,6 +63,15 @@ class Scope(base_ : os.RelPath | String | Scope) {
   def complex_target[Out](f: Tracker[Out] => Result[Out])(using
       fn: sourcecode.FullName
   ): Target[Out] = Target(ToRelPath(fn) / base, ToRelPath(fn))(f)
+}
+
+// Where targets are defined; as in ag.r2.
+class Scope(base_ : os.RelPath | String | Scope) extends Scoped {
+  val base: os.RelPath = base_ match {
+    case r: os.RelPath => r
+    case s: String     => ToRelPath(s)
+    case s: Scope      => s.base
+  }
 }
 
 object Scope {

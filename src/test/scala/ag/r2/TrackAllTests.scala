@@ -1,12 +1,13 @@
 package ag.r2
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
 class TrackAllTests extends FunSuite {
-  private def root() = State(os.temp.dir(deleteOnExit = true))
+  private def root() = State(TempDirs.dir())
 
   test("track_all really runs its targets at the same time") {
     val n = 20
@@ -67,7 +68,7 @@ class TrackAllTests extends FunSuite {
   }
 
   test("an empty Many is fine, and a Many's targets are dependencies") {
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = TempDirs.dir()
     val s = Scope("many_deps")
     val a: Target[Int] = s.target(EmptyTuple)((_, _) => 1)
     val c: Target[Int] =
@@ -97,7 +98,7 @@ class TrackAllTests extends FunSuite {
   }
 
   test("dynamic reads are all recorded before the dependencies close") {
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = TempDirs.dir()
     val session = new AtomicInteger(0)
     val s = Scope("dynamic")
     val roots: Target[Seq[Int]] = s.target(EmptyTuple) { (_, _) =>

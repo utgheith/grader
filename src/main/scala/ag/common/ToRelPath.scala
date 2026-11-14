@@ -1,7 +1,8 @@
 package ag.common
 
 import scala.annotation.unused
-import scala.compiletime.summonFrom
+import scala.compiletime.{summonAll, summonFrom}
+import scala.deriving.Mirror
 import scala.util.matching.Regex
 
 trait ToRelPath[A] {
@@ -10,6 +11,39 @@ trait ToRelPath[A] {
 
 object ToRelPath {
   def apply[A](a: A)(using ev: ToRelPath[A]): os.RelPath = ev(a)
+
+  // One path component for `p`, whatever it is: its segments joined (with
+  // their own %s escaped), or % for an empty path. Different paths give
+  // different components, so fields can't run into each other.
+  def component(p: os.RelPath): String = {
+    if (p.ups != 0)
+      throw IllegalArgumentException(s"a key can't go up: ${p.toString}")
+    if (p.segments.isEmpty) "%"
+    else p.segments.map(_.replace("%", "%25")).mkString("%2F")
+  }
+
+  // What a type that's never part of a key gives (say, what targets work
+  // from, as opposed to which they are): `derived` leaves its fields out.
+  final class Omitted[A] extends ToRelPath[A] {
+    def apply(a: A): os.RelPath = os.rel
+  }
+
+  // `derives ToRelPath` for a case class: a component for each of its
+  // fields, in order, but those whose type is Omitted (each field's type
+  // needs a ToRelPath)
+  inline def derived[A <: Product](using
+      m: Mirror.ProductOf[A]
+  ): ToRelPath[A] = {
+    val fields = summonAll[Tuple.Map[m.MirroredElemTypes, ToRelPath]].toList
+      .asInstanceOf[List[ToRelPath[Any]]]
+    (a: A) =>
+      a.productIterator
+        .zip(fields)
+        .collect {
+          case (v, t) if !t.isInstanceOf[Omitted[?]] => component(t(v))
+        }
+        .foldLeft(os.rel)(_ / _)
+  }
 
   inline def opt[A](a: A): os.RelPath = summonFrom {
     case ev: ToRelPath[A] => ev(a)

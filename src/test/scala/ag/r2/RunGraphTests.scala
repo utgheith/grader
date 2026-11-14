@@ -1,5 +1,6 @@
 package ag.r2
 
+import ag.common.TempDirs
 import ag.rules.check
 
 import munit.FunSuite
@@ -34,7 +35,7 @@ class RunGraphTests extends FunSuite {
   }
 
   test("each run leaves a graph of what it did") {
-    val workspace = os.temp.dir(deleteOnExit = true)
+    val workspace = TempDirs.dir()
     def run(): Map[String, ujson.Value] = {
       val _ = State.run(workspace) { root =>
         val _ = root.track(top)
@@ -92,7 +93,7 @@ class RunGraphTests extends FunSuite {
   }
 
   test("a target that reruns says which dependencies changed") {
-    val workspace = os.temp.dir(deleteOnExit = true)
+    val workspace = TempDirs.dir()
     val s = Scope("graph_changed")
     var value = 1
     val input: Target[Int] = s.target(EmptyTuple)((_, _) => value)

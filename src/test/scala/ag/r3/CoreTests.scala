@@ -1,5 +1,6 @@
 package ag.r3
 
+import ag.common.TempDirs
 import munit.FunSuite
 import upickle.default.ReadWriter
 
@@ -8,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 // ag.r2's behavior, which r3 keeps (ported from ag.r2's tests)
 class CoreTests extends FunSuite {
-  private def ws(): os.Path = os.temp.dir(deleteOnExit = true)
+  private def ws(): os.Path = TempDirs.dir()
 
   test("scope base path, and a target's path") {
     assertEquals(Scope().base, os.RelPath("."))

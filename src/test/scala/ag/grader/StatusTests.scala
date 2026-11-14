@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
 import munit.FunSuite
 import ag.r3.{Source, State}
@@ -108,7 +109,7 @@ class StatusTests extends FunSuite {
   }
 
   test("the status pages drill down from courses to a run") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val second = setup(root)
     val status = status_of(root)
     def page(path: String): String =
@@ -156,7 +157,7 @@ class StatusTests extends FunSuite {
   }
 
   test("warm says how reading the course and phase pages' repos goes") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val _ = setup(root)
     os.remove.all(root / "c1_p1__aliases" / ".git")
     val status = status_of(root)
@@ -171,7 +172,7 @@ class StatusTests extends FunSuite {
   }
 
   test("the tests pages: each test's commit, push, choice and who passes it") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val _ = setup(root, _.copy(phase1_tests = Seq("002"), bad_tests = Seq("t1")))
 
     // s2's test, committed before the deadline (test_cutoff: 3 days ago) and
@@ -233,7 +234,7 @@ class StatusTests extends FunSuite {
       .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")).nn
 
   test("a status target is reused in a new State while its repo is unchanged") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val _ = setup(root)
     val data = StatusData(mirror(root))
     val history = data.commit_history(Fixture.c1, Fixture.p1, s1, Phase.One)
@@ -259,7 +260,7 @@ class StatusTests extends FunSuite {
   }
 
   test("a late push is a red flag; a commit after its push is just noted") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val _ = setup(root)
     // phase 1: pushed 2 hours after the commit; latest: 2 hours before it
     def pushed(file: String, hours: Long): Unit = {
@@ -288,7 +289,7 @@ class StatusTests extends FunSuite {
   }
 
   test("a course drills down by project or by student; a project by student or by test") {
-    val root = os.temp.dir(deleteOnExit = true)
+    val root = TempDirs.dir()
     val _ = setup(root)
     val status = status_of(root)
     def page(path: String): String =

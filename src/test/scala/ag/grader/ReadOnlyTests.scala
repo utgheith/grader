@@ -1,5 +1,6 @@
 package ag.grader
 
+import ag.common.TempDirs
 import ag.r2.{Scope, State, Target}
 import ag.rules.{read_only, refuse_if_read_only, ReadOnlyException}
 import munit.FunSuite
@@ -25,14 +26,14 @@ class ReadOnlyTests extends FunSuite {
 
   test("only a read-only State's targets are read-only") {
     assert(!read_only.get, "not outside any target")
-    val ws = os.temp.dir(deleteOnExit = true)
+    val ws = TempDirs.dir()
     val flag: Target[Boolean] = scope.target(EmptyTuple)((_, _) => read_only.get)
     assert(State(ws / "a", read_only = true).track(flag))
     assert(!State(ws / "b").track(flag))
   }
 
   test("refusing fails the target, and nothing is saved as if it acted") {
-    val ws = os.temp.dir(deleteOnExit = true)
+    val ws = TempDirs.dir()
     runs = 0
     act = true
     val e = intercept[Exception](State(ws, read_only = true).track(acting))
@@ -46,7 +47,7 @@ class ReadOnlyTests extends FunSuite {
 
   // the effects themselves refuse before doing anything
   private def refused(what: String)(f: => Any): Unit = {
-    val ws = os.temp.dir(deleteOnExit = true)
+    val ws = TempDirs.dir()
     val t: Target[String] = scope.target(EmptyTuple) { (_, _) =>
       Try(f).failed.toOption.collect { case e: ReadOnlyException => e.getMessage }.getOrElse("not refused")
     }
@@ -55,7 +56,7 @@ class ReadOnlyTests extends FunSuite {
   }
 
   test("running a test is refused") {
-    val dir = os.temp.dir(deleteOnExit = true)
+    val dir = TempDirs.dir()
     refused("won't run t1") {
       doit(
         project = Project(Course("c"), "p"),
@@ -74,7 +75,7 @@ class ReadOnlyTests extends FunSuite {
   }
 
   test("deploying a site is refused") {
-    val site = os.temp.dir(deleteOnExit = true) / "site"
+    val site = TempDirs.dir() / "site"
     os.makeDir.all(site)
     // (it makes sure the project's there first, through the API)
     refused("won't call Cloudflare") {

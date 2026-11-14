@@ -1,5 +1,6 @@
 package ag.web
 
+import ag.common.TempDirs
 import munit.FunSuite
 
 import java.net.URI
@@ -33,7 +34,7 @@ class WebServerTests extends FunSuite {
   }
 
   test("pages alone, without a run: behind the password, from /") {
-    val workspace = os.temp.dir(deleteOnExit = true)
+    val workspace = TempDirs.dir()
     val port = free_port()
     val config = WebConfig(
       port = port,
