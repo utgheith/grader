@@ -342,18 +342,26 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
     }
 
   // the course's enrollment: its students, as the dropbox has their keys
-  // (as Course.publish_enrollment)
+  // (as Course.publish_enrollment). Left as it is if the dropbox has no
+  // directory for the course: that would unenroll everyone.
   lazy val enrollment: String => Target[WithData[Publish]] = fun {
     (c: String) =>
       publisher(
         subs.enrollment_repo(c),
         "enrolling students",
         Some(Create("empty", Seq(staff(c)), Seq()))
-      )((keys = dropbox.keys(c))) { (_, deps, dir) =>
-        os.write.over(
-          dir / "enrollment.json",
-          upickle.default.write(deps.keys, indent = 2)
-        )
+      )((keys = dropbox.course_keys(c))) { (producer, deps, dir) =>
+        deps.keys match {
+          case Some(keys) =>
+            os.write.over(
+              dir / "enrollment.json",
+              upickle.default.write(keys, indent = 2)
+            )
+          case None =>
+            producer.log(
+              s"no dropbox directory for $c: enrollment left alone\n"
+            )
+        }
       }
   }
 

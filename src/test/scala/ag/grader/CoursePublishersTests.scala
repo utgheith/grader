@@ -137,6 +137,15 @@ class CoursePublishersTests extends FunSuite {
     assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq())))
   }
 
+  test("enrollment: left alone if the dropbox has no directory for the course") {
+    val root = os.temp.dir()
+    val (r, pubs, ob) = setup(root)
+    val _ = r.commit("c1__enrollment", test_cutoff, "enrollment.json" -> "[]")()
+    os.remove.all(pubs.dropbox.root.get / "c1")
+    assert(!ob.record(State(root / "ws").track(pubs.enrollment("c1"))))
+    assertEquals(State(root / "ws").track(pubs.dropbox.keys("c1")), SortedMap[CSID, String]())
+  }
+
   test("grades: made with a README, then left to the staff") {
     val root = os.temp.dir()
     val (r, pubs, ob) = setup(root)

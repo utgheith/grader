@@ -15,22 +15,33 @@ final class Dropbox(
     val keeper: String = System.getProperty("user.name").nn
 ) extends Scope("dropbox") {
 
+  // A course's keys; None if there's no root, or no directory for the
+  // course (which isn't the same as no keys: see Publishers.enrollment)
+  lazy val course_keys: String => Target[Option[SortedMap[CSID, String]]] =
+    fun { (c: String) =>
+      target((clock = periodic(60 * 1000L))) { (_, _) =>
+        for {
+          root <- root
+          dir = root / c
+          if os.isDir(dir)
+        } yield (for {
+          f <- os.list(dir)
+          if os.isFile(f) && f.ext == "pub"
+        } yield {
+          val id = f.baseName
+          val owner = os.owner(f).getName
+          if (owner != id && owner != keeper)
+            throw Exception(s"owner:$owner != csid:$id (or $keeper)")
+          (CSID(id), os.read(f).trim.nn)
+        }).to(SortedMap)
+      }
+    }
+
+  // a course's keys, none if it has no directory
   lazy val keys: String => Target[SortedMap[CSID, String]] = fun {
     (c: String) =>
-      target((clock = periodic(60 * 1000L))) { (_, _) =>
-        root.fold(SortedMap[CSID, String]()) { root =>
-          (for {
-            // a course without a directory has no keys yet
-            f <- if (os.isDir(root / c)) os.list(root / c) else Seq()
-            if os.isFile(f) && f.ext == "pub"
-          } yield {
-            val id = f.baseName
-            val owner = os.owner(f).getName
-            if (owner != id && owner != keeper)
-              throw Exception(s"owner:$owner != csid:$id (or $keeper)")
-            (CSID(id), os.read(f).trim.nn)
-          }).to(SortedMap)
-        }
-      }
+      target((k = course_keys(c)))((_, deps) =>
+        deps.k.getOrElse(SortedMap[CSID, String]())
+      )
   }
 }
