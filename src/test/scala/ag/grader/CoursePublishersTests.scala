@@ -103,10 +103,20 @@ class CoursePublishersTests extends FunSuite {
     assertEquals(said.toSeq, Seq(s"not mailing (can_send_mail) s1: ${repo.subject(server)}"))
   }
 
-  test("a key file not owned by its student fails") {
+  test("a key file owned by neither its student nor the keeper fails") {
     val root = os.temp.dir()
     val (_, pubs, _) = setup(root, "someone_else" -> "k")
-    intercept[Exception](State(root / "ws").track(pubs.dropbox.keys("c1")))
+    val strict = Dropbox(pubs.dropbox.root, keeper = "nobody_here")
+    intercept[Exception](State(root / "ws").track(strict.keys("c1")))
+  }
+
+  test("the keeper (by default, the grader's user) can own anyone's key file") {
+    val root = os.temp.dir()
+    val (_, pubs, _) = setup(root, "someone_else" -> "k")
+    assertEquals(
+      State(root / "ws").track(pubs.dropbox.keys("c1")),
+      SortedMap(CSID("someone_else") -> "k")
+    )
   }
 
   test("enrollment: the dropbox's students and keys") {

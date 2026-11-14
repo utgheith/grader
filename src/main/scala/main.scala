@@ -246,12 +246,21 @@ object CommonArgs {
 }
 
 object Main {
+  // The keys in the dropbox (see ag.grader.Dropbox), for each active course
+  // the arguments pick
   @main
   def dropbox(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      for (c <- root.track(commonArgs.selected_courses)) {
-        println(s"\n------ ${c.course_name} -------")
-        println(upickle.default.write(root.track(c.dropbox), indent = 2))
+    in_r3_workspace(commonArgs) { s =>
+      val pubs = publishers_of(commonArgs.workspace)
+      val defs = pubs.grading.runs.subs.defs
+      for {
+        c <- s.track(defs.active_courses).toSeq
+        if commonArgs.courses_.matches(c)
+      } {
+        println(s"\n------ $c -------")
+        println(
+          upickle.default.write(s.track(pubs.dropbox.keys(c)), indent = 2)
+        )
       }
     }
 
@@ -1446,14 +1455,13 @@ object Main {
   // a round to get there.
   @main
   def outbox(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      val course_re = root.track(commonArgs.courses)
-      val project_re = root.track(commonArgs.projects)
-      val student_re = root.track(commonArgs.students)
-      val pubs = publishers_of(root.workspace)
+    in_r3_workspace(commonArgs) { s =>
+      val course_re = commonArgs.courses_
+      val project_re = commonArgs.projects_
+      val student_re = commonArgs.students_
+      val pubs = publishers_of(commonArgs.workspace)
       val subs = pubs.grading.runs.subs
       val defs = subs.defs
-      val s = ag.r3.State(r3_workspace(root.workspace))
       val picked = for {
         c <- s.track(defs.course_names).toSeq
         if course_re.matches(c)
@@ -1483,7 +1491,7 @@ object Main {
           picked.flatMap((c, p) => pubs.all(c, p)) ++
           work_repos
       )
-      val ob = outbox_of(root.workspace)
+      val ob = outbox_of(commonArgs.workspace)
       val n = wanted.count(ob.record)
       println(
         s"${courses.size} courses, ${picked.size} projects, ${work_repos.size} work repos; " +
@@ -1517,14 +1525,13 @@ object Main {
       @arg(doc = "how many tries (default: as the project's iterations say)")
       tries: Option[Int] = None
   ): Unit =
-    in_workspace(commonArgs) { root =>
-      val course_re = root.track(commonArgs.courses)
-      val project_re = root.track(commonArgs.projects)
-      val pubs = publishers_of(root.workspace)
+    in_r3_workspace(commonArgs) { s =>
+      val course_re = commonArgs.courses_
+      val project_re = commonArgs.projects_
+      val pubs = publishers_of(commonArgs.workspace)
       val grading = pubs.grading
       val subs = grading.runs.subs
       val defs = subs.defs
-      val s = ag.r3.State(r3_workspace(root.workspace))
       val candidates = for {
         c <- s.track(defs.active_courses).toSeq
         if course_re.matches(c)
@@ -1580,7 +1587,7 @@ object Main {
       val wanted = s.track_all(projects.flatMap { (c, p, n) =>
         pubs.graded(c, p, s.track(subs.students_with_submission(c, p)), n)
       })
-      val ob = outbox_of(root.workspace)
+      val ob = outbox_of(commonArgs.workspace)
       val k = wanted.count(ob.record)
       println(
         s"${projects.size} projects, ${wanted.size} repos, $k to push; ${ob.pending.size} pending in all"
@@ -1598,13 +1605,12 @@ object Main {
       @arg(doc = "1 or 2 (default: the latest)")
       phase: Phase = Phase.Latest
   ): Unit =
-    in_workspace(commonArgs) { root =>
-      val course_re = root.track(commonArgs.courses)
-      val project_re = root.track(commonArgs.projects)
-      val grading = publishers_of(root.workspace).grading
+    in_r3_workspace(commonArgs) { s =>
+      val course_re = commonArgs.courses_
+      val project_re = commonArgs.projects_
+      val grading = publishers_of(commonArgs.workspace).grading
       val runs = grading.runs
       val defs = runs.subs.defs
-      val s = ag.r3.State(r3_workspace(root.workspace))
       for {
         c <- s.track(defs.active_courses).toSeq
         if course_re.matches(c)
@@ -1659,11 +1665,10 @@ object Main {
     ag.grader.Config.cloudflare.filter(_.enabled) match {
       case None     => println("cloudflare isn't enabled in config.json")
       case Some(cf) =>
-        in_workspace(commonArgs) { root =>
-          val course_re = root.track(commonArgs.courses)
-          val defs = publishers_of(root.workspace).grading.runs.subs.defs
-          val s = ag.r3.State(r3_workspace(root.workspace))
-          val dir = root.workspace / "cloudflare"
+        in_r3_workspace(commonArgs) { s =>
+          val course_re = commonArgs.courses_
+          val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
+          val dir = commonArgs.workspace / "cloudflare"
           for {
             c <- s.track(defs.active_courses).toSeq
             if course_re.matches(c)
@@ -1810,6 +1815,29 @@ object Main {
       paused = args.paused.value,
       pause_at_end = args.pause_at_end.value
     )(f)
+
+  // in_workspace for the r3 commands, with no ag.r2.State: the workspace's
+  // lock, the command output in it, and the status pages served while it
+  // runs (if config.json has "web"; there's no live view of an r3 run, so
+  // --paused and --pause-at-end don't apply). `f` gets an r3 State in the
+  // workspace's r3/, which --force makes rebuild what the command asks for.
+  private def in_r3_workspace[A](args: CommonArgs)(f: ag.r3.State => A): A = {
+    val workspace = args.workspace
+    if (args.paused.value || args.pause_at_end.value)
+      println("--paused and --pause-at-end are for r2 runs: ignored")
+    os.makeDir.all(workspace)
+    RunLock(workspace, command_line) {
+      ag.rules.use_std_out_err(workspace / "std_out_err")
+      val server = for {
+        web <- ag.grader.Config.web
+        pages <- status_pages(workspace)
+        server <- ag.web.WebServer.start(workspace, web, Some(pages), None)
+      } yield server
+      try
+        ag.r3.State.run(r3_workspace(workspace), args.force.value)(f)
+      finally server.foreach(_.stop())
+    }
+  }
 
   def main(args: Array[String]): Unit = {
     command_line = s"run ${args.mkString(" ")}"
