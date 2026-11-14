@@ -912,25 +912,6 @@ object Main {
     }
 
   @main
-  def notify_results(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      for (c <- root.track(commonArgs.selected_courses)) {
-        for {
-          (pn, p) <- root.track(c.active_projects)
-          if root.track(commonArgs.projects).matches(pn)
-        } {
-          for {
-            (csid, _) <- root.track(c.enrollment)
-            if root.track(commonArgs.students).matches(csid.value)
-          } {
-            // say(s"---> ${c.course_name}:$pn:$csid")
-            root.track(p.notify_student_results(csid))
-          }
-        }
-      }
-    }
-
-  @main
   def gen_html(commonArgs: CommonArgs): Unit =
     in_workspace(commonArgs) { root =>
       for (c <- root.track(commonArgs.selected_courses)) {
@@ -1048,18 +1029,6 @@ object Main {
     }
   }
    */
-
-  @main
-  def play(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      pprint.pprintln(root.track(Gitolite.mirror("courses_config")))
-    }
-
-  @main
-  def pl(workspace: os.Path = os.pwd / "workspace", prefix: os.Path): Unit =
-    in_workspace(workspace) { root =>
-      pprint.pprintln(root.track(PlTools(prefix).fstar))
-    }
 
   // r3's workspace for grading, inside the run's: r3 keeps its own state
   // (r3.git, checkouts, ...) beside ag.r2's targets/
@@ -1877,37 +1846,23 @@ object Main {
 
   // Every command works in its workspace holding the workspace's lock: two
   // runs sharing a workspace would corrupt each other's state.
-  private def in_workspace[A](
-      workspace: os.Path,
-      force: Boolean = false,
-      paused: Boolean = false,
-      pause_at_end: Boolean = false
-  )(
-      f: State => A
-  ): A = {
+  private def in_workspace[A](args: CommonArgs)(f: State => A): A = {
+    val workspace = args.workspace
     os.makeDir.all(workspace)
     RunLock(workspace, command_line) {
       ag.rules.use_std_out_err(workspace / "std_out_err")
-      State.run(workspace, force) { state =>
+      State.run(workspace, args.force.value) { state =>
         val web = ag.grader.Config.web
         ag.r2.LiveRun.serving(
           state,
           web,
-          paused = paused,
-          pause_at_end = pause_at_end,
+          paused = args.paused.value,
+          pause_at_end = args.pause_at_end.value,
           pages = web.flatMap(_ => status_pages(workspace))
         )(f(state))
       }
     }
   }
-
-  private def in_workspace[A](args: CommonArgs)(f: State => A): A =
-    in_workspace(
-      args.workspace,
-      force = args.force.value,
-      paused = args.paused.value,
-      pause_at_end = args.pause_at_end.value
-    )(f)
 
   // in_workspace for the r3 commands, with no ag.r2.State: the workspace's
   // lock, the command output in it, and the status pages served while it

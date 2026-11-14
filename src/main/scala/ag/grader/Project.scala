@@ -943,25 +943,6 @@ case class Project(course: Course, project_name: String)
       }
     }
 
-  private lazy val get_student_failures
-      : CSID => Target[Option[StudentFailures]] = fun { csid =>
-    target(
-      (
-        rs = get_student_results(csid)
-      )
-    ) { (_, deps) =>
-      deps.rs.map { rdr =>
-        StudentFailures(rdr)
-      }
-    }
-  }
-
-  private lazy val has_spamon: CSID => Target[Boolean] = fun { csid =>
-    target((work_repo = work_repo(csid))) { (producer, deps) =>
-      os.exists(deps.work_repo.get_data_path(producer) / "spamon")
-    }
-  }
-
   // Where the project is relative to its deadlines. Recomputed when a
   // deadline changes, and checked again every minute as time passes; what
   // depends on it reruns only when the phase actually changes.
@@ -975,51 +956,6 @@ case class Project(course: Course, project_name: String)
     ) { (_, deps) =>
       ProjectState.at(LocalDateTime.now().nn, deps.first, deps.second)
     }
-
-  // Whether `csid`'s deadline for `phase` has passed. Checked again every
-  // minute as time passes; what depends on it reruns only when it flips.
-  lazy val past_deadline: (CSID, Phase) => Target[Boolean] = fun {
-    (csid, phase) =>
-      target(
-        (deadline = deadline(csid, phase), periodic = periodic(60 * 1000))
-      ) { (_, deps) =>
-        !LocalDateTime.now().nn.isBefore(deps.deadline)
-      }
-  }
-
-  // No result emails after the student's second deadline.
-  lazy val notify_student_results: CSID => Target[Unit] = fun { csid =>
-    target(
-      (
-        get_student_failures = get_student_failures(
-          csid
-        ),
-        notifications = course.notifications,
-        gitolite = Config.gitolite,
-        has_spamon = has_spamon(
-          csid
-        ),
-        can_send_mail = Config.can_send_mail,
-        past_deadline = past_deadline(csid, Phase.Two)
-      )
-    ) {
-      case (producer, (_, _, _, _, _, true)) =>
-        say(
-          producer,
-          s"no result emails after the second deadline: ${course.course_name}:$project_name:${csid.toString}"
-        )
-      case (producer, (Some(sr), n, g, has_spamon, can_send_mail, _)) =>
-        if (has_spamon) {
-          n.send_result_update(this, csid, g, sr, can_send_mail)
-        } else {
-          say(
-            producer,
-            s"no spamon for ${course.course_name}:$project_name:${csid.toString}"
-          )
-        }
-      case (_, (None, _, _, _, _, _)) =>
-    }
-  }
 
   lazy val project_results_repo_name: String =
     s"${course.course_name}_${project_name}__results"

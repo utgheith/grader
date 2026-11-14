@@ -3,28 +3,6 @@ package ag.grader
 import upickle.default.ReadWriter
 import scala.collection.SortedMap
 
-@upickle.implicits.allowUnknownKeys(false)
-case class StudentFailures(
-    alias: Option[Alias],
-    has_test: Boolean,
-    failed_tests: SortedMap[RedactedTestId, Option[OutcomeStatus]],
-    total_tests: Int,
-    prepare_info: PrepareInfo
-) derives ReadWriter
-
-object StudentFailures {
-  def apply(rsr: StudentResults): StudentFailures = StudentFailures(
-    alias = rsr.alias,
-    has_test = rsr.has_test,
-    failed_tests = (for {
-      (test, outcome) <- rsr.outcomes
-      if !outcome.is_happy
-    } yield (test, outcome.last)).to(SortedMap),
-    total_tests = rsr.outcomes.size,
-    prepare_info = rsr.prepare_info
-  )
-}
-
 // Published to everyone (results repos readable by all, the public report
 // pages): must hold no CSIDs. Tests are named by alias; for the commit, see
 // RedactedPrepareInfo.
