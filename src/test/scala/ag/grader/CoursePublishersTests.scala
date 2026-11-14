@@ -110,6 +110,12 @@ class CoursePublishersTests extends FunSuite {
     intercept[Exception](State(root / "ws").track(strict.keys("c1")))
   }
 
+  test("a course without a directory in the dropbox has no keys") {
+    val root = os.temp.dir()
+    val (_, pubs, _) = setup(root, s1.value -> "k")
+    assertEquals(State(root / "ws").track(pubs.dropbox.keys("c2")), SortedMap[CSID, String]())
+  }
+
   test("the keeper (by default, the grader's user) can own anyone's key file") {
     val root = os.temp.dir()
     val (_, pubs, _) = setup(root, "someone_else" -> "k")

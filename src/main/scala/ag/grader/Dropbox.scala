@@ -8,7 +8,8 @@ import scala.collection.SortedMap
 // The students' ssh keys, as they drop them in `root`/<course>/<csid>.pub
 // (each file owned by its student, or by `keeper`: the grader's own user,
 // who can put a key there for a student), as r3 targets: looked at again
-// every minute. No root, no keys. The r3 form of Course.dropbox.
+// every minute. No root, or no directory for the course, no keys. The r3
+// form of Course.dropbox.
 final class Dropbox(
     val root: Option[os.Path],
     val keeper: String = System.getProperty("user.name").nn
@@ -19,7 +20,8 @@ final class Dropbox(
       target((clock = periodic(60 * 1000L))) { (_, _) =>
         root.fold(SortedMap[CSID, String]()) { root =>
           (for {
-            f <- os.list(root / c)
+            // a course without a directory has no keys yet
+            f <- if (os.isDir(root / c)) os.list(root / c) else Seq()
             if os.isFile(f) && f.ext == "pub"
           } yield {
             val id = f.baseName

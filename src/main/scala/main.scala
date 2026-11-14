@@ -284,14 +284,30 @@ object Main {
       }
     }
 
+  // Records the dropbox's keys in gitolite-admin in the outbox, for `sync`
+  // to push (see Publishers.keys): every active course's, since they share
+  // the repo; -c picks the courses whose key counts are shown.
   @main
   def publish_keys(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      for (c <- root.track(commonArgs.selected_courses)) {
-        println(s"\n------ ${c.course_name} -------")
+    in_r3_workspace(commonArgs) { s =>
+      val pubs = publishers_of(commonArgs.workspace)
+      val defs = pubs.grading.runs.subs.defs
+      if (pubs.dropbox.root.isEmpty)
+        println("no dropbox_path in config.json: keys left alone")
+      else {
+        for {
+          c <- s.track(defs.active_courses).toSeq
+          if commonArgs.courses_.matches(c)
+        } {
+          println(s"\n------ $c -------")
+          println(s.track(pubs.dropbox.keys(c)).size)
+        }
+        val ob = outbox_of(commonArgs.workspace)
+        val p = s.track(pubs.keys)
+        val todo = ob.record(p)
         println(
-          upickle.default
-            .write(root.track(c.publish_keys).value.size, indent = 2)
+          s"gitolite-admin: ${if (todo) "to push" else "up to date"}; " +
+            s"${p.value.notices.size} to tell; ${ob.pending.size} pending in all"
         )
       }
     }
