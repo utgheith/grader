@@ -136,6 +136,9 @@ class GradingTests extends FunSuite {
     val _ = intercept[Throwable](s.track(pubs.grading.runs.run_one(true, 1)(c1, p1, CSID("s2"), Phase.Latest, t0)))
     // grading publishes it with the student's results
     assert(pubs.graded(c1, p1, Seq(s1), 1).map(_.path).contains(repo.latest.path))
+    // and, first, what the project publishes: its override, aliases,
+    // submitted tests and tests
+    assertEquals(pubs.graded(c1, p1, Seq(s1), 1).map(_.path).take(4), pubs.all(c1, p1).map(_.path))
   }
 
   test("a student's results repo: their outcomes and each test's output files") {

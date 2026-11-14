@@ -69,7 +69,12 @@ case class CloudflareConfig(
     // put before each course's project name, e.g. "test-": a test setup's
     // projects are then its own, never the live ones
     project_prefix: Option[String] = None
-) derives ReadWriter {
+) extends repos.SiteHost derives ReadWriter {
+  // where it serves (never its account or key): sites served elsewhere
+  // are served again
+  def name: String =
+    s"cloudflare=${domain.getOrElse("pages.dev")},prefix=${project_prefix.getOrElse("")}"
+
   // keep the api_key out of logs and pprint output
   override def toString: String =
     s"CloudflareConfig(enabled = $enabled, id = $id, api_key = <redacted>, domain = ${domain.toString}, project_prefix = ${project_prefix.toString})"
@@ -83,8 +88,8 @@ case class CloudflareConfig(
 
   // Deploys `site_dir` as the course's whole site, and serves it at
   // <project>.<domain> if there's a domain. The site's address.
-  def publish(site_dir: os.Path, course_name: String): String = {
-    val project = project_of(course_name)
+  def publish(site_dir: os.Path, c: CourseName): String = {
+    val project = project_of(c.value)
     deploy(site_dir, project)
     val host = domain match {
       case Some(d) =>

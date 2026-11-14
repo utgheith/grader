@@ -2,15 +2,7 @@ package ag.grader
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.common.ToRelPath
-import ag.r2.{
-  Scope,
-  Target,
-  WithData,
-  create_data,
-  periodic,
-  run_if_needed,
-  say
-}
+import ag.r2.{Scope, Target, WithData, periodic, run_if_needed, say}
 
 import scala.collection.{SortedMap, SortedSet}
 import upickle.default.ReadWriter
@@ -205,47 +197,6 @@ case class Course(course_name: String)
           HtmlGen.render_index(course_name, all_pages)
         )
         names.to(SortedSet)
-      }
-    }
-
-  // Deploys the site repo's pages whenever they change (or cloudflare's
-  // settings do), and serves them at <project>.<domain> (see
-  // CloudflareConfig.project_of) when a
-  // domain is configured. The data directory holds exactly what was
-  // deployed; the value is the site's address, or None if not deployed.
-  lazy val push_to_cloudflare: Target[WithData[Option[String]]] =
-    target(
-      (
-        site = publish_site,
-        enabled = Config.cloudflare_enabled,
-        domain = Config.cloudflare_domain,
-        prefix = Config.cloudflare_project_prefix
-      )
-    ) { (producer, deps) =>
-      create_data(producer)(_ => false) { dir =>
-        // the deployed files: the repo's, minus .git and other dot-files;
-        // wrangler runs from `dir`, so its own .wrangler cache stays out
-        val site_dir = dir / "site"
-        os.makeDir.all(site_dir)
-        for {
-          f <- os.list(deps.site.get_data_path(producer))
-          if !f.last.startsWith(".")
-        } os.copy.into(f, site_dir)
-
-        Config.cloudflare.filter(_ => deps.enabled) match {
-          case Some(cf) =>
-            say(
-              producer,
-              s"deploying ${site_repo_name} to ${cf.project_of(course_name)}"
-            )
-            Some(cf.publish(site_dir, course_name))
-          case None =>
-            say(
-              producer,
-              "cloudflare is not enabled in config.json, not deploying"
-            )
-            None
-        }
       }
     }
 }

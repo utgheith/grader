@@ -174,20 +174,23 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   }
 
   // what grading a project to `n` tries publishes, for `students` (those
-  // with a submission): the results repo, and each student's own results
-  // and prepared code (what the tests ran on)
+  // with a submission), in the order to sync it: what the project
+  // publishes (see all: its override, aliases, submitted tests and tests,
+  // as publish_results published them, so a new student's alias and tests
+  // go out with their first results), then the results repo, and each
+  // student's own results and prepared code (what the tests ran on)
   def graded(
       c: CourseName,
       p: ProjectName,
       students: Iterable[CSID],
       n: Int
   ): Seq[Target[WithData[Publish]]] =
-    results(c, p, n) +: students.toSeq.flatMap(csid =>
+    all(c, p) ++ (results(c, p, n) +: students.toSeq.flatMap(csid =>
       Seq(
         student_results(c, p, csid, n),
         repos.PreparedRepo(c, p, csid, env).latest
       )
-    )
+    ))
 
   // ---- the courses' repos ----------------------------------------------
 
@@ -303,33 +306,7 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
       }
     }
 
-  // The report pages of the course's active projects, and the front page
-  // listing every project's page in the repo (as Course.publish_site): a
-  // page is rewritten only when what it shows changes, and pages of
-  // projects no longer active stay.
-  lazy val site: CourseName => Target[WithData[Publish]] = fun {
-    (c: CourseName) =>
-      publisher(
-        s"${c}__site",
-        "update site",
-        Some(Create("empty", Seq("@all"), Seq()))
-      )((inputs = grading.site_inputs(c))) { (producer, deps, dir) =>
-        val now = java.time.LocalDateTime.now().nn
-        for {
-          i <- deps.inputs
-          data <- HtmlGen.reports(i, now, why => producer.log(why + "\n"))
-        } {
-          val _ = HtmlGen.write_page(dir, data)
-        }
-        val pages = os
-          .list(dir)
-          .map(_.last)
-          .filter(f =>
-            f.endsWith(".html") && f != "index.html" && !HtmlGen.is_phase_page(
-              f
-            )
-          )
-        os.write.over(dir / "index.html", HtmlGen.render_index(c.value, pages))
-      }
-  }
+  // the course's report site (see repos.SiteRepo)
+  def site(c: CourseName): Target[WithData[Publish]] =
+    repos.SiteRepo(c, env).latest
 }

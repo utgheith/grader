@@ -956,18 +956,6 @@ object Main {
     }
 
   @main
-  // With --force, also rebuilds the site repo (an input of the deploy), so
-  // a change to how the site is put together reaches Cloudflare.
-  def push_to_cloudflare(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      for (c <- root.track(commonArgs.selected_courses)) {
-        if (commonArgs.force.value) root.force(c.publish_site)
-        val url = root.track(c.push_to_cloudflare).value
-        println(s"${c.course_name}: ${url.getOrElse("not deployed")}")
-      }
-    }
-
-  @main
   def compute_scores(
       commonArgs: CommonArgs,
       @arg(short = 'n', doc = "how many scoring rounds")
@@ -1693,9 +1681,10 @@ object Main {
     }
 
   // Runs the picked projects (as run does), then records their results, as
-  // far as they got, in the outbox, for `sync` to push: the project's
-  // results, and each student's own results and prepared code (see
-  // Publishers.graded). The r3 form of publish_results.
+  // far as they got, in the outbox, for `sync` to push: what the project
+  // publishes (override, aliases, submitted tests, tests), its results, and
+  // each student's own results and prepared code (see Publishers.graded).
+  // The r3 form of publish_results.
   @main
   def grade(
       commonArgs: CommonArgs,
@@ -1779,52 +1768,33 @@ object Main {
       println(s"${ob.pending.size} still pending")
     }
 
-  // Deploys each active course's site repo, as the local mirror has it, to
-  // its Cloudflare Pages project (see CloudflareConfig), if it changed since
-  // it was last deployed from this workspace (workspace/cloudflare/<course>
-  // says what was): the r3 form of push_to_cloudflare. Needs config.json's
-  // cloudflare, enabled.
+  // Records each picked active course's site in the outbox, for `sync` to
+  // push, and serves it on Cloudflare (see repos.SiteRepo and
+  // SiteDeployment), if config.json's cloudflare is enabled: again only
+  // when its pages change. The r3 form of push_to_cloudflare.
   @main
-  def deploy(commonArgs: CommonArgs): Unit =
-    ag.grader.Config.cloudflare.filter(_.enabled) match {
-      case None     => println("cloudflare isn't enabled in config.json")
-      case Some(cf) =>
-        in_r3_workspace(commonArgs) { s =>
-          val course_re = commonArgs.courses_
-          val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
-          val dir = commonArgs.workspace / "cloudflare"
-          for {
-            c <- s.track(defs.active_courses(course_re)).toSeq
-          } {
-            val project = cf.project_of(c.value)
-            s.track(defs.source.master(s"${c}__site")) match {
-              case None         => println(s"$c: no site yet")
-              case Some(commit) =>
-                val tree = s.commit(commit).tree
-                // what's deployed: where, and which tree
-                val what = s"$project ${cf.domain.getOrElse("")} ${tree.id}"
-                val stamp = dir / c.value
-                if (scala.util.Try(os.read(stamp)).toOption.contains(what))
-                  println(s"$c: up to date ($project)")
-                else {
-                  // the repo's files, less its dot files; wrangler runs in
-                  // the site's parent, where its .wrangler cache goes
-                  val work = dir / s".tmp-$c"
-                  os.remove.all(work)
-                  val site = work / "site"
-                  os.makeDir.all(site)
-                  s.copy_to(tree, site)
-                  for (f <- os.list(site) if f.last.startsWith("."))
-                    os.remove.all(f)
-                  println(s"$c: deploying to $project")
-                  val url = cf.publish(site, c.value)
-                  os.write.over(stamp, what, createFolders = true)
-                  os.remove.all(work)
-                  println(s"$c: deployed, at $url")
-                }
-            }
-          }
-        }
+  def push_to_cloudflare(commonArgs: CommonArgs): Unit =
+    in_r3_workspace(commonArgs) { s =>
+      val pubs = publishers_of(commonArgs.workspace)
+      val defs = pubs.grading.runs.subs.defs
+      val host = ag.grader.Config.cloudflare.filter(_.enabled)
+      if (host.isEmpty)
+        println("cloudflare isn't enabled in config.json: sites not served")
+      val ob = outbox_of(commonArgs.workspace)
+      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      for (c <- cs.toSeq) {
+        val todo =
+          ob.record(s.track(ag.grader.repos.SiteRepo(c, pubs.env).latest))
+        val at = host.map(h =>
+          s.track(ag.grader.repos.SiteDeployment(c, h, pubs.env).deployed)
+        )
+        println(
+          s"$c: site ${if (todo) "to push" else "up to date"}; " +
+            at.fold("not served")(u => s"served at $u")
+        )
+      }
+      println(s"${ob.pending.size} pending in all")
+      s.tally.report("push_to_cloudflare", cs.size, commonArgs.verbose.value)
     }
 
   // The local mirror of the git server: kept up to date by `mirror`, read

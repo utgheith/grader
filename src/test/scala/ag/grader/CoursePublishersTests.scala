@@ -217,4 +217,34 @@ class CoursePublishersTests extends FunSuite {
     Thread.sleep(1100)
     assert(!ob.record(State(root / "ws").track(pubs.site(c1))))
   }
+
+  test("a site is served when its pages change, and only then; its host is named without secrets") {
+    val root = TempDirs.dir()
+    val (r, pubs, _) = setup(root)
+    val served = scala.collection.mutable.Buffer[Seq[String]]()
+    val host = new repos.SiteHost {
+      def name = "test-host"
+      def publish(dir: os.Path, c: CourseName) = {
+        served += files(dir)
+        s"https://$c.example"
+      }
+    }
+    def deployment = repos.SiteDeployment(c1, host, pubs.env)
+    assertEquals(State(root / "ws").track(deployment.deployed), "https://c1.example")
+    // the pages, without the repo's dot files
+    assertEquals(served.toSeq, Seq(Seq("c1_p1.html", "c1_p1_phase1.html", "c1_p1_phase2.html", "index.html")))
+    // nothing changed: not served again
+    val _ = State(root / "ws").track(deployment.deployed)
+    assertEquals(served.size, 1)
+    // a page added to the repo: served again
+    val _ = r.commit("c1__site", test_cutoff, "c1_p0.html" -> "an old project's page")()
+    val _ = State(root / "ws").track(deployment.deployed)
+    assertEquals(served.size, 2)
+    assert(served.last.contains("c1_p0.html"))
+    // a Cloudflare host's name: where it serves, not its account or key
+    val cf = CloudflareConfig(true, "the-account", "the-key", Some("example.net"), Some("test-"))
+    val path = repos.SiteDeployment(c1, cf, pubs.env).deployed.path.toString
+    assert(path.contains("example.net") && path.contains("test-"), path)
+    assert(!path.contains("the-account") && !path.contains("the-key"), path)
+  }
 }
