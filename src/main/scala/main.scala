@@ -369,25 +369,48 @@ object Main {
       }
     }
 
+  // Records each picked active course's grades repo in the outbox, for
+  // `sync` to push (see repos.GradesRepo): made with a README if it isn't
+  // there, then left to the staff.
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      for (c <- root.track(commonArgs.selected_courses)) {
-        println(s"Creating ${c.course_name}__grades")
-        val _ = root.track(c.create_grades_repo)
+    in_r3_workspace(commonArgs) { s =>
+      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
+      val env = ag.grader.repos.Env(defs.source)
+      val ob = outbox_of(commonArgs.workspace)
+      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      for (c <- cs.toSeq) {
+        val repo = ag.grader.repos.GradesRepo(c, env)
+        val todo = ob.record(s.track(repo.latest))
+        println(
+          s"${repo.repo_name}: ${if (todo) "to push" else "up to date"}"
+        )
       }
+      println(s"${ob.pending.size} pending in all")
+      s.tally.report("create_grades_repos", cs.size, commonArgs.verbose.value)
     }
 
+  // the picked active courses, one per line
   @main
   def courses(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      println(root.track(commonArgs.selected_courses))
+    in_r3_workspace(commonArgs) { s =>
+      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
+      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      cs.foreach(println)
+      s.tally.report("courses", cs.size, commonArgs.verbose.value)
     }
 
+  // every repo's master on the local mirror, as of its last sync: "repo
+  // sha", as the server's `history`
   @main
   def history(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      root.track(Gitolite.history).foreach(println)
+    in_r3_workspace(commonArgs) { s =>
+      for (
+        (repo, id) <- s.track(
+          ag.r3.Source(mirror_root(commonArgs.workspace)).masters
+        )
+      )
+        println(s"$repo $id")
     }
 
   @main
@@ -396,10 +419,18 @@ object Main {
       root.track(Gitolite.info).foreach(println)
     }
 
+  // the picked active projects of the picked active courses, one per line:
+  // course_project
   @main
   def projects(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
-      pprint.pprintln(root.track(commonArgs.selected_projects))
+    in_r3_workspace(commonArgs) { s =>
+      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
+      val ps = for {
+        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
+        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+      } yield ag.grader.repos.ProjectRepo.name_of(c, p)
+      ps.foreach(println)
+      s.tally.report("projects", ps.size, commonArgs.verbose.value)
     }
 
   @main

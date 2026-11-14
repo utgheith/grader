@@ -253,30 +253,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
       }
   }
 
-  // the staff's grading repo: made with a README, then theirs (as
-  // Course.create_grades_repo)
-  lazy val grades: CourseName => Target[WithData[Publish]] = fun {
-    (c: CourseName) =>
-      val repo = s"${c}__grades"
-      publisher(
-        repo,
-        "creating grades repo",
-        Some(Create("empty", Seq(staff(c)), Seq(staff(c))))
-      )((exists = source.exists(repo))) { (_, deps, dir) =>
-        if (!deps.exists)
-          os.write.over(
-            dir / "README.md",
-            f"""
-                 |# Grading data for `$c`
-                 |
-                 |This is a per-course workspace for synchronizing grading data
-                 |used by the grading scripts between TAs. The grader itself
-                 |automatically creates this repo, but does not otherwise use
-                 |it; that may change in the future.
-                 |""".stripMargin
-          )
-      }
-  }
+  // the staff's grading repo (see repos.GradesRepo)
+  def grades(c: CourseName): Target[WithData[Publish]] =
+    repos.GradesRepo(c, env).latest
 
   // A student's repo for a project: made by forking the project's repo,
   // then theirs, never touched (as Project.publish_work_repo); when it's

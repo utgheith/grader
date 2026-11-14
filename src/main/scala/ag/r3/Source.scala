@@ -67,6 +67,20 @@ final class Source(val root: os.Path) {
 
   def master(name: String): Target[Option[Commit]] =
     ref(name, "refs/heads/master")
+
+  // every repo's master: repo -> id (repos with no master left out), as
+  // the server's `history` lists them, as of the last fetch
+  lazy val masters: Target[SortedMap[String, String]] =
+    scope.complex_target[SortedMap[String, String]] { tracker =>
+      val names = tracker.track(repos).toSeq
+      val ms = tracker.track_all(names.map(master))
+      tracker.run_if_needed(_ =>
+        (for {
+          (n, m) <- names.zip(ms)
+          c <- m
+        } yield (n, c.id)).to(SortedMap)
+      )
+    }
 }
 
 object Source {

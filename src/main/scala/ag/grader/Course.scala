@@ -248,30 +248,6 @@ case class Course(course_name: String)
         }
       }
     }
-
-  private lazy val grades_repo_name = s"${course_name}__grades"
-
-  lazy val create_grades_repo: Target[WithData[Unit]] =
-    gitolite_target(
-      repo = grades_repo_name,
-      msg = "creating grades repo",
-      readers = Seq(staff_group_name),
-      writers = Seq(staff_group_name)
-    )(EmptyTuple) { (_, _, repo) =>
-      if repo.forked then {
-        os.write(
-          repo.dir / "README.md",
-          f"""
-                 |# Grading data for `$course_name`
-                 |
-                 |This is a per-course workspace for synchronizing grading data
-                 |used by the grading scripts between TAs. The grader itself
-                 |automatically creates this repo, but does not otherwise use
-                 |it; that may change in the future.
-                 |""".stripMargin
-        )
-      }
-    }
 }
 
 object Course extends Scope(os.RelPath(".")) {

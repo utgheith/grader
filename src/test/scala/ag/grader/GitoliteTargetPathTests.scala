@@ -16,10 +16,6 @@ class GitoliteTargetPathTests extends munit.FunSuite {
       "ag/grader/Course/publish_enrollment/c"
     )
     check_path(course.publish_site, "ag/grader/Course/publish_site/c")
-    check_path(
-      course.create_grades_repo,
-      "ag/grader/Course/create_grades_repo/c"
-    )
   }
 
   test("project repo targets are named after their vals") {
