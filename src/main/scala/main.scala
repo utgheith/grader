@@ -1478,10 +1478,15 @@ object Main {
           )
           csid <- s.track(subs.students_with_submission(c, pn)).toSeq
           if student_re.matches(csid.value)
-          info <- s.track(subs.prepare_info(c, pn, csid, Phase.Latest)).toSeq
+          _ <- s.track(subs.prepare_info(c, pn, csid, Phase.Latest)).toSeq
           id <- s.track(t.test_ids(c, pn)).toSeq
           if picks(id)
-        } yield (p, csid, id, t.run_one(false, 1)(c, pn, csid, info.sha, id))
+        } yield (
+          p,
+          csid,
+          id,
+          t.run_one(false, 1)(c, pn, csid, Phase.Latest, id)
+        )
         println(s"running ${runs.size} tests with r3")
         for (((p, csid, id, _), o) <- runs.zip(s.track_all(runs.map(_._4))))
           r3(

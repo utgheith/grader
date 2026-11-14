@@ -63,9 +63,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
           .track(runs.test_ids_for(c, p, st.shows(phase)))
           .filterNot(run.contains)
         val wanted = for {
-          info <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
+          _ <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
           (id, tries) <- run.toSeq.map((_, n)) ++ others.toSeq.map((_, 0))
-        } yield runs.run_one(keep_going, tries)(c, p, csid, info.sha, id)
+        } yield runs.run_one(keep_going, tries)(c, p, csid, phase, id)
         val done = tracker.track_all(wanted)
         tracker.run_if_needed(_ => done.filter(_.value.outcomes.nonEmpty))
       }
@@ -275,9 +275,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
     fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase, n: Int) =>
       complex_target[SortedSet[TestId]] { tracker =>
         val wanted = for {
-          info <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
+          _ <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
           id <- tracker.track(runs.phase2_test_ids(c, p)).toSeq
-        } yield runs.run_one(true, n)(c, p, csid, info.sha, id)
+        } yield runs.run_one(true, n)(c, p, csid, phase, id)
         val outs = tracker.track_all(wanted)
         tracker.run_if_needed { _ =>
           (for {

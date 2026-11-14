@@ -83,7 +83,7 @@ class TestRunsTests extends FunSuite {
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(30),
       "Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "", "t1.cc" -> "nope", "t1.ok" -> "")()
     def run(id: String, keep_going: Boolean) =
-      State(root / "ws").track(t.run_one(keep_going, 2)(c1, p1, s1, sha, TestId(id, id)))
+      State(root / "ws").track(t.run_one(keep_going, 2)(c1, p1, s1, Phase.Latest, TestId(id, id)))
     def statuses(id: String, keep_going: Boolean) = run(id, keep_going).value.outcomes.map(_._1)
 
     assertEquals(statuses("t0", true), Seq(OutcomeStatus.pass))
@@ -107,14 +107,14 @@ class TestRunsTests extends FunSuite {
   test("run_one: the runs are kept by what they ran on, whatever the targets around them are called") {
     val root = TempDirs.dir()
     val (r, t) = setup(root)
-    val sha = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(30), "Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "")()
-    val target = t.run_one(true, 2)(c1, p1, s1, sha, TestId("t0", "t0"))
+    val target = t.run_one(true, 2)(c1, p1, s1, Phase.Latest, TestId("t0", "t0"))
     assertEquals(State(root / "ws").track(target).value.outcomes.size, 1)
     // what's around the runs starts over (as when it's renamed): they're kept
     State(root / "ws").force(target)
     val started = ag.grader.started_runs.get
-    val again = State(root / "ws").track(t.run_one(true, 1)(c1, p1, s1, sha, TestId("t0", "t0")))
+    val again = State(root / "ws").track(t.run_one(true, 1)(c1, p1, s1, Phase.Latest, TestId("t0", "t0")))
     assertEquals((again.value.outcomes.size, ag.grader.started_runs.get - started), (1, 0L))
     // where the runs are kept is fixed: it mustn't move with the code
     val in = repos.TestRun(ag.r3.Tree("a"), ag.r3.Tree("b"), "t0", 1, None, None)
@@ -124,8 +124,8 @@ class TestRunsTests extends FunSuite {
     assertNotEquals(in.copy(image = Some("i")).key, in.key)
     // another commit, even with the same files, is other runs: its prepared
     // submission names it (prepared_commit)
-    val sha2 = r.commit("c1_p1_s1", test_cutoff.minusDays(1))()
-    val other = State(root / "ws").track(t.run_one(true, 0)(c1, p1, s1, sha2, TestId("t0", "t0")))
+    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1))()
+    val other = State(root / "ws").track(t.run_one(true, 0)(c1, p1, s1, Phase.Latest, TestId("t0", "t0")))
     assertEquals(other.value.outcomes.size, 0)
   }
 }

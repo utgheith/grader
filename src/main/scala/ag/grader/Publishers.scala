@@ -276,14 +276,20 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   }
 
   // what grading a project to `n` tries publishes, for `students` (those
-  // with a submission): the results repo, and each student's own
+  // with a submission): the results repo, and each student's own results
+  // and prepared code (what the tests ran on)
   def graded(
       c: CourseName,
       p: ProjectName,
       students: Iterable[CSID],
       n: Int
   ): Seq[Target[WithData[Publish]]] =
-    results(c, p, n) +: students.toSeq.map(student_results(c, p, _, n))
+    results(c, p, n) +: students.toSeq.flatMap(csid =>
+      Seq(
+        student_results(c, p, csid, n),
+        repos.PreparedRepo(c, p, csid, env).latest
+      )
+    )
 
   // ---- the courses' repos ----------------------------------------------
 

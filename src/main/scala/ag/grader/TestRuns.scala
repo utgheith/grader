@@ -14,6 +14,7 @@ import scala.collection.{SortedMap, SortedSet}
 // prepared submission with the test's files added, so runs never share a
 // directory.
 final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
+  private val env = repos.Env(subs.defs.source)
   private val defs = subs.defs
   private val source = defs.source
 
@@ -256,34 +257,45 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
       target(EmptyTuple)((_, _) => Docker.image_name(os.pwd / os.RelPath(f)))
   }
 
-  // A test's runs on a commit's prepared submission (as Project.run_one):
-  // the outcome of each run so far, the latest run's output files as its
-  // data. The runs are kept by what they ran on (see repos.TestRun), so
-  // they stay whatever this target is called; it runs again while it has
-  // fewer than `n` runs, but stops at a failure unless `keep_going`. With
-  // n = 0, never runs: just the runs it has, none if it has none.
+  // A test's runs on a student's prepared submission for a phase (as
+  // Project.run_one): what their prepared repo has for it (see
+  // repos.PreparedRepo.prepared), so they run on what the student sees. The
+  // outcome of each run so far, the latest run's output files as its data.
+  // The runs are kept by what they ran on (see repos.TestRun), so they stay
+  // whatever this target is called, and phases graded at the same commit
+  // share them; it runs again while it has fewer than `n` runs, but stops
+  // at a failure unless `keep_going`. With n = 0, never runs: just the runs
+  // it has, none if it has none. Fails if the phase has no commit to grade.
   def run_one(
       keep_going: Boolean,
       n: Int
-  ): (CourseName, ProjectName, CSID, String, TestId) => Target[
+  ): (CourseName, ProjectName, CSID, Phase, TestId) => Target[
     WithData[Outcome]
   ] =
     fun {
-      (c: CourseName, p: ProjectName, csid: CSID, sha: String, id: TestId) =>
+      (c: CourseName, p: ProjectName, csid: CSID, phase: Phase, id: TestId) =>
         complex_target[WithData[Outcome]] { tracker =>
           val deps = tracker.track_all(
             (
               test = test_info(c, p, id),
-              prepared = subs.prepare(c, p, csid, sha),
+              info = subs.prepare_info(c, p, csid, phase),
+              prepared = repos.PreparedRepo(c, p, csid, env).prepared(phase),
               cores = defs.cores(c, p),
               docker_file = defs.docker_file(c, p),
               image = docker_image(c, p)
             )
           )
+          val (sha, prepared) = (deps.info, deps.prepared) match {
+            case (Some(info), Some(tree)) => (info.sha, tree)
+            case _                        =>
+              throw IllegalStateException(
+                s"${c}_${p}_${csid.value} has no commit to grade for ${phase.toString}"
+              )
+          }
           val runs = tracker.track(
             repos
               .TestRun(
-                prepared = deps.prepared.data,
+                prepared = prepared,
                 test = deps.test.data,
                 test_name = id.external_name,
                 cores = deps.cores,
