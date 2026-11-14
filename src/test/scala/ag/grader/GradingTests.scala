@@ -58,8 +58,8 @@ class GradingTests extends FunSuite {
     val (_, pubs, _, sha) = setup(root)
     val g = pubs.grading
     val s = State(root / "ws")
-    assertEquals(s.track(g.state("c1", "p1")), ProjectState.AfterSecondDeadline)
-    val latest = s.track(g.student_results("c1", "p1", s1, Phase.Latest, 1)).get
+    assertEquals(s.track(g.state(c1, p1)), ProjectState.AfterSecondDeadline)
+    val latest = s.track(g.student_results(c1, p1, s1, Phase.Latest, 1)).get
     assertEquals(latest.prepare_info.sha, sha)
     assertEquals(latest.alias, Some(Alias(1)))
     assertEquals(
@@ -67,13 +67,13 @@ class GradingTests extends FunSuite {
       SortedMap("t0" -> Seq(OutcomeStatus.pass), "t1" -> Seq(OutcomeStatus.unknown))
     )
     // phase 1: just t0
-    val one = s.track(g.student_results("c1", "p1", s1, Phase.One, 1)).get
+    val one = s.track(g.student_results(c1, p1, s1, Phase.One, 1)).get
     assertEquals(one.outcomes.keySet.map(_.external_name), SortedSet("t0"))
     // no submission, no results
-    assertEquals(s.track(g.student_results("c1", "p1", CSID("s2"), Phase.Latest, 1)), None)
+    assertEquals(s.track(g.student_results(c1, p1, CSID("s2"), Phase.Latest, 1)), None)
     // scores: the phase 2 tests passed
     assertEquals(
-      s.track(g.scores("c1", "p1", Phase.Latest, 1)),
+      s.track(g.scores(c1, p1, Phase.Latest, 1)),
       SortedMap(s1 -> SortedSet(t0))
     )
   }
@@ -84,11 +84,11 @@ class GradingTests extends FunSuite {
     val g = pubs.grading
     def has_work(n: Int) =
       Seq(Phase.Latest, Phase.One, Phase.Two)
-        .exists(ph => State(root / "ws").track(g.has_work("c1", "p1", ph, n)))
+        .exists(ph => State(root / "ws").track(g.has_work(c1, p1, ph, n)))
     assert(has_work(1))
 
     val s = State(root / "ws")
-    val p = s.track(pubs.results("c1", "p1", 1))
+    val p = s.track(pubs.results(c1, p1, 1))
     assertEquals(p.value.create, Some(Create("empty", Seq("@all"), Seq())))
     val dir = s.checkout(p.data)
     assertEquals(
@@ -109,7 +109,7 @@ class GradingTests extends FunSuite {
     assertEquals(one(Alias(1)).outcomes.keySet.map(_.external_name), SortedSet("t0"))
 
     // once published (with the aliases), nothing to do for 1 try; more for 2
-    assert(ob.record(s.track(pubs.aliases("c1", "p1"))))
+    assert(ob.record(s.track(pubs.aliases(c1, p1))))
     as_if_synced(r, ob, "c1_p1__aliases")
     assert(ob.record(p))
     as_if_synced(r, ob, "c1_p1__results")
@@ -123,7 +123,7 @@ class GradingTests extends FunSuite {
     // what was there before goes, but its dot files
     val _ = r.commit("c1_p1_s1_results", test_cutoff, ".gitignore" -> "*.o\n", "old.result" -> "x")()
     val s = State(root / "ws")
-    val p = s.track(pubs.student_results("c1", "p1", s1, 1))
+    val p = s.track(pubs.student_results(c1, p1, s1, 1))
     assertEquals(p.value.create, Some(Create("empty", Seq("s1", "@c1_staff"), Seq())))
     val dir = s.checkout(p.data)
     assertEquals(
@@ -141,7 +141,7 @@ class GradingTests extends FunSuite {
     val (_, pubs, _, sha) = setup(root, "t2.cc" -> "pass", "t2.ok" -> "")
     val g = pubs.grading
     def latest = State(root / "ws")
-      .track(g.student_results("c1", "p1", s1, Phase.Latest, 1))
+      .track(g.student_results(c1, p1, s1, Phase.Latest, 1))
       .get
       .outcomes
       .keySet
@@ -150,9 +150,9 @@ class GradingTests extends FunSuite {
     assertEquals(latest, SortedSet("t0", "t1"))
     // once it has run, it's shown (but not in phase 2)
     val t2 = TestId("t2", "t2")
-    val _ = State(root / "ws").track(pubs.grading.runs.run_one(false, 1)("c1", "p1", s1, sha, t2))
+    val _ = State(root / "ws").track(pubs.grading.runs.run_one(false, 1)(c1, p1, s1, sha, t2))
     assertEquals(latest, SortedSet("t0", "t1", "t2"))
-    val two = State(root / "ws").track(g.student_results("c1", "p1", s1, Phase.Two, 1)).get
+    val two = State(root / "ws").track(g.student_results(c1, p1, s1, Phase.Two, 1)).get
     assertEquals(two.outcomes.keySet.map(_.external_name), SortedSet("t0", "t1"))
   }
 }

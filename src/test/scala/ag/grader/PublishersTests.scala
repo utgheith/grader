@@ -29,7 +29,7 @@ class PublishersTests extends FunSuite {
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
-    val p = State(root / "ws").track(pubs.aliases("c1", "p1"))
+    val p = State(root / "ws").track(pubs.aliases(c1, p1))
     assertEquals(p.value.base, None)
     assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq())))
     assert(ob.record(p))
@@ -49,7 +49,7 @@ class PublishersTests extends FunSuite {
     val m = r.mirror / "c1_p1__aliases.git"
     val _ = git(r.mirror, "init", "-q", "--bare", m.toString)
     val _ = git(d, "push", "-q", m.toString, "master:refs/heads/master")
-    val again = State(root / "ws").track(pubs.aliases("c1", "p1"))
+    val again = State(root / "ws").track(pubs.aliases(c1, p1))
     assertEquals(again.value.base, Some(commit))
     assert(!ob.record(again))
     assertEquals(ob.pending, Seq())
@@ -60,7 +60,7 @@ class PublishersTests extends FunSuite {
     val root = os.temp.dir()
     val (r, pubs, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
-    val p = State(root / "ws").track(pubs.submitted_tests("c1", "p1"))
+    val p = State(root / "ws").track(pubs.submitted_tests(c1, p1))
     assertEquals(p.data.id, Outbox.empty_tree)
     assert(ob.record(p))
     assertEquals(ob.pending, Seq("c1_p1__submitted_tests"))
@@ -68,7 +68,7 @@ class PublishersTests extends FunSuite {
       .call(cwd = ob.dir("c1_p1__submitted_tests"), check = false).exitCode != 0)
     // once the mirror has it (empty), nothing to do
     val _ = git(r.mirror, "init", "-q", "--bare", "c1_p1__submitted_tests.git")
-    assert(!ob.record(State(root / "ws").track(pubs.submitted_tests("c1", "p1"))))
+    assert(!ob.record(State(root / "ws").track(pubs.submitted_tests(c1, p1))))
     assertEquals(ob.pending, Seq())
   }
 
@@ -79,14 +79,14 @@ class PublishersTests extends FunSuite {
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "s1.cc" -> "mine", "s1.ok" -> "out")()
     val start = r.commit("empty", test_cutoff.minusDays(60), ".gitignore" -> "*.o\n")()
     val s = State(root / "ws")
-    val p = s.track(pubs.submitted_tests("c1", "p1"))
+    val p = s.track(pubs.submitted_tests(c1, p1))
     assertEquals((p.value.exists, p.value.base), (false, Some(start)))
     assertEquals(files(s.checkout(p.data)), Seq(".gitignore", "001.cc", "001.ok"))
     assert(ob.record(p))
     val d = ob.dir("c1_p1__submitted_tests")
     assertEquals(git(d, "rev-parse", "master^"), start)
     // nothing but the fork's files: the fork is all there is to do
-    val q = s.track(pubs.aliases("c1", "p1"))
+    val q = s.track(pubs.aliases(c1, p1))
     assert(ob.record(q.copy(data = ag.r3.Tree(git(r.mirror / "empty.git", "rev-parse", "master^{tree}")))))
     assert(os.proc("git", "rev-parse", "--verify", "-q", "master")
       .call(cwd = ob.dir("c1_p1__aliases"), check = false).exitCode != 0)
@@ -99,7 +99,7 @@ class PublishersTests extends FunSuite {
       "main.c" -> "x", "t0.cc" -> "a test", "t0.ok" -> "its output", "Makefile" -> "all:",
       "sub/Makefile" -> "sub:", "sub/t1.cc" -> "not at the top", ".hidden.cc" -> "dot")()
     val s = State(root / "ws")
-    val p = s.track(pubs.override_repo("c1", "p1"))
+    val p = s.track(pubs.override_repo(c1, p1))
     assertEquals(
       files(s.checkout(p.data)),
       Seq(".initialized", "Makefile", "sub/Makefile", "t0.cc", "t0.ok")
@@ -107,7 +107,7 @@ class PublishersTests extends FunSuite {
     assertEquals(p.value.create, Some(Create("empty", Seq("@all"), Seq("@c1_staff"))))
     // once it's there, the staff's changes are theirs
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(29), ".initialized" -> "", "t0.ok" -> "changed")()
-    val again = State(root / "ws").track(pubs.override_repo("c1", "p1"))
+    val again = State(root / "ws").track(pubs.override_repo(c1, p1))
     assert(!ob.record(again))
   }
 
@@ -120,11 +120,11 @@ class PublishersTests extends FunSuite {
     val _ = r.commit("c1_p1__tests", test_cutoff.minusDays(30), "old.cc" -> "gone", ".keep" -> "kept")()
     val s = State(root / "ws")
     assertEquals(
-      files(s.checkout(s.track(pubs.tests("c1", "p1")).data)),
+      files(s.checkout(s.track(pubs.tests(c1, p1)).data)),
       Seq(".keep", "001.cc", "001.ok", "t0.cc", "t0.ok")
     )
     assertEquals(
-      files(s.checkout(s.track(pubs.submitted_tests("c1", "p1")).data)),
+      files(s.checkout(s.track(pubs.submitted_tests(c1, p1)).data)),
       Seq("001.cc", "001.ok")
     )
   }

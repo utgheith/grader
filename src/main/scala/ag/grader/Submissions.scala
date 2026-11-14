@@ -17,6 +17,7 @@ import java.time.{
 }
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.Try
+import scala.util.matching.Regex
 
 // The students' submissions, and what's read from the other repos the
 // grader keeps per course, project and student (enrollment, overrides,
@@ -29,18 +30,19 @@ import scala.util.Try
 final class Submissions(val defs: Definitions) extends Scope("submissions") {
   private val source = defs.source
 
-  def project_repo(c: String, p: String): String = defs.project_repo(c, p)
-  def work_repo(c: String, p: String, csid: CSID): String =
+  def project_repo(c: CourseName, p: ProjectName): String =
+    defs.project_repo(c, p)
+  def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${project_repo(c, p)}_${csid.value}"
-  def override_repo(c: String, p: String): String =
+  def override_repo(c: CourseName, p: ProjectName): String =
     s"${project_repo(c, p)}__override"
-  def aliases_repo(c: String, p: String): String =
+  def aliases_repo(c: CourseName, p: ProjectName): String =
     s"${project_repo(c, p)}__aliases"
-  def results_repo(c: String, p: String): String =
+  def results_repo(c: CourseName, p: ProjectName): String =
     s"${project_repo(c, p)}__results"
-  def student_results_repo(c: String, p: String, csid: CSID): String =
+  def student_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${work_repo(c, p, csid)}_results"
-  def enrollment_repo(c: String): String = s"${c}__enrollment"
+  def enrollment_repo(c: CourseName): String = s"${c}__enrollment"
 
   private val report_name = os.rel / "REPORT.txt"
 
@@ -62,8 +64,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // ---- enrollment ------------------------------------------------------
 
   // csid -> their ssh key, from the course's enrollment repo
-  lazy val enrollment: String => Target[SortedMap[CSID, String]] = fun {
-    (c: String) =>
+  lazy val enrollment: CourseName => Target[SortedMap[CSID, String]] = fun {
+    (c: CourseName) =>
       target((m = source.master(enrollment_repo(c)))) { (producer, deps) =>
         text_on(producer, deps.m, "enrollment.json") match {
           case Some(json) => upickle.default.read[SortedMap[CSID, String]](json)
@@ -75,16 +77,25 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       }
   }
 
-  lazy val enrolled_csids: String => Target[SortedSet[CSID]] = fun {
-    (c: String) => target((e = enrollment(c)))((_, deps) => deps.e.keySet)
+  lazy val enrolled_csids: CourseName => Target[SortedSet[CSID]] = fun {
+    (c: CourseName) => target((e = enrollment(c)))((_, deps) => deps.e.keySet)
+  }
+
+  // the course's enrolled students whose CSIDs match `re`
+  lazy val enrolled: (CourseName, Regex) => Target[SortedSet[CSID]] = fun {
+    (c: CourseName, re: Regex) =>
+      target((e = enrolled_csids(c)))((_, deps) =>
+        deps.e.filter(csid => re.matches(csid.value))
+      )
   }
 
   // ---- submissions -----------------------------------------------------
 
   // The student's master, if they have a repo and it's more than the
   // project's starting code (its files differ from the project repo's).
-  lazy val submission: (String, String, CSID) => Target[Option[Commit]] = fun {
-    (c: String, p: String, csid: CSID) =>
+  lazy val submission
+      : (CourseName, ProjectName, CSID) => Target[Option[Commit]] = fun {
+    (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
         (
           w = source.master(work_repo(c, p, csid)),
@@ -100,8 +111,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   }
 
   // the enrolled students' submissions
-  lazy val submissions: (String, String) => Target[SortedMap[CSID, Commit]] =
-    fun { (c: String, p: String) =>
+  lazy val submissions
+      : (CourseName, ProjectName) => Target[SortedMap[CSID, Commit]] =
+    fun { (c: CourseName, p: ProjectName) =>
       complex_target[SortedMap[CSID, Commit]] { tracker =>
         val csids = tracker.track(enrolled_csids(c)).toSeq
         val subs = tracker.track_all(csids.map(csid => submission(c, p, csid)))
@@ -115,15 +127,16 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
     }
 
   lazy val students_with_submission
-      : (String, String) => Target[SortedSet[CSID]] = fun {
-    (c: String, p: String) =>
+      : (CourseName, ProjectName) => Target[SortedSet[CSID]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((s = submissions(c, p)))((_, deps) => deps.s.keySet)
   }
 
   // Whether the submission's REPORT.txt differs from the project's (either
   // may be missing)
-  lazy val has_student_report: (String, String, CSID) => Target[Boolean] = fun {
-    (c: String, p: String, csid: CSID) =>
+  lazy val has_student_report
+      : (CourseName, ProjectName, CSID) => Target[Boolean] = fun {
+    (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
         (sub = submission(c, p, csid), base = source.master(project_repo(c, p)))
       ) { (producer, deps) =>
@@ -134,14 +147,14 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   }
 
   // whether the student's repo has a spamon file
-  lazy val has_spamon: (String, String, CSID) => Target[Boolean] = fun {
-    (c: String, p: String, csid: CSID) =>
+  lazy val has_spamon: (CourseName, ProjectName, CSID) => Target[Boolean] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target((w = source.master(work_repo(c, p, csid)))) { (producer, deps) =>
         deps.w.exists(m =>
           producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
         )
       }
-  }
+    }
 
   // ---- the commit graded -----------------------------------------------
 
@@ -151,8 +164,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // Phase.Latest. None if there's no submission, or nothing before the
   // deadline. The commit id file is read as it is now, on purpose.
   lazy val graded_commit
-      : (String, String, CSID, Phase) => Target[Option[GradedCommit]] =
-    fun { (c: String, p: String, csid: CSID, phase: Phase) =>
+      : (CourseName, ProjectName, CSID, Phase) => Target[Option[GradedCommit]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase) =>
       target(
         (
           sub = submission(c, p, csid),
@@ -208,8 +221,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
 
   // what's graded for `phase`, and how it was chosen; None: nothing to grade
   lazy val prepare_info
-      : (String, String, CSID, Phase) => Target[Option[PrepareInfo]] =
-    fun { (c: String, p: String, csid: CSID, phase: Phase) =>
+      : (CourseName, ProjectName, CSID, Phase) => Target[Option[PrepareInfo]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase) =>
       target(
         (
           graded = graded_commit(c, p, csid, phase),
@@ -228,8 +241,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       }
     }
 
-  lazy val is_late: (String, String, CSID, Phase) => Target[Boolean] = fun {
-    (c: String, p: String, csid: CSID, phase: Phase) =>
+  lazy val is_late: (CourseName, ProjectName, CSID, Phase) => Target[Boolean] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase) =>
       target(
         (
           info = prepare_info(c, p, csid, phase),
@@ -238,7 +251,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       ) { (_, deps) =>
         deps.info.forall(_.commit_time.isAfter(local(deps.deadline)))
       }
-  }
+    }
 
   // ---- a commit's code, ready to test ----------------------------------
 
@@ -246,8 +259,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // its tests removed, and prepared_commit saying which commit it is (as
   // Project.prepare). Depends on the commit by id, not on master: pushing
   // more doesn't redo it.
-  lazy val prepare: (String, String, CSID, String) => Target[WithData[Unit]] =
-    fun { (c: String, p: String, csid: CSID, sha: String) =>
+  lazy val prepare
+      : (CourseName, ProjectName, CSID, String) => Target[WithData[Unit]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, sha: String) =>
       target(
         (
           ov = source.master(override_repo(c, p)),
@@ -279,8 +293,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
 
   // The commits on master (along first parents) after the student's phase 2
   // deadline, oldest first
-  lazy val late_commits: (String, String, CSID) => Target[Seq[LateCommit]] =
-    fun { (c: String, p: String, csid: CSID) =>
+  lazy val late_commits
+      : (CourseName, ProjectName, CSID) => Target[Seq[LateCommit]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
         (
           sub = submission(c, p, csid),
@@ -310,8 +325,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // parents, made by the project's test cutoff (phase 1 extensions are for
   // code, not tests). Its value is that commit.
   lazy val student_test
-      : (String, String, CSID) => Target[WithData[Option[String]]] = fun {
-    (c: String, p: String, csid: CSID) =>
+      : (CourseName, ProjectName, CSID) => Target[WithData[Option[String]]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
         (
           sub = submission(c, p, csid),
@@ -338,11 +353,11 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
           }
         }
       }
-  }
+    }
 
   lazy val student_tests_by_csid
-      : (String, String) => Target[SortedMap[CSID, WithData[String]]] =
-    fun { (c: String, p: String) =>
+      : (CourseName, ProjectName) => Target[SortedMap[CSID, WithData[String]]] =
+    fun { (c: CourseName, p: ProjectName) =>
       complex_target[SortedMap[CSID, WithData[String]]] { tracker =>
         val csids = tracker.track(students_with_submission(c, p)).toSeq
         val tests =
@@ -356,8 +371,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       }
     }
 
-  lazy val csids_with_tests: (String, String) => Target[SortedSet[CSID]] = fun {
-    (c: String, p: String) =>
+  lazy val csids_with_tests
+      : (CourseName, ProjectName) => Target[SortedSet[CSID]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((t = student_tests_by_csid(c, p)))((_, deps) => deps.t.keySet)
   }
 
@@ -365,8 +381,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
 
   // the project's aliases (none if the repo or file isn't there, or can't
   // be read)
-  lazy val aliases: (String, String) => Target[SortedMap[CSID, Alias]] = fun {
-    (c: String, p: String) =>
+  lazy val aliases
+      : (CourseName, ProjectName) => Target[SortedMap[CSID, Alias]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((m = source.master(aliases_repo(c, p)))) { (producer, deps) =>
         text_on(producer, deps.m, "aliases.json")
           .flatMap(json =>
@@ -386,8 +403,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
 
   // whether the student's published results are there and this grader can
   // read them
-  lazy val student_results_readable: (String, String, CSID) => Target[Boolean] =
-    fun { (c: String, p: String, csid: CSID) =>
+  lazy val student_results_readable
+      : (CourseName, ProjectName, CSID) => Target[Boolean] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target((m = source.master(student_results_repo(c, p, csid)))) {
         (producer, deps) =>
           readable[StudentResults](
@@ -397,8 +415,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       }
     }
 
-  lazy val results_readable: (String, String, Phase) => Target[Boolean] = fun {
-    (c: String, p: String, phase: Phase) =>
+  lazy val results_readable
+      : (CourseName, ProjectName, Phase) => Target[Boolean] = fun {
+    (c: CourseName, p: ProjectName, phase: Phase) =>
       target((m = source.master(results_repo(c, p)))) { (producer, deps) =>
         readable[SortedMap[Alias, RedactedStudentResults]](
           text_on(producer, deps.m, phase.results_file),
@@ -410,9 +429,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // A phase's published results, by alias (as Project.results): Right(None)
   // if there are none yet, Left(why) if they can't be read by this version
   // of the grader
-  lazy val results: (String, String, Phase) => Target[
+  lazy val results: (CourseName, ProjectName, Phase) => Target[
     Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
-  ] = fun { (c: String, p: String, phase: Phase) =>
+  ] = fun { (c: CourseName, p: ProjectName, phase: Phase) =>
     target((m = source.master(results_repo(c, p)))) { (producer, deps) =>
       val out: Either[
         String,
@@ -440,8 +459,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   // The student's published results, if there are any. Fails if they can't
   // be read, saying what rewrites them (as Project.get_student_results).
   lazy val student_results
-      : (String, String, CSID) => Target[Option[StudentResults]] = fun {
-    (c: String, p: String, csid: CSID) =>
+      : (CourseName, ProjectName, CSID) => Target[Option[StudentResults]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target((m = source.master(student_results_repo(c, p, csid)))) {
         (producer, deps) =>
           text_on(producer, deps.m, "the_results.json").map { json =>
@@ -463,5 +482,18 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
               )
           }
       }
+    }
+
+  // the student's published outcomes of the tests whose names match `re`
+  // (none if there are no results)
+  lazy val student_outcomes: (CourseName, ProjectName, CSID, Regex) => Target[
+    SortedMap[RedactedTestId, RedactedOutcome]
+  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, re: Regex) =>
+    target((r = student_results(c, p, csid)))((_, deps) =>
+      deps.r.toSeq
+        .flatMap(_.outcomes)
+        .filter((t, _) => re.matches(t.external_name))
+        .to(SortedMap)
+    )
   }
 }

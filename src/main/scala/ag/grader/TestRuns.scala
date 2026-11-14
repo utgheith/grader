@@ -29,8 +29,9 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // The project's aliases as they should be: the published ones, and a new
   // one for each student with a submission who has none, numbered on from
   // the highest (as Project.publish_aliases).
-  lazy val aliases: (String, String) => Target[SortedMap[CSID, Alias]] = fun {
-    (c: String, p: String) =>
+  lazy val aliases
+      : (CourseName, ProjectName) => Target[SortedMap[CSID, Alias]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target(
         (
           published = subs.aliases(c, p),
@@ -56,8 +57,9 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
 
   // the override repo's tests: the names it has a file (or directory) of
   // for every test extension
-  lazy val override_test_names: (String, String) => Target[SortedSet[String]] =
-    fun { (c: String, p: String) =>
+  lazy val override_test_names
+      : (CourseName, ProjectName) => Target[SortedSet[String]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target(
         (
           ov = source.master(subs.override_repo(c, p)),
@@ -83,8 +85,8 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // each student's own (their alias outside, their CSID inside) and the
   // override repo's (as Project.publish_tests: one of those wins over a
   // student's with the same id)
-  lazy val tests: (String, String) => Target[SortedMap[TestId, Tree]] = fun {
-    (c: String, p: String) =>
+  lazy val tests: (CourseName, ProjectName) => Target[SortedMap[TestId, Tree]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target(
         (
           students = subs.student_tests_by_csid(c, p),
@@ -104,43 +106,47 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
         } yield (TestId(n, n), tree)
         (theirs ++ ours).to(SortedMap)
       }
-  }
+    }
 
-  lazy val test_ids: (String, String) => Target[SortedSet[TestId]] = fun {
-    (c: String, p: String) =>
+  lazy val test_ids: (CourseName, ProjectName) => Target[SortedSet[TestId]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target((tests = tests(c, p)))((_, deps) => deps.tests.keySet)
-  }
+    }
 
   private def named(ids: SortedSet[TestId], names: SortedSet[String]) =
     ids.filter(t =>
       names.contains(t.external_name) || names.contains(t.internal_name)
     )
 
-  lazy val phase1_test_ids: (String, String) => Target[SortedSet[TestId]] =
-    fun { (c: String, p: String) =>
+  lazy val phase1_test_ids
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target((ids = test_ids(c, p), chosen = defs.phase1_tests(c, p))) {
         (_, deps) => named(deps.ids, deps.chosen)
       }
     }
 
-  lazy val phase2_test_ids: (String, String) => Target[SortedSet[TestId]] =
-    fun { (c: String, p: String) =>
+  lazy val phase2_test_ids
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target((ids = test_ids(c, p), chosen = defs.phase2_tests(c, p))) {
         (_, deps) => named(deps.ids, deps.chosen)
       }
     }
 
   // all but the tests marked ignored, by external or internal name
-  lazy val good_test_ids: (String, String) => Target[SortedSet[TestId]] =
-    fun { (c: String, p: String) =>
+  lazy val good_test_ids
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target((ids = test_ids(c, p), bad = defs.bad_tests(c, p))) { (_, deps) =>
         deps.ids.filterNot(named(deps.ids, deps.bad).contains)
       }
     }
 
   // the tests the correctness score counts: (phase 1 + phase 2) - ignored
-  lazy val chosen_test_ids: (String, String) => Target[SortedSet[TestId]] =
-    fun { (c: String, p: String) =>
+  lazy val chosen_test_ids
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target(
         (
           one = phase1_test_ids(c, p),
@@ -152,23 +158,23 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
 
   // each phase's chosen tests, less the ignored ones
   private lazy val good_phase1_test_ids
-      : (String, String) => Target[SortedSet[TestId]] = fun {
-    (c: String, p: String) =>
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((a = phase1_test_ids(c, p), b = good_test_ids(c, p))) {
         (_, deps) => deps.a.intersect(deps.b)
       }
   }
   private lazy val good_phase2_test_ids
-      : (String, String) => Target[SortedSet[TestId]] = fun {
-    (c: String, p: String) =>
+      : (CourseName, ProjectName) => Target[SortedSet[TestId]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((a = phase2_test_ids(c, p), b = good_test_ids(c, p))) {
         (_, deps) => deps.a.intersect(deps.b)
       }
   }
 
   def test_ids_for(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       tests: TestSet
   ): Target[SortedSet[TestId]] = tests match {
     case "all"    => test_ids(c, p)
@@ -208,8 +214,9 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // A test's files, named <external name>.<ext>, as the Makefile runs them,
   // links to other files in the tests followed. Fails if there's no such
   // test.
-  lazy val test_info: (String, String, TestId) => Target[WithData[Unit]] =
-    fun { (c: String, p: String, id: TestId) =>
+  lazy val test_info
+      : (CourseName, ProjectName, TestId) => Target[WithData[Unit]] =
+    fun { (c: CourseName, p: ProjectName, id: TestId) =>
       target((tests = tests(c, p), ext = defs.test_extensions(c, p))) {
         (producer, deps) =>
           val tree = deps.tests.getOrElse(
@@ -240,15 +247,15 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // The image the project's tests run in, if it has a docker file: named by
   // the file's contents, which are read on every run (the file is in the
   // grader's directory, not on the mirror). It's built when a test needs it.
-  lazy val docker_image: (String, String) => Target[Option[String]] = fun {
-    (c: String, p: String) =>
+  lazy val docker_image: (CourseName, ProjectName) => Target[Option[String]] =
+    fun { (c: CourseName, p: ProjectName) =>
       complex_target[Option[String]] { tracker =>
         val image = tracker
           .track(defs.docker_file(c, p))
           .map(f => tracker.track(docker_image_of(f)))
         tracker.run_if_needed(_ => image)
       }
-  }
+    }
 
   // no dependencies: it runs every time
   private lazy val docker_image_of: String => Target[String] = fun {
@@ -265,62 +272,65 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   def run_one(
       keep_going: Boolean,
       n: Int
-  ): (String, String, CSID, String, TestId) => Target[WithData[Outcome]] =
-    fun { (c: String, p: String, csid: CSID, sha: String, id: TestId) =>
-      complex_target[WithData[Outcome]] { tracker =>
-        val deps = tracker.track_all(
-          (
-            test = test_info(c, p, id),
-            prepared = subs.prepare(c, p, csid, sha),
-            cores = defs.cores(c, p),
-            docker_file = defs.docker_file(c, p),
-            image = docker_image(c, p)
+  ): (CourseName, ProjectName, CSID, String, TestId) => Target[
+    WithData[Outcome]
+  ] =
+    fun {
+      (c: CourseName, p: ProjectName, csid: CSID, sha: String, id: TestId) =>
+        complex_target[WithData[Outcome]] { tracker =>
+          val deps = tracker.track_all(
+            (
+              test = test_info(c, p, id),
+              prepared = subs.prepare(c, p, csid, sha),
+              cores = defs.cores(c, p),
+              docker_file = defs.docker_file(c, p),
+              image = docker_image(c, p)
+            )
           )
-        )
-        tracker.run { (producer, saved) =>
-          val history = saved.toSeq.flatMap(_.value.value.outcomes)
-          saved match {
-            case s @ Some(_)
-                if history.size >= n || !(keep_going || history.forall(
-                  _._1 == OutcomeStatus.pass
-                )) =>
-              s
-            case _ if n == 0 =>
-              () =>
-                create_data(producer) { _ =>
-                  Outcome(
-                    project = Project(Course(c), p),
-                    csid = csid,
-                    test_id = id,
-                    outcomes = Seq(),
-                    commit_id = Some(sha)
-                  )
-                }
-            case _ =>
-              () =>
-                create_data(producer) { out =>
-                  val res = run_test(
-                    producer,
-                    s"${c}_${p}_${csid.value}",
-                    id,
-                    deps.prepared.data,
-                    deps.test.data,
-                    deps.cores,
-                    deps.docker_file,
-                    history.size + 1,
-                    out
-                  )
-                  Outcome(
-                    project = Project(Course(c), p),
-                    csid = csid,
-                    test_id = id,
-                    outcomes = history :+ res,
-                    commit_id = Some(sha)
-                  )
-                }
+          tracker.run { (producer, saved) =>
+            val history = saved.toSeq.flatMap(_.value.value.outcomes)
+            saved match {
+              case s @ Some(_)
+                  if history.size >= n || !(keep_going || history.forall(
+                    _._1 == OutcomeStatus.pass
+                  )) =>
+                s
+              case _ if n == 0 =>
+                () =>
+                  create_data(producer) { _ =>
+                    Outcome(
+                      project = Project(Course(c.value), p.value),
+                      csid = csid,
+                      test_id = id,
+                      outcomes = Seq(),
+                      commit_id = Some(sha)
+                    )
+                  }
+              case _ =>
+                () =>
+                  create_data(producer) { out =>
+                    val res = run_test(
+                      producer,
+                      s"${c}_${p}_${csid.value}",
+                      id,
+                      deps.prepared.data,
+                      deps.test.data,
+                      deps.cores,
+                      deps.docker_file,
+                      history.size + 1,
+                      out
+                    )
+                    Outcome(
+                      project = Project(Course(c.value), p.value),
+                      csid = csid,
+                      test_id = id,
+                      outcomes = history :+ res,
+                      commit_id = Some(sha)
+                    )
+                  }
+            }
           }
         }
-      }
     }
 
   // a run's directory, gone: whatever the test left in it (read-only files

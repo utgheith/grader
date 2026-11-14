@@ -254,8 +254,7 @@ object Main {
       val pubs = publishers_of(commonArgs.workspace)
       val defs = pubs.grading.runs.subs.defs
       for {
-        c <- s.track(defs.active_courses).toSeq
-        if commonArgs.courses_.matches(c)
+        c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
       } {
         println(s"\n------ $c -------")
         println(
@@ -264,24 +263,32 @@ object Main {
       }
     }
 
+  // The tests (picked by -t) no picked enrolled student is happy with, in
+  // their published results (see Submissions.student_outcomes):
+  // course_project:test
   @main
   def bad_tests(commonArgs: CommonArgs): Unit =
-    in_workspace(commonArgs) { root =>
+    in_r3_workspace(commonArgs) { s =>
+      val subs = publishers_of(commonArgs.workspace).grading.runs.subs
+      val defs = subs.defs
       val r = (for {
-        p <- root.track(commonArgs.selected_projects)
-        s <- root.track(p.course.enrollment).keySet.toSeq
-        if root.track(commonArgs.students).matches(s.value)
-        r <- root.track(p.get_student_results(s)).toSeq
-        (test, outcome) <- r.outcomes.toSeq
-      } yield (p, s, test, outcome)).groupMapReduce { case (p, _, test, _) =>
-        (p, test)
-      } { case (_, _, _, outcome) =>
-        !outcome.is_happy
-      }(_ && _)
+        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
+        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+        csid <- subs.enrolled(c, commonArgs.students_).tally(s).toSeq
+        // counted on its own, to tell no results from results without tests
+        _ <- subs.student_results(c, p, csid).tally(s).toSeq
+        (test, outcome) <- subs
+          .student_outcomes(c, p, csid, commonArgs.tests_)
+          .tally(s)
+          .toSeq
+      } yield ((c, p, test), !outcome.is_happy)).groupMapReduce(_._1)(_._2)(
+        _ && _
+      )
 
-      r.filter { case (_, v) => v }.keys.toList.sorted.foreach { case (p, t) =>
-        println(s"${p.course.course_name}_${p.project_name}:${t.external_name}")
-      }
+      val bad = r.toSeq.sortBy(_._1).filter(_._2).map(_._1)
+      for ((c, p, t) <- bad)
+        println(s"${c}_$p:${t.external_name}")
+      s.tally.report("bad_tests", bad.size, commonArgs.verbose.value)
     }
 
   // Records the dropbox's keys in gitolite-admin in the outbox, for `sync`
@@ -296,8 +303,7 @@ object Main {
         println("no dropbox_path in config.json: keys left alone")
       else {
         for {
-          c <- s.track(defs.active_courses).toSeq
-          if commonArgs.courses_.matches(c)
+          c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
         } {
           println(s"\n------ $c -------")
           println(s.track(pubs.dropbox.keys(c)).size)
@@ -325,8 +331,7 @@ object Main {
       else {
         val ob = outbox_of(commonArgs.workspace)
         for {
-          c <- s.track(defs.active_courses).toSeq
-          if commonArgs.courses_.matches(c)
+          c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
         } {
           println(s"\n------ $c -------")
           s.track(pubs.dropbox.course_keys(c)) match {
@@ -351,8 +356,7 @@ object Main {
     in_r3_workspace(commonArgs) { s =>
       val subs = publishers_of(commonArgs.workspace).grading.runs.subs
       for {
-        c <- s.track(subs.defs.active_courses).toSeq
-        if commonArgs.courses_.matches(c)
+        c <- s.track(subs.defs.active_courses(commonArgs.courses_)).toSeq
       } {
         println(s"\n------ $c -------")
         println(s.track(subs.enrollment(c)).size)
@@ -1157,13 +1161,15 @@ object Main {
       val d = ag.grader.Definitions(ag.r3.Source(mirror_root(root.workspace)))
       val s = ag.r3.State(r3_workspace(root.workspace))
       r3("courses") = s.track(d.course_names)
-      r3("active courses") = s.track(d.active_courses)
+      r3("active courses") =
+        s.track(d.active_courses(ag.grader.Definitions.any))
       for (cn <- s.track(d.course_names)) {
         r3(s"$cn active") = s.track(d.course_active(cn))
         r3(s"$cn staff") = s.track(d.course_staff(cn))
         r3(s"$cn notifications") = s.track(d.notifications(cn))
         r3(s"$cn projects") = s.track(d.project_names(cn))
-        r3(s"$cn active projects") = s.track(d.active_projects(cn))
+        r3(s"$cn active projects") =
+          s.track(d.active_projects(cn, ag.grader.Definitions.any))
         for (pn <- s.track(d.project_names(cn))) {
           val k = s"$cn/$pn"
           r3(s"$k active") = s.track(d.project_active(cn, pn))
@@ -1302,7 +1308,10 @@ object Main {
       val subs = ag.grader.Submissions(defs)
       val s = ag.r3.State(r3_workspace(root.workspace))
       for (p <- picked) {
-        val (c, pn) = (p.course.course_name, p.project_name)
+        val (c, pn) = (
+          ag.grader.CourseName(p.course.course_name),
+          ag.grader.ProjectName(p.project_name)
+        )
         val k = s"$c/$pn"
         val csids = s
           .track(subs.enrolled_csids(c))
@@ -1351,7 +1360,12 @@ object Main {
         r3(s"$ks prepared $sha") = files_of(
           s.checkout(
             s.track(
-              subs.prepare(p.course.course_name, p.project_name, csid, sha)
+              subs.prepare(
+                ag.grader.CourseName(p.course.course_name),
+                ag.grader.ProjectName(p.project_name),
+                csid,
+                sha
+              )
             ).data
           )
         )
@@ -1442,7 +1456,10 @@ object Main {
       val t = ag.grader.TestRuns(subs)
       val s = ag.r3.State(r3_workspace(root.workspace))
       for (p <- picked) {
-        val (c, pn) = (p.course.course_name, p.project_name)
+        val (c, pn) = (
+          ag.grader.CourseName(p.course.course_name),
+          ag.grader.ProjectName(p.project_name)
+        )
         val k = s"$c/$pn"
         r3(s"$k aliases") = s.track(t.aliases(c, pn))
         for (set <- sets)
@@ -1455,7 +1472,10 @@ object Main {
       if (run.value) {
         val runs = for {
           p <- picked
-          (c, pn) = (p.course.course_name, p.project_name)
+          (c, pn) = (
+            ag.grader.CourseName(p.course.course_name),
+            ag.grader.ProjectName(p.project_name)
+          )
           csid <- s.track(subs.students_with_submission(c, pn)).toSeq
           if student_re.matches(csid.value)
           info <- s.track(subs.prepare_info(c, pn, csid, Phase.Latest)).toSeq
@@ -1507,11 +1527,11 @@ object Main {
       val defs = subs.defs
       val picked = for {
         c <- s.track(defs.course_names).toSeq
-        if course_re.matches(c)
+        if course_re.matches(c.value)
         p <- s.track(defs.project_names(c)).toSeq
-        if project_re.matches(p)
+        if project_re.matches(p.value)
       } yield (c, p)
-      val courses = s.track(defs.active_courses).toSeq.filter(course_re.matches)
+      val courses = s.track(defs.active_courses(course_re)).toSeq
       // with no dropbox, the keys and enrollments are left alone: they're
       // written from it, and an empty one would unenroll everyone
       val has_dropbox = pubs.dropbox.root.isDefined
@@ -1522,10 +1542,8 @@ object Main {
       // each enrolled student's repo for each active project
       val work_repos = for {
         c <- courses
-        p <- s.track(defs.active_projects(c)).toSeq
-        if project_re.matches(p)
-        csid <- s.track(subs.enrolled_csids(c)).toSeq
-        if student_re.matches(csid.value)
+        p <- s.track(defs.active_projects(c, project_re)).toSeq
+        csid <- s.track(subs.enrolled(c, student_re)).toSeq
       } yield pubs.work_repo(c, p, csid)
       val wanted = s.track_all(
         (if (has_dropbox) pubs.keys +: courses.map(pubs.enrollment)
@@ -1576,47 +1594,57 @@ object Main {
       val subs = grading.runs.subs
       val defs = subs.defs
       val candidates = for {
-        c <- s.track(defs.active_courses).toSeq
-        if course_re.matches(c)
-        p <- s.track(defs.active_projects(c)).toSeq
-        if project_re.matches(p)
+        c <- s.track(defs.active_courses(course_re)).toSeq
+        p <- s.track(defs.active_projects(c, project_re)).toSeq
       } yield (c, p)
-      def name(c: String, p: String) = s"${c}_$p"
-      def state(c: String, p: String) = s.track(grading.state(c, p))
-      def phases(c: String, p: String): Seq[Phase] =
+      def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
+      def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
+        s.track(grading.state(c, p))
+      def phases(
+          c: ag.grader.CourseName,
+          p: ag.grader.ProjectName
+      ): Seq[Phase] =
         Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
-      def work(c: String, p: String): Option[(ag.grader.Band, Int)] =
+      def work(
+          c: ag.grader.CourseName,
+          p: ag.grader.ProjectName
+      ): Option[(ag.grader.Band, Int)] =
         ag.grader.Priority.band(
           state(c, p).is_live,
           s.track(defs.iterations(c, p)),
           n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
         )
-      def report(c: String, p: String, w: Option[(ag.grader.Band, Int)]) =
+      def report(
+          c: ag.grader.CourseName,
+          p: ag.grader.ProjectName,
+          w: Option[(ag.grader.Band, Int)]
+      ) =
         println(
           s"${name(c, p)}: ${state(c, p).description}; ${w.fold("up to date")(
               (band, n) => s"work to do (${band.description}, to $n tries)"
             )}"
         )
       val named = commonArgs.projects_.regex != ".*"
-      val projects: Seq[(String, String, Int)] = tries match {
-        case Some(n) => candidates.map((c, p) => (c, p, n))
-        case None if named || candidates.size <= 1 =>
-          for ((c, p) <- candidates) yield {
-            val w = work(c, p)
-            report(c, p, w)
-            (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
-          }
-        case None =>
-          val busy = for {
-            (c, p) <- candidates
-            w = work(c, p)
-            _ = report(c, p, w)
-            (band, n) <- w
-          } yield ((c, p, n), p, band)
-          val picked = ag.grader.Priority.pick(busy).toSeq
-          if (picked.isEmpty) println("nothing to do")
-          picked
-      }
+      val projects: Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] =
+        tries match {
+          case Some(n) => candidates.map((c, p) => (c, p, n))
+          case None if named || candidates.size <= 1 =>
+            for ((c, p) <- candidates) yield {
+              val w = work(c, p)
+              report(c, p, w)
+              (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
+            }
+          case None =>
+            val busy = for {
+              (c, p) <- candidates
+              w = work(c, p)
+              _ = report(c, p, w)
+              (band, n) <- w
+            } yield ((c, p, n), p.value, band)
+            val picked = ag.grader.Priority.pick(busy).toSeq
+            if (picked.isEmpty) println("nothing to do")
+            picked
+        }
       for ((c, p, n) <- projects)
         println(
           s"grading ${name(c, p)} to $n tries: ${state(c, p).description}; " +
@@ -1655,10 +1683,8 @@ object Main {
       val runs = grading.runs
       val defs = runs.subs.defs
       for {
-        c <- s.track(defs.active_courses).toSeq
-        if course_re.matches(c)
-        p <- s.track(defs.active_projects(c)).toSeq
-        if project_re.matches(p)
+        c <- s.track(defs.active_courses(course_re)).toSeq
+        p <- s.track(defs.active_projects(c, project_re)).toSeq
       } {
         val weights = s.track(defs.test_weights(c, p))
         val weight = (for {
@@ -1713,17 +1739,16 @@ object Main {
           val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
           val dir = commonArgs.workspace / "cloudflare"
           for {
-            c <- s.track(defs.active_courses).toSeq
-            if course_re.matches(c)
+            c <- s.track(defs.active_courses(course_re)).toSeq
           } {
-            val project = cf.project_of(c)
+            val project = cf.project_of(c.value)
             s.track(defs.source.master(s"${c}__site")) match {
               case None         => println(s"$c: no site yet")
               case Some(commit) =>
                 val tree = s.commit(commit).tree
                 // what's deployed: where, and which tree
                 val what = s"$project ${cf.domain.getOrElse("")} ${tree.id}"
-                val stamp = dir / c
+                val stamp = dir / c.value
                 if (scala.util.Try(os.read(stamp)).toOption.contains(what))
                   println(s"$c: up to date ($project)")
                 else {
@@ -1737,7 +1762,7 @@ object Main {
                   for (f <- os.list(site) if f.last.startsWith("."))
                     os.remove.all(f)
                   println(s"$c: deploying to $project")
-                  val url = cf.publish(site, c)
+                  val url = cf.publish(site, c.value)
                   os.write.over(stamp, what, createFolders = true)
                   os.remove.all(work)
                   println(s"$c: deployed, at $url")

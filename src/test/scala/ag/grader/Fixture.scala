@@ -13,6 +13,10 @@ object Fixture {
   val code_cutoff: LocalDateTime = LocalDateTime.of(2026, 10, 10, 23, 59).nn
   val test_cutoff: LocalDateTime = LocalDateTime.of(2026, 10, 3, 23, 59).nn
   val s1: CSID = CSID("s1")
+  val c1: CourseName = CourseName("c1")
+  val c2: CourseName = CourseName("c2")
+  val p1: ProjectName = ProjectName("p1")
+  val p2: ProjectName = ProjectName("p2")
 
   // seconds since the epoch of a local time
   def at(t: LocalDateTime): Long = ZonedDateTime.of(t, zone).nn.toEpochSecond

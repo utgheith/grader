@@ -20,8 +20,8 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // Where the project is relative to its deadlines (as Project.state):
   // worked out again every minute as time passes; what depends on it reruns
   // only when it changes.
-  lazy val state: (String, String) => Target[ProjectState] = fun {
-    (c: String, p: String) =>
+  lazy val state: (CourseName, ProjectName) => Target[ProjectState] = fun {
+    (c: CourseName, p: ProjectName) =>
       target(
         (
           first = defs.test_cutoff(c, p),
@@ -33,15 +33,15 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
       }
   }
 
-  lazy val alias: (String, String, CSID) => Target[Option[Alias]] = fun {
-    (c: String, p: String, csid: CSID) =>
+  lazy val alias: (CourseName, ProjectName, CSID) => Target[Option[Alias]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       target((aliases = runs.aliases(c, p)))((_, deps) =>
         deps.aliases.get(csid)
       )
-  }
+    }
 
-  lazy val has_test: (String, String, CSID) => Target[Boolean] = fun {
-    (c: String, p: String, csid: CSID) =>
+  lazy val has_test: (CourseName, ProjectName, CSID) => Target[Boolean] = fun {
+    (c: CourseName, p: ProjectName, csid: CSID) =>
       target((with_tests = subs.csids_with_tests(c, p)))((_, deps) =>
         deps.with_tests.contains(csid)
       )
@@ -51,9 +51,10 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // (each test's runs), and the other tests it shows, as far as they've run
   // already (see TestRuns.run_one's n = 0; as Project.results_runs). A test
   // without runs is left out; none if there's nothing to grade.
-  lazy val outcomes
-      : (String, String, CSID, Phase, Int) => Target[Seq[WithData[Outcome]]] =
-    fun { (c: String, p: String, csid: CSID, phase: Phase, n: Int) =>
+  lazy val outcomes: (CourseName, ProjectName, CSID, Phase, Int) => Target[
+    Seq[WithData[Outcome]]
+  ] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase, n: Int) =>
       complex_target[Seq[WithData[Outcome]]] { tracker =>
         val st = tracker.track(state(c, p))
         val keep_going = st.keeps_going(phase)
@@ -74,8 +75,10 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // phase's tests (as Project.student_results). None if there's nothing to
   // grade.
   lazy val student_results
-      : (String, String, CSID, Phase, Int) => Target[Option[StudentResults]] =
-    fun { (c: String, p: String, csid: CSID, phase: Phase, n: Int) =>
+      : (CourseName, ProjectName, CSID, Phase, Int) => Target[
+        Option[StudentResults]
+      ] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase, n: Int) =>
       target(
         (
           info = subs.prepare_info(c, p, csid, phase),
@@ -103,9 +106,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // Every student's results for `phase`, by alias, as published (as
   // Project.publish_results): late is from each student's own deadline for
   // the phase; students without an alias are left out.
-  lazy val phase_results: (String, String, Phase, Int) => Target[
+  lazy val phase_results: (CourseName, ProjectName, Phase, Int) => Target[
     SortedMap[Alias, RedactedStudentResults]
-  ] = fun { (c: String, p: String, phase: Phase, n: Int) =>
+  ] = fun { (c: CourseName, p: ProjectName, phase: Phase, n: Int) =>
     complex_target[SortedMap[Alias, RedactedStudentResults]] { tracker =>
       val students = tracker.track(subs.students_with_submission(c, p)).toSeq
       val results =
@@ -126,9 +129,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
 
   // The results files of the phases the project publishes now (see
   // ProjectState.publishes), by file name (Phase.results_file)
-  lazy val results_files: (String, String, Int) => Target[
+  lazy val results_files: (CourseName, ProjectName, Int) => Target[
     SortedMap[String, SortedMap[Alias, RedactedStudentResults]]
-  ] = fun { (c: String, p: String, n: Int) =>
+  ] = fun { (c: CourseName, p: ProjectName, n: Int) =>
     complex_target[
       SortedMap[String, SortedMap[Alias, RedactedStudentResults]]
     ] { tracker =>
@@ -147,8 +150,8 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // isn't in them, they don't cover the tests the phase runs (or have ones
   // it doesn't show), or a test it runs has tries to go. Missing or
   // unreadable results are work too.
-  lazy val has_work: (String, String, Phase, Int) => Target[Boolean] = fun {
-    (c: String, p: String, phase: Phase, n: Int) =>
+  lazy val has_work: (CourseName, ProjectName, Phase, Int) => Target[Boolean] =
+    fun { (c: CourseName, p: ProjectName, phase: Phase, n: Int) =>
       complex_target[Boolean] { tracker =>
         val st = tracker.track(state(c, p))
         val keep_going = st.keeps_going(phase)
@@ -194,14 +197,14 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
           }
         }
       }
-  }
+    }
 
   // ---- report pages ----------------------------------------------------
 
   // What a project's report pages show (as HtmlGen.page): its published
   // results, from the mirror, and its settings
-  lazy val report_inputs: (String, String) => Target[ReportInputs] = fun {
-    (c: String, p: String) =>
+  lazy val report_inputs: (CourseName, ProjectName) => Target[ReportInputs] =
+    fun { (c: CourseName, p: ProjectName) =>
       target(
         (
           latest = subs.results(c, p, Phase.Latest),
@@ -220,12 +223,12 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
           aliases = runs.aliases(c, p),
           course_staff = defs.course_staff(c),
           project_staff = defs.project_staff(c, p),
-          projects = defs.active_projects(c)
+          projects = defs.active_projects(c, Definitions.any)
         )
       ) { (_, deps) =>
         ReportInputs(
           title = s"${c}_$p",
-          project_name = p,
+          project_name = p.value,
           test_cutoff = deps.test_cutoff,
           code_cutoff = deps.code_cutoff,
           enrollments = deps.enrollment.size,
@@ -244,16 +247,17 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
             deps.aliases,
             deps.course_staff ++ deps.project_staff
           ),
-          tabs = HtmlGen.tabs(c, p, deps.projects)
+          tabs = HtmlGen.tabs(c.value, p.value, deps.projects.map(_.value))
         )
       }
-  }
+    }
 
   // every active project's
-  lazy val site_inputs: String => Target[Seq[ReportInputs]] = fun {
-    (c: String) =>
+  lazy val site_inputs: CourseName => Target[Seq[ReportInputs]] = fun {
+    (c: CourseName) =>
       complex_target[Seq[ReportInputs]] { tracker =>
-        val projects = tracker.track(defs.active_projects(c)).toSeq
+        val projects =
+          tracker.track(defs.active_projects(c, Definitions.any)).toSeq
         val inputs = tracker.track_all(projects.map(report_inputs(c, _)))
         tracker.run_if_needed(_ => inputs)
       }
@@ -265,8 +269,10 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
   // once in `n` tries, every test run to the end (as
   // Project.compute_student_scores)
   lazy val student_scores
-      : (String, String, CSID, Phase, Int) => Target[SortedSet[TestId]] =
-    fun { (c: String, p: String, csid: CSID, phase: Phase, n: Int) =>
+      : (CourseName, ProjectName, CSID, Phase, Int) => Target[
+        SortedSet[TestId]
+      ] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase, n: Int) =>
       complex_target[SortedSet[TestId]] { tracker =>
         val wanted = for {
           info <- tracker.track(subs.prepare_info(c, p, csid, phase)).toSeq
@@ -282,10 +288,10 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
       }
     }
 
-  lazy val scores: (String, String, Phase, Int) => Target[
+  lazy val scores: (CourseName, ProjectName, Phase, Int) => Target[
     SortedMap[CSID, SortedSet[TestId]]
   ] =
-    fun { (c: String, p: String, phase: Phase, n: Int) =>
+    fun { (c: CourseName, p: ProjectName, phase: Phase, n: Int) =>
       complex_target[SortedMap[CSID, SortedSet[TestId]]] { tracker =>
         val csids = tracker.track(subs.students_with_submission(c, p)).toSeq
         val passed =

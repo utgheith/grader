@@ -23,7 +23,11 @@ object ToRelPath {
 
   given ToRelPath[os.RelPath] = p => p
 
-  given ToRelPath[Regex] = r => os.RelPath(r.toString)
+  // one component, never empty, "." or "..", whatever the pattern
+  given ToRelPath[Regex] = r =>
+    os.RelPath(
+      "re=" + r.toString.replace("%", "%25").replace("/", "%2F")
+    )
 
   given [T: ToRelPath] => ToRelPath[Option[T]] = {
     case Some(t) => ToRelPath(t)

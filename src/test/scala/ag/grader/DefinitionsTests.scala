@@ -8,6 +8,7 @@ import scala.collection.SortedSet
 
 // The course and project definitions (Definitions), on made-up mirrored repos
 class DefinitionsTests extends FunSuite {
+  import Fixture.{c1, p1, p2}
   private def git(dir: os.Path, args: String*): String =
     os.proc(Seq("git", "-c", "user.name=t", "-c", "user.email=t@x") ++ args)
       .call(cwd = dir, stderr = os.Pipe)
@@ -59,19 +60,23 @@ class DefinitionsTests extends FunSuite {
     repo(mirror, "c1_p1", "README" -> "base")
     val d = Definitions(Source(mirror))
     val s = State(root / "ws")
-    assertEquals(s.track(d.course_names), SortedSet("c1"))
-    assertEquals(s.track(d.active_courses), SortedSet("c1"))
-    assertEquals(s.track(d.course_staff("c1")), SortedSet(CSID("prof")))
-    assertEquals(s.track(d.project_names("c1")), SortedSet("p1", "p2"))
+    assertEquals(s.track(d.course_names), SortedSet(c1))
+    assertEquals(s.track(d.active_courses(Definitions.any)), SortedSet(c1))
+    assertEquals(s.track(d.course_staff(c1)), SortedSet(CSID("prof")))
+    assertEquals(s.track(d.project_names(c1)), SortedSet(p1, p2))
     // p2 has no repo
-    assertEquals(s.track(d.project_active("c1", "p1")), true)
-    assertEquals(s.track(d.project_active("c1", "p2")), false)
-    assertEquals(s.track(d.active_projects("c1")), SortedSet("p1"))
-    assertEquals(s.track(d.phase1_tests("c1", "p1")), SortedSet("a", "b"))
-    assertEquals(s.track(d.docker_file("c1", "p1")), Some("Dockerfile"))
-    assertEquals(s.track(d.project_staff("c1", "p1")), SortedSet(CSID("ta")))
-    assertEquals(s.track(d.find_project("c1", "nope")), None)
-    assertEquals(s.track(d.find_course("nope")), None)
+    assertEquals(s.track(d.project_active(c1, p1)), true)
+    assertEquals(s.track(d.project_active(c1, p2)), false)
+    assertEquals(s.track(d.active_projects(c1, Definitions.any)), SortedSet(p1))
+    // picked by a regex on the name
+    assertEquals(s.track(d.active_courses("c[2-9]".r)), SortedSet[CourseName]())
+    assertEquals(s.track(d.active_projects(c1, "p[1-2]".r)), SortedSet(p1))
+    assertEquals(s.track(d.active_projects(c1, "p2".r)), SortedSet[ProjectName]())
+    assertEquals(s.track(d.phase1_tests(c1, p1)), SortedSet("a", "b"))
+    assertEquals(s.track(d.docker_file(c1, p1)), Some("Dockerfile"))
+    assertEquals(s.track(d.project_staff(c1, p1)), SortedSet(CSID("ta")))
+    assertEquals(s.track(d.find_project(c1, ProjectName("nope"))), None)
+    assertEquals(s.track(d.find_course(CourseName("nope"))), None)
   }
 
   test("deadlines: phase 1 at the test cutoff, phase 2 and the latest at the code cutoff, plus extensions") {
@@ -80,7 +85,7 @@ class DefinitionsTests extends FunSuite {
     courses(mirror)
     val d = Definitions(Source(mirror))
     val s = State(root / "ws")
-    def deadline(csid: CSID, phase: Phase) = s.track(d.deadline("c1", "p1", csid, phase))
+    def deadline(csid: CSID, phase: Phase) = s.track(d.deadline(c1, p1, csid, phase))
     val other = CSID("s2")
     assertEquals(deadline(other, Phase.One), cutoff.minusDays(7).nn)
     assertEquals(deadline(other, Phase.Two), cutoff)
@@ -95,12 +100,12 @@ class DefinitionsTests extends FunSuite {
     val mirror = root / "mirror"
     courses(mirror)
     val d = Definitions(Source(mirror))
-    assertEquals(State(root / "ws").track(d.active_projects("c1")), SortedSet[String]())
+    assertEquals(State(root / "ws").track(d.active_projects(c1, Definitions.any)), SortedSet[ProjectName]())
     repo(mirror, "c1_p1", "README" -> "base")
     repo(mirror, "c1_p2", "README" -> "base")
-    assertEquals(State(root / "ws").track(d.active_projects("c1")), SortedSet("p1", "p2"))
+    assertEquals(State(root / "ws").track(d.active_projects(c1, Definitions.any)), SortedSet(p1, p2))
     courses(mirror, p1_active = false)
-    assertEquals(State(root / "ws").track(d.active_projects("c1")), SortedSet("p2"))
+    assertEquals(State(root / "ws").track(d.active_projects(c1, Definitions.any)), SortedSet(p2))
   }
 
   test("a missing course or project fails its settings, with its name") {
@@ -108,7 +113,7 @@ class DefinitionsTests extends FunSuite {
     val mirror = root / "mirror"
     courses(mirror)
     val d = Definitions(Source(mirror))
-    val e = intercept[Throwable](State(root / "ws").track(d.cores("c1", "nope")))
+    val e = intercept[Throwable](State(root / "ws").track(d.cores(c1, ProjectName("nope"))))
     assert(clue(Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")).contains("c1/nope"))
   }
 }

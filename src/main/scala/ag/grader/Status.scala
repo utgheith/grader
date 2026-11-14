@@ -29,14 +29,15 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // all of them at once, each on its own thread
   private def look_all[A](ts: Seq[Target[A]]): Seq[A] = state().track_all(ts)
 
-  private def courses: SortedMap[String, RawCourse] = look(data.courses)
+  private def courses: SortedMap[CourseName, RawCourse] = look(data.courses)
 
-  private def project_repo(c: String, p: String) = data.project_repo(c, p)
+  private def project_repo(c: CourseName, p: ProjectName) =
+    data.project_repo(c, p)
 
   // a phase's published results, by alias, and when they were committed
   private def results(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase
   ): Either[String, Option[
     (SortedMap[Alias, RedactedStudentResults], Option[String])
@@ -45,22 +46,23 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     r.error.toLeft(r.results.map(_ -> r.committed))
   }
 
-  private def aliases(c: String, p: String): SortedMap[CSID, Alias] = look(
-    data.aliases(c, p)
-  )
+  private def aliases(c: CourseName, p: ProjectName): SortedMap[CSID, Alias] =
+    look(
+      data.aliases(c, p)
+    )
 
   // a student's own results (the latest), and the files beside them: its
   // tests' output
   private def own_results(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       csid: CSID
   ): Option[(StudentResults, Tree)] =
     look(data.own_results(c, p, csid))
 
   private def test_commit(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       csid: CSID
   ): Option[TestCommit] =
     look(data.test_commit(c, p, csid))
@@ -130,24 +132,36 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       try {
         parts match {
           case Seq()                   => Some(courses_page())
-          case Seq(c)                  => course_page(c)
-          case Seq(c, "by-student")    => course_students_page(c)
-          case Seq(c, "by-student", s) => course_student_page(c, CSID(s))
-          case Seq(c, p)               => project_page(c, p)
-          case Seq(c, p, "by-student") => project_students_page(c, p)
-          case Seq(c, p, "by-test")    => project_tests_page(c, p)
-          case Seq(c, p, ph) => phase_of(ph).flatMap(phase_page(c, p, _))
+          case Seq(c)                  => course_page(CourseName(c))
+          case Seq(c, "by-student")    => course_students_page(CourseName(c))
+          case Seq(c, "by-student", s) =>
+            course_student_page(CourseName(c), CSID(s))
+          case Seq(c, p) => project_page(CourseName(c), ProjectName(p))
+          case Seq(c, p, "by-student") =>
+            project_students_page(CourseName(c), ProjectName(p))
+          case Seq(c, p, "by-test") =>
+            project_tests_page(CourseName(c), ProjectName(p))
+          case Seq(c, p, ph) =>
+            phase_of(ph).flatMap(phase_page(CourseName(c), ProjectName(p), _))
           case Seq(c, p, ph, "by-test") =>
-            phase_of(ph).flatMap(tests_page(c, p, _))
+            phase_of(ph).flatMap(tests_page(CourseName(c), ProjectName(p), _))
           case Seq(c, p, ph, "by-test", t) =>
-            phase_of(ph).flatMap(one_test_page(c, p, _, t))
+            phase_of(ph).flatMap(
+              one_test_page(CourseName(c), ProjectName(p), _, t)
+            )
           case Seq(c, p, ph, s) =>
-            phase_of(ph).flatMap(student_page(c, p, _, CSID(s)))
+            phase_of(ph).flatMap(
+              student_page(CourseName(c), ProjectName(p), _, CSID(s))
+            )
           case Seq(c, p, ph, s, t) =>
-            phase_of(ph).flatMap(test_page(c, p, _, CSID(s), t))
+            phase_of(ph).flatMap(
+              test_page(CourseName(c), ProjectName(p), _, CSID(s), t)
+            )
           case Seq(c, p, ph, s, t, n) =>
             phase_of(ph).flatMap(ph =>
-              n.toIntOption.flatMap(run_page(c, p, ph, CSID(s), t, _))
+              n.toIntOption.flatMap(
+                run_page(CourseName(c), ProjectName(p), ph, CSID(s), t, _)
+              )
             )
           case _ => None
         }
@@ -187,9 +201,9 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     val cs = courses
     val rows = cs.toSeq.map { (name, rc) =>
       val active = rc.projects.count(_._2.active)
-      s"""<tr><td><a href="${enc(name)}/">${h(name)}</a></td>
-         |<td><a href="${enc(name)}/">by project</a> · <a href="${enc(
-          name
+      s"""<tr><td><a href="${enc(name.value)}/">${h(name.value)}</a></td>
+         |<td><a href="${enc(name.value)}/">by project</a> · <a href="${enc(
+          name.value
         )}/by-student/">by student</a></td>
          |<td>${
           if (rc.active) "active" else "<span class=muted>inactive</span>"
@@ -217,8 +231,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     ).mkString("<nav class=views>", "", "</nav>")
 
   // looks at all of `c`'s projects' results (and aliases) at once
-  private def look_course(c: String, rc: RawCourse): Unit = {
-    val ps = rc.projects.keys.toSeq
+  private def look_course(c: CourseName, rc: RawCourse): Unit = {
+    val ps = rc.projects.keys.toSeq.map(ProjectName(_))
     val _ = Try(look_all(for {
       p <- ps; phase <- all_phases
     } yield data.phase_results(c, p, phase)))
@@ -237,8 +251,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // a project's phases and their progress; links are relative to `base`,
   // the project's page
   private def phases_table(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       rp: RawProject,
       base: String
   ): String = {
@@ -284,18 +298,25 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def course_views(on: String, up: String): String =
     tabs(on, "by project" -> up, "by student" -> s"${up}by-student/")
 
-  private def course_page(c: String): Option[String] =
+  private def course_page(c: CourseName): Option[String] =
     courses.get(c).map { rc =>
       look_course(c, rc)
-      val blocks = rc.projects.toSeq.sortBy(!_._2.active).map { (p, rp) =>
-        s"""<section class=project><h2><a href="${enc(p)}/">${h(p)}</a> ${
+      val blocks = projects_of(rc).sortBy(!_._2.active).map { (p, rp) =>
+        s"""<section class=project><h2><a href="${enc(p.value)}/">${h(
+            p.value
+          )}</a> ${
             if (rp.active) "" else "<span class=muted>(inactive)</span>"
           }</h2>
            |${project_line(rp)}
-           |${phases_table(c, p, rp, s"${enc(p)}/")}</section>""".stripMargin
+           |${phases_table(
+            c,
+            p,
+            rp,
+            s"${enc(p.value)}/"
+          )}</section>""".stripMargin
       }
       shell(
-        c,
+        c.value,
         Seq("Courses" -> "../"),
         course_views("by project", "./") + (if (blocks.isEmpty)
                                               "<p class=muted>No projects.</p>"
@@ -305,8 +326,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
 
   // a student's results in a phase, if any: their alias's
   private def results_of(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       csid: CSID
   ): Option[RedactedStudentResults] =
@@ -319,8 +340,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // a student's standing in a phase, in one cell: tests passing all runs,
   // and the share of runs passed; links to their page for it
   private def standing(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       rp: RawProject,
       phase: Phase,
       csid: CSID,
@@ -344,10 +365,10 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   // the course's students: everyone with an alias in one of its projects
-  private def course_students_page(c: String): Option[String] =
+  private def course_students_page(c: CourseName): Option[String] =
     courses.get(c).map { rc =>
       look_course(c, rc)
-      val ps = rc.projects.toSeq.sortBy((p, rp) => (!rp.active, p))
+      val ps = projects_of(rc).sortBy((p, rp) => (!rp.active, p))
       val csids = ps.flatMap((p, _) => aliases(c, p).keys).distinct.sorted
       val rows = csids.map { csid =>
         val cells = ps.map((p, rp) =>
@@ -357,7 +378,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             rp,
             Phase.Latest,
             csid,
-            s"../${enc(p)}/latest/${enc(csid.value)}/"
+            s"../${enc(p.value)}/latest/${enc(csid.value)}/"
           )
         )
         s"""<tr><td><a href="${enc(csid.value)}/">${h(
@@ -366,25 +387,26 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       }
       shell(
         s"$c / students",
-        Seq("Courses" -> "../../", c -> "../"),
+        Seq("Courses" -> "../../", c.value -> "../"),
         s"""${course_views("by student", "../")}
            |<p>${csids.size} students · each project's latest results: tests passing every run, and the share of runs passed</p>
            |<table class=sortable><thead><tr><th>student</th>${ps
-            .map((p, _) => s"<th class=num>${h(p)}</th>")
+            .map((p, _) => s"<th class=num>${h(p.value)}</th>")
             .mkString}</tr></thead>
            |<tbody>${rows.mkString}</tbody></table>""".stripMargin
       )
     }
 
   // one student, across the course's projects and their phases
-  private def course_student_page(c: String, csid: CSID): Option[String] =
+  private def course_student_page(c: CourseName, csid: CSID): Option[String] =
     courses.get(c).map { rc =>
       look_course(c, rc)
       val blocks =
-        rc.projects.toSeq.sortBy((p, rp) => (!rp.active, p)).map { (p, rp) =>
+        projects_of(rc).sortBy((p, rp) => (!rp.active, p)).map { (p, rp) =>
           val alias = aliases(c, p).get(csid)
           val rows = all_phases.map { phase =>
-            val link = s"../../${enc(p)}/${slug(phase)}/${enc(csid.value)}/"
+            val link =
+              s"../../${enc(p.value)}/${slug(phase)}/${enc(csid.value)}/"
             results_of(c, p, phase, csid) match {
               case None =>
                 s"""<tr><td><a href="$link">${phase_name(
@@ -400,8 +422,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
                   )}</tr>"""
             }
           }
-          s"""<section class=project><h2><a href="../../${enc(p)}/">${h(
-              p
+          s"""<section class=project><h2><a href="../../${enc(p.value)}/">${h(
+              p.value
             )}</a> <span class=muted>${alias
               .map(a => s"alias ${h(a.toString)}")
               .getOrElse("no alias")}</span></h2>
@@ -410,7 +432,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         }
       shell(
         s"$c / ${csid.value}",
-        Seq("Courses" -> "../../../", c -> "../../", "students" -> "../"),
+        Seq("Courses" -> "../../../", c.value -> "../../", "students" -> "../"),
         blocks.mkString
       )
     }
@@ -446,12 +468,12 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       "by test" -> s"${up}by-test/"
     )
 
-  private def project_page(c: String, p: String): Option[String] =
+  private def project_page(c: CourseName, p: ProjectName): Option[String] =
     project_of(c, p).map { rp =>
       val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
       shell(
         s"$c / $p",
-        Seq("Courses" -> "../../", c -> "../"),
+        Seq("Courses" -> "../../", c.value -> "../"),
         s"""${project_views("phases", "./")}
            |${project_line(rp)}
            |${phases_table(c, p, rp, "")}""".stripMargin
@@ -459,7 +481,10 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   // a project's students, with their standing in each phase
-  private def project_students_page(c: String, p: String): Option[String] =
+  private def project_students_page(
+      c: CourseName,
+      p: ProjectName
+  ): Option[String] =
     project_of(c, p).map { rp =>
       val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
       val as = aliases(c, p)
@@ -482,7 +507,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       }
       shell(
         s"$c / $p / students",
-        Seq("Courses" -> "../../../", c -> "../../", p -> "../"),
+        Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../"),
         s"""${project_views("by student", "../")}
            |<p>${as.size} students · in each phase: tests passing every run, and the share of runs passed</p>
            |<table class=sortable><thead><tr><th>student</th><th class=num>alias</th>${all_phases
@@ -493,7 +518,10 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   // a project's tests, with how each phase's students do on them
-  private def project_tests_page(c: String, p: String): Option[String] =
+  private def project_tests_page(
+      c: CourseName,
+      p: ProjectName
+  ): Option[String] =
     project_of(c, p).map { rp =>
       val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
       val per_phase = all_phases.map { phase =>
@@ -552,7 +580,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       }
       shell(
         s"$c / $p / tests",
-        Seq("Courses" -> "../../../", c -> "../../", p -> "../"),
+        Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../"),
         s"""${project_views("by test", "../")}
            |<p>${names.size} tests · in each phase: students passing every run, of those it ran on, and the share of runs passed</p>
            |<table class=sortable><thead><tr><th>test</th><th>author</th><th>chosen</th>${all_phases
@@ -573,7 +601,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     val cs = courses
     val names = for {
       (c, rc) <- cs.toSeq
-      p <- rc.projects.keys.toSeq
+      p <- rc.projects.keys.toSeq.map(ProjectName(_))
       suffix <- Seq("__results", "__aliases")
     } yield s"${project_repo(c, p)}$suffix"
     log(s"reading ${names.size} repos for ${cs.size} courses")
@@ -601,14 +629,19 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     log(s"read in ${secs(started)}")
   }
 
-  private def project_of(c: String, p: String): Option[RawProject] =
+  private def project_of(c: CourseName, p: ProjectName): Option[RawProject] =
     look(data.project(c, p))
 
-  private def phase_page(c: String, p: String, phase: Phase): Option[String] =
+  private def phase_page(
+      c: CourseName,
+      p: ProjectName,
+      phase: Phase
+  ): Option[String] =
     project_of(c, p).map { rp =>
       val st = project_state(rp)
       val by_alias = aliases(c, p).map(_.swap)
-      val crumbs = Seq("Courses" -> "../../../", c -> "../../", p -> "../")
+      val crumbs =
+        Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../")
       val title = s"$c / $p / ${phase_name(phase)}"
       results(c, p, phase) match {
         case Left(why)   => shell(title, crumbs, s"<p class=bad>${h(why)}</p>")
@@ -684,8 +717,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   )
 
   private def student_view(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       csid: CSID
   ): Option[StudentView] =
@@ -699,16 +732,16 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   private def student_page(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       csid: CSID
   ): Option[String] =
     student_view(c, p, phase, csid).map { v =>
       val crumbs = Seq(
         "Courses" -> "../../../../",
-        c -> "../../../",
-        p -> "../../",
+        c.value -> "../../../",
+        p.value -> "../../",
         phase_name(phase) -> "../"
       )
       val title = s"$c / $p / ${phase_name(phase)} / ${csid.value}"
@@ -824,8 +857,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // the phase's tests: those published in the tests repo, and any its
   // results ran
   private def test_views(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       rp: RawProject,
       phase: Phase,
       rs: SortedMap[Alias, RedactedStudentResults]
@@ -897,12 +930,16 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
   }
 
-  private def tests_page(c: String, p: String, phase: Phase): Option[String] =
+  private def tests_page(
+      c: CourseName,
+      p: ProjectName,
+      phase: Phase
+  ): Option[String] =
     project_of(c, p).map { rp =>
       val crumbs = Seq(
         "Courses" -> "../../../../",
-        c -> "../../../",
-        p -> "../../",
+        c.value -> "../../../",
+        p.value -> "../../",
         phase_name(phase) -> "../"
       )
       val title = s"$c / $p / ${phase_name(phase)} / tests"
@@ -965,8 +1002,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   private def one_test_page(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       name: String
   ): Option[String] =
@@ -977,8 +1014,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     } yield {
       val crumbs = Seq(
         "Courses" -> "../../../../../",
-        c -> "../../../../",
-        p -> "../../../",
+        c.value -> "../../../../",
+        p.value -> "../../../",
         phase_name(phase) -> "../../",
         "tests" -> "../"
       )
@@ -1082,8 +1119,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   // When the commit id file changed, and what it named (or, for the latest
   // results, master's last commits), from the submission repo
   private def commit_history(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       csid: CSID,
       phase: Phase,
       graded: Option[String]
@@ -1128,8 +1165,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     v.results.flatMap(_.outcomes.get(RedactedTestId(test)))
 
   private def test_page(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       csid: CSID,
       test: String
@@ -1138,8 +1175,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       outcome_of(v, test).map { o =>
         val crumbs = Seq(
           "Courses" -> "../../../../../",
-          c -> "../../../../",
-          p -> "../../../",
+          c.value -> "../../../../",
+          p.value -> "../../../",
           phase_name(phase) -> "../../",
           csid.value -> "../"
         )
@@ -1169,8 +1206,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     }
 
   private def run_page(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       phase: Phase,
       csid: CSID,
       test: String,
@@ -1182,8 +1219,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         // at .../<test>/<n>: "./" is the test's page
         val crumbs = Seq(
           "Courses" -> "../../../../../",
-          c -> "../../../../",
-          p -> "../../../",
+          c.value -> "../../../../",
+          p.value -> "../../../",
           phase_name(phase) -> "../../",
           csid.value -> "../",
           test -> "./"
@@ -1305,6 +1342,10 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   )
   private def fmt_iso(s: String): String =
     Try(fmt_z(ZonedDateTime.parse(s.trim).nn)).getOrElse(s)
+
+  // the course's projects, by name
+  private def projects_of(rc: RawCourse): Seq[(ProjectName, RawProject)] =
+    rc.projects.toSeq.map((p, rp) => (ProjectName(p), rp))
 
   private def h(s: String): String =
     s.flatMap {

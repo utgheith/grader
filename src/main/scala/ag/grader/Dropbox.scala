@@ -17,12 +17,12 @@ final class Dropbox(
 
   // A course's keys; None if there's no root, or no directory for the
   // course (which isn't the same as no keys: see Publishers.enrollment)
-  lazy val course_keys: String => Target[Option[SortedMap[CSID, String]]] =
-    fun { (c: String) =>
+  lazy val course_keys: CourseName => Target[Option[SortedMap[CSID, String]]] =
+    fun { (c: CourseName) =>
       target((clock = periodic(60 * 1000L))) { (_, _) =>
         for {
           root <- root
-          dir = root / c
+          dir = root / c.value
           if os.isDir(dir)
         } yield (for {
           f <- os.list(dir)
@@ -38,8 +38,8 @@ final class Dropbox(
     }
 
   // a course's keys, none if it has no directory
-  lazy val keys: String => Target[SortedMap[CSID, String]] = fun {
-    (c: String) =>
+  lazy val keys: CourseName => Target[SortedMap[CSID, String]] = fun {
+    (c: CourseName) =>
       target((k = course_keys(c)))((_, deps) =>
         deps.k.getOrElse(SortedMap[CSID, String]())
       )

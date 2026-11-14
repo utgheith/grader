@@ -44,7 +44,7 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   private val defs = subs.defs
   private val source = defs.source
 
-  private def staff(c: String): String = s"@${c}_staff"
+  private def staff(c: CourseName): String = s"@${c}_staff"
 
   // A target that works out `repo`'s files: `f` gets a directory with the
   // files of the repo's master on the mirror (if it has one), or, with no
@@ -98,8 +98,8 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
     for (f <- os.list(dir) if !f.last.startsWith(".")) os.remove.all(f)
 
   // the project's aliases (as Project.publish_aliases)
-  lazy val aliases: (String, String) => Target[WithData[Publish]] = fun {
-    (c: String, p: String) =>
+  lazy val aliases: (CourseName, ProjectName) => Target[WithData[Publish]] =
+    fun { (c: CourseName, p: ProjectName) =>
       publisher(
         subs.aliases_repo(c, p),
         "more aliases",
@@ -110,13 +110,14 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
           upickle.default.write(deps.aliases, indent = 2)
         )
       }
-  }
+    }
 
   // The override repo, which the course's staff keep: made once from the
   // project repo's tests and Makefiles (as Project.publish_override_repo),
   // then left to them
-  lazy val override_repo: (String, String) => Target[WithData[Publish]] = fun {
-    (c: String, p: String) =>
+  lazy val override_repo
+      : (CourseName, ProjectName) => Target[WithData[Publish]] = fun {
+    (c: CourseName, p: ProjectName) =>
       publisher(
         subs.override_repo(c, p),
         "update override",
@@ -184,8 +185,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // the students' own tests, for the staff (as
   // Project.publish_submitted_tests)
-  lazy val submitted_tests: (String, String) => Target[WithData[Publish]] =
-    fun { (c: String, p: String) =>
+  lazy val submitted_tests
+      : (CourseName, ProjectName) => Target[WithData[Publish]] =
+    fun { (c: CourseName, p: ProjectName) =>
       publisher(
         s"${subs.project_repo(c, p)}__submitted_tests",
         "tests",
@@ -204,8 +206,8 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // every test, for everyone: the students' and the override repo's (as
   // Project.publish_tests)
-  lazy val tests: (String, String) => Target[WithData[Publish]] = fun {
-    (c: String, p: String) =>
+  lazy val tests: (CourseName, ProjectName) => Target[WithData[Publish]] = fun {
+    (c: CourseName, p: ProjectName) =>
       publisher(
         s"${subs.project_repo(c, p)}__tests",
         "tests",
@@ -238,7 +240,7 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // what a project publishes, in the order to sync it: the override repo
   // first, since the tests come from it
-  def all(c: String, p: String): Seq[Target[WithData[Publish]]] =
+  def all(c: CourseName, p: ProjectName): Seq[Target[WithData[Publish]]] =
     Seq(override_repo(c, p), aliases(c, p), submitted_tests(c, p), tests(c, p))
 
   // ---- results ----------------------------------------------------------
@@ -250,9 +252,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // A student's latest results, with each test's output, in their own
   // results repo (as Project.publish_student_results), graded to `n` tries
-  lazy val student_results: (String, String, CSID, Int) => Target[
+  lazy val student_results: (CourseName, ProjectName, CSID, Int) => Target[
     WithData[Publish]
-  ] = fun { (c: String, p: String, csid: CSID, n: Int) =>
+  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, n: Int) =>
     publisher(
       subs.student_results_repo(c, p, csid),
       "updated results",
@@ -279,8 +281,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // Every student's results, by alias, for each phase the project publishes
   // (Phase.results_file), for the report (as Project.publish_results). One
   // publisher for every phase's file: a repo has one thing pending at a time.
-  lazy val results: (String, String, Int) => Target[WithData[Publish]] = fun {
-    (c: String, p: String, n: Int) =>
+  lazy val results
+      : (CourseName, ProjectName, Int) => Target[WithData[Publish]] = fun {
+    (c: CourseName, p: ProjectName, n: Int) =>
       publisher(
         subs.results_repo(c, p),
         "update results",
@@ -294,8 +297,8 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // what grading a project to `n` tries publishes, for `students` (those
   // with a submission): the results repo, and each student's own
   def graded(
-      c: String,
-      p: String,
+      c: CourseName,
+      p: ProjectName,
       students: Iterable[CSID],
       n: Int
   ): Seq[Target[WithData[Publish]]] =
@@ -306,11 +309,11 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // every active course's students' keys, and how it tells them about
   // changes, by course
   private lazy val keys_by_course: Target[
-    Seq[(String, SortedMap[CSID, String], NotificationConfig)]
+    Seq[(CourseName, SortedMap[CSID, String], NotificationConfig)]
   ] = complex_target[
-    Seq[(String, SortedMap[CSID, String], NotificationConfig)]
+    Seq[(CourseName, SortedMap[CSID, String], NotificationConfig)]
   ] { tracker =>
-    val courses = tracker.track(defs.active_courses).toSeq
+    val courses = tracker.track(defs.active_courses(Definitions.any)).toSeq
     val keys = tracker.track_all(courses.map(dropbox.keys))
     val notifications = tracker.track_all(courses.map(defs.notifications))
     tracker.run_if_needed(_ =>
@@ -344,8 +347,8 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // the course's enrollment: its students, as the dropbox has their keys
   // (as Course.publish_enrollment). Left as it is if the dropbox has no
   // directory for the course: that would unenroll everyone.
-  lazy val enrollment: String => Target[WithData[Publish]] = fun {
-    (c: String) =>
+  lazy val enrollment: CourseName => Target[WithData[Publish]] = fun {
+    (c: CourseName) =>
       publisher(
         subs.enrollment_repo(c),
         "enrolling students",
@@ -367,17 +370,18 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
 
   // the staff's grading repo: made with a README, then theirs (as
   // Course.create_grades_repo)
-  lazy val grades: String => Target[WithData[Publish]] = fun { (c: String) =>
-    val repo = s"${c}__grades"
-    publisher(
-      repo,
-      "creating grades repo",
-      Some(Create("empty", Seq(staff(c)), Seq(staff(c))))
-    )((exists = source.exists(repo))) { (_, deps, dir) =>
-      if (!deps.exists)
-        os.write.over(
-          dir / "README.md",
-          f"""
+  lazy val grades: CourseName => Target[WithData[Publish]] = fun {
+    (c: CourseName) =>
+      val repo = s"${c}__grades"
+      publisher(
+        repo,
+        "creating grades repo",
+        Some(Create("empty", Seq(staff(c)), Seq(staff(c))))
+      )((exists = source.exists(repo))) { (_, deps, dir) =>
+        if (!deps.exists)
+          os.write.over(
+            dir / "README.md",
+            f"""
                  |# Grading data for `$c`
                  |
                  |This is a per-course workspace for synchronizing grading data
@@ -385,8 +389,8 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
                  |automatically creates this repo, but does not otherwise use
                  |it; that may change in the future.
                  |""".stripMargin
-        )
-    }
+          )
+      }
   }
 
   // A student's repo for a project: made by forking the project's repo,
@@ -395,8 +399,9 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // data is the tree it has or would start with, as is: no copy is made, so
   // nothing in it is touched (a copy can't keep everything: submodules,
   // say).
-  lazy val work_repo: (String, String, CSID) => Target[WithData[Publish]] =
-    fun { (c: String, p: String, csid: CSID) =>
+  lazy val work_repo
+      : (CourseName, ProjectName, CSID) => Target[WithData[Publish]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       val repo = subs.work_repo(c, p, csid)
       val create = Create(
         subs.project_repo(c, p),
@@ -438,26 +443,29 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   // listing every project's page in the repo (as Course.publish_site): a
   // page is rewritten only when what it shows changes, and pages of
   // projects no longer active stay.
-  lazy val site: String => Target[WithData[Publish]] = fun { (c: String) =>
-    publisher(
-      s"${c}__site",
-      "update site",
-      Some(Create("empty", Seq("@all"), Seq()))
-    )((inputs = grading.site_inputs(c))) { (producer, deps, dir) =>
-      val now = java.time.LocalDateTime.now().nn
-      for {
-        i <- deps.inputs
-        data <- HtmlGen.reports(i, now, why => producer.log(why + "\n"))
-      } {
-        val _ = HtmlGen.write_page(dir, data)
+  lazy val site: CourseName => Target[WithData[Publish]] = fun {
+    (c: CourseName) =>
+      publisher(
+        s"${c}__site",
+        "update site",
+        Some(Create("empty", Seq("@all"), Seq()))
+      )((inputs = grading.site_inputs(c))) { (producer, deps, dir) =>
+        val now = java.time.LocalDateTime.now().nn
+        for {
+          i <- deps.inputs
+          data <- HtmlGen.reports(i, now, why => producer.log(why + "\n"))
+        } {
+          val _ = HtmlGen.write_page(dir, data)
+        }
+        val pages = os
+          .list(dir)
+          .map(_.last)
+          .filter(f =>
+            f.endsWith(".html") && f != "index.html" && !HtmlGen.is_phase_page(
+              f
+            )
+          )
+        os.write.over(dir / "index.html", HtmlGen.render_index(c.value, pages))
       }
-      val pages = os
-        .list(dir)
-        .map(_.last)
-        .filter(f =>
-          f.endsWith(".html") && f != "index.html" && !HtmlGen.is_phase_page(f)
-        )
-      os.write.over(dir / "index.html", HtmlGen.render_index(c, pages))
-    }
   }
 }

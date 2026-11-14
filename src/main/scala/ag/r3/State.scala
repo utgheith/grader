@@ -30,6 +30,9 @@ class State(
 
   lazy val store: Store = Store(workspace / "r3.git")
 
+  // what this run's commands went through (see Target.tally)
+  val tally: ag.common.Tally = ag.common.Tally()
+
   def forced_path(t: TargetBase): os.Path =
     workspace / "forced" / Store.rel_path(t.path)
   def log_path(t: TargetBase): os.Path =

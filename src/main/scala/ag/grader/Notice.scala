@@ -52,7 +52,7 @@ final case class Notice(to: CSID, cc: Option[CSID], what: Notice.What)
 object Notice {
   enum What derives ReadWriter {
     // a student's key, added or changed in gitolite-admin
-    case KeyUpdated(course: String, csid: CSID)
+    case KeyUpdated(course: CourseName, csid: CSID)
     // a student's repo made, which starts with `readme`
     case RepoCreated(repo: String, readme: String)
   }

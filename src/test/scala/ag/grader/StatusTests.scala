@@ -236,7 +236,7 @@ class StatusTests extends FunSuite {
     val root = os.temp.dir(deleteOnExit = true)
     val _ = setup(root)
     val data = StatusData(mirror(root))
-    val history = data.commit_history("c1", "p1", s1, Phase.One)
+    val history = data.commit_history(Fixture.c1, Fixture.p1, s1, Phase.One)
     // its log is emptied each time it's worked out
     def look(): (Option[Seq[StatusData.CommitRow]], Long) = {
       val _ = mirror(root)

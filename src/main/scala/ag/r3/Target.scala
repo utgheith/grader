@@ -54,6 +54,20 @@ trait Target[A] extends TargetBase { outer =>
     override val is_peek: Boolean = outer.is_peek
   }
 
+  // Tracks it, adding its value's measure to the run's tally (State.tally,
+  // labeled by its kind) if there's a Measure for it. Meant for commands:
+  // a target computing doesn't run when it's current, so what it would add
+  // there depends on what ran before.
+  inline def tally(tracker: Tracker[?]): A = {
+    val a = tracker.track(this)
+    scala.compiletime.summonFrom {
+      case m: Measure[A] =>
+        tracker.state.tally.add(Measure.label(kind), m.measure(a))
+      case _ => ()
+    }
+    a
+  }
+
   // the same target, read without becoming a dependency
   def peek: Target[A] =
     if (is_peek) this

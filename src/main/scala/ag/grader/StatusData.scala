@@ -17,10 +17,10 @@ import scala.util.Try
 final class StatusData(val source: Source) extends Scope("status") {
   import StatusData.*
 
-  def project_repo(c: String, p: String): String = s"${c}_$p"
-  def work_repo(c: String, p: String, csid: CSID): String =
+  def project_repo(c: CourseName, p: ProjectName): String = s"${c}_$p"
+  def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${project_repo(c, p)}_${csid.value}"
-  def own_results_repo(c: String, p: String, csid: CSID): String =
+  def own_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${work_repo(c, p, csid)}_results"
 
   private def master(repo: String): Target[Option[Commit]] = source.master(repo)
@@ -31,13 +31,14 @@ final class StatusData(val source: Source) extends Scope("status") {
 
   // what the courses and projects are: shared with grading
   val definitions: Definitions = Definitions(source)
-  def courses: Target[SortedMap[String, RawCourse]] = definitions.courses
-  def project(c: String, p: String): Target[Option[RawProject]] =
+  def courses: Target[SortedMap[CourseName, RawCourse]] = definitions.courses
+  def project(c: CourseName, p: ProjectName): Target[Option[RawProject]] =
     definitions.find_project(c, p)
 
   // a phase's published results, by alias, and when they were committed
-  lazy val phase_results: (String, String, Phase) => Target[PhaseResults] =
-    fun { (c: String, p: String, phase: Phase) =>
+  lazy val phase_results
+      : (CourseName, ProjectName, Phase) => Target[PhaseResults] =
+    fun { (c: CourseName, p: ProjectName, phase: Phase) =>
       target((m = master(s"${project_repo(c, p)}__results"))) {
         (producer, deps) =>
           (for {
@@ -65,8 +66,9 @@ final class StatusData(val source: Source) extends Scope("status") {
       }
     }
 
-  lazy val aliases: (String, String) => Target[SortedMap[CSID, Alias]] = fun {
-    (c: String, p: String) =>
+  lazy val aliases
+      : (CourseName, ProjectName) => Target[SortedMap[CSID, Alias]] = fun {
+    (c: CourseName, p: ProjectName) =>
       target((m = master(s"${project_repo(c, p)}__aliases"))) {
         (producer, deps) =>
           (for {
@@ -81,21 +83,21 @@ final class StatusData(val source: Source) extends Scope("status") {
 
   // a student's own results (the latest), and the files beside them: its
   // tests' output
-  lazy val own_results
-      : (String, String, CSID) => Target[Option[(StudentResults, Tree)]] = fun {
-    (c: String, p: String, csid: CSID) =>
-      target((m = master(own_results_repo(c, p, csid)))) { (producer, deps) =>
-        for {
-          m <- deps.m
-          json <- text(producer, m, "the_results.json")
-          r <- Try(upickle.default.read[StudentResults](json)).toOption
-        } yield (r, producer.commit(m).tree)
-      }
+  lazy val own_results: (CourseName, ProjectName, CSID) => Target[
+    Option[(StudentResults, Tree)]
+  ] = fun { (c: CourseName, p: ProjectName, csid: CSID) =>
+    target((m = master(own_results_repo(c, p, csid)))) { (producer, deps) =>
+      for {
+        m <- deps.m
+        json <- text(producer, m, "the_results.json")
+        r <- Try(upickle.default.read[StudentResults](json)).toOption
+      } yield (r, producer.commit(m).tree)
+    }
   }
 
   // the names of the tests in the tests repo
-  lazy val published_tests: (String, String) => Target[Seq[String]] = fun {
-    (c: String, p: String) =>
+  lazy val published_tests: (CourseName, ProjectName) => Target[Seq[String]] =
+    fun { (c: CourseName, p: ProjectName) =>
       target(
         (m = master(s"${project_repo(c, p)}__tests"), rp = project(c, p))
       ) { (producer, deps) =>
@@ -108,12 +110,13 @@ final class StatusData(val source: Source) extends Scope("status") {
           }
         } yield name).distinct.sorted
       }
-  }
+    }
 
   // `csid`'s test's commit, from their submission repo (see TestCommit);
   // None if they have no test
-  lazy val test_commit: (String, String, CSID) => Target[Option[TestCommit]] =
-    fun { (c: String, p: String, csid: CSID) =>
+  lazy val test_commit
+      : (CourseName, ProjectName, CSID) => Target[Option[TestCommit]] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
       val repo = work_repo(c, p, csid)
       target(
         (
@@ -139,35 +142,33 @@ final class StatusData(val source: Source) extends Scope("status") {
 
   // When `phase`'s commit id file changed, and what it named; for the latest
   // results, master's last commits. None if there's no submission repo.
-  lazy val commit_history
-      : (String, String, CSID, Phase) => Target[Option[Seq[CommitRow]]] = fun {
-    (c: String, p: String, csid: CSID, phase: Phase) =>
-      target((m = master(work_repo(c, p, csid)))) { (producer, deps) =>
-        deps.m.map { m =>
-          phase.commit_id_file match {
-            case Some(file) =>
-              for {
-                ci <- producer.history(m, first_parent = false)
-                if changed(producer, ci, Seq(file))
-              } yield {
-                val content = producer
-                  .read_text(ci.tree, os.RelPath(file))
-                  .map(_.linesIterator.nextOption().getOrElse("").trim)
-                val named = content
-                  .filter(_.nonEmpty)
-                  .flatMap(id => producer.resolve(m, id))
-                  .map(_.id)
-                CommitRow(ci.id, ci.committed, ci.subject, content, named)
-              }
-            case None =>
-              producer
-                .history(m, first_parent = true, limit = 10)
-                .map(ci =>
-                  CommitRow(ci.id, ci.committed, ci.subject, None, None)
-                )
-          }
+  lazy val commit_history: (CourseName, ProjectName, CSID, Phase) => Target[
+    Option[Seq[CommitRow]]
+  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase) =>
+    target((m = master(work_repo(c, p, csid)))) { (producer, deps) =>
+      deps.m.map { m =>
+        phase.commit_id_file match {
+          case Some(file) =>
+            for {
+              ci <- producer.history(m, first_parent = false)
+              if changed(producer, ci, Seq(file))
+            } yield {
+              val content = producer
+                .read_text(ci.tree, os.RelPath(file))
+                .map(_.linesIterator.nextOption().getOrElse("").trim)
+              val named = content
+                .filter(_.nonEmpty)
+                .flatMap(id => producer.resolve(m, id))
+                .map(_.id)
+              CommitRow(ci.id, ci.committed, ci.subject, content, named)
+            }
+          case None =>
+            producer
+              .history(m, first_parent = true, limit = 10)
+              .map(ci => CommitRow(ci.id, ci.committed, ci.subject, None, None))
         }
       }
+    }
   }
 }
 

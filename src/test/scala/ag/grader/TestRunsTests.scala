@@ -30,7 +30,7 @@ class TestRunsTests extends FunSuite {
     for (csid <- Seq(s1, s2))
       val _ = r.commit(s"c1_p1_${csid.value}", test_cutoff.minusDays(1), "main.c" -> csid.value)()
     val _ = r.commit("c1_p1__aliases", test_cutoff, "aliases.json" -> upickle.default.write(SortedMap(s2 -> Alias(5))))()
-    assertEquals(State(root / "ws").track(t.aliases("c1", "p1")), SortedMap(s1 -> Alias(6), s2 -> Alias(5)))
+    assertEquals(State(root / "ws").track(t.aliases(c1, p1)), SortedMap(s1 -> Alias(6), s2 -> Alias(5)))
   }
 
   test("the tests: students' by alias, the override repo's complete ones; the sets; a test's files") {
@@ -44,15 +44,15 @@ class TestRunsTests extends FunSuite {
     val s = State(root / "ws")
     val mine = TestId("001", "s1")
     val t0 = TestId("t0", "t0")
-    assertEquals(s.track(t.test_ids("c1", "p1")), SortedSet(mine, t0))
-    assertEquals(s.track(t.test_ids_for("c1", "p1", "good")), SortedSet(t0))
-    assertEquals(s.track(t.test_ids_for("c1", "p1", "phase1")), SortedSet(t0))
-    assertEquals(s.track(t.test_ids_for("c1", "p1", "phase2")), SortedSet(t0))
-    assertEquals(s.track(t.test_ids_for("c1", "p1", "chosen")), SortedSet(t0))
-    val dir = s.checkout(s.track(t.test_info("c1", "p1", mine)).data)
+    assertEquals(s.track(t.test_ids(c1, p1)), SortedSet(mine, t0))
+    assertEquals(s.track(t.test_ids_for(c1, p1, "good")), SortedSet(t0))
+    assertEquals(s.track(t.test_ids_for(c1, p1, "phase1")), SortedSet(t0))
+    assertEquals(s.track(t.test_ids_for(c1, p1, "phase2")), SortedSet(t0))
+    assertEquals(s.track(t.test_ids_for(c1, p1, "chosen")), SortedSet(t0))
+    val dir = s.checkout(s.track(t.test_info(c1, p1, mine)).data)
     assertEquals(os.list(dir).map(_.last).sorted, Seq("001.cc", "001.ok"))
     assertEquals(os.read(dir / "001.cc"), "my test")
-    assertEquals(s.track(t.docker_image("c1", "p1")), None)
+    assertEquals(s.track(t.docker_image(c1, p1)), None)
   }
 
   test("a test's links to other tests' files are followed") {
@@ -66,7 +66,7 @@ class TestRunsTests extends FunSuite {
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(29))()
     val s = State(root / "ws")
     def files(id: String) = {
-      val dir = s.checkout(s.track(t.test_info("c1", "p1", TestId(id, id))).data)
+      val dir = s.checkout(s.track(t.test_info(c1, p1, TestId(id, id))).data)
       os.list(dir).map(f => (f.last, os.isLink(f), os.read(f))).sorted
     }
     assertEquals(files("t1"), Seq(("t1.cc", false, "one"), ("t1.ok", false, "zero")))
@@ -82,7 +82,7 @@ class TestRunsTests extends FunSuite {
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(30),
       "Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "", "t1.cc" -> "nope", "t1.ok" -> "")()
     def run(id: String, keep_going: Boolean) =
-      State(root / "ws").track(t.run_one(keep_going, 2)("c1", "p1", s1, sha, TestId(id, id)))
+      State(root / "ws").track(t.run_one(keep_going, 2)(c1, p1, s1, sha, TestId(id, id)))
     def statuses(id: String, keep_going: Boolean) = run(id, keep_going).value.outcomes.map(_._1)
 
     assertEquals(statuses("t0", true), Seq(OutcomeStatus.pass))
@@ -98,7 +98,7 @@ class TestRunsTests extends FunSuite {
     // not keeping going: it stops at the failure
     assertEquals(statuses("t1", false), Seq(OutcomeStatus.unknown))
     // the prepared commit itself is untouched
-    val prepared = s.checkout(s.track(t.subs.prepare("c1", "p1", s1, sha)).data)
+    val prepared = s.checkout(s.track(t.subs.prepare(c1, p1, s1, sha)).data)
     assertEquals(os.read(prepared / "t1.result"), "pass")
     assert(!os.exists(prepared / "t0.result"))
   }

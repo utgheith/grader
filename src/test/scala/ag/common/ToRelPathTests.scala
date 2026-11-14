@@ -18,9 +18,12 @@ class ToRelPathTests extends FunSuite {
     assert(clue(ToRelPath(p)) ==  clue(p))
   }
 
-  test("ToRelPath[Regex]") {
-    val r = "abc".r
-    assert(clue(ToRelPath(r)) ==  clue(os.RelPath("abc")))
+  test("ToRelPath[Regex]: one component, whatever the pattern") {
+    assert(clue(ToRelPath("abc".r)) ==  clue(os.RelPath("re=abc")))
+    val patterns = Seq("", ".", "..", ".*", "a/b", "a%2Fb", "/x", "a|b")
+    val paths = patterns.map(p => ToRelPath(p.r))
+    for (p <- paths) assertEquals(clue(p).segments.size, 1)
+    assertEquals(paths.distinct.size, patterns.size)
   }
 
   test("ToRelPath[Option[T]]") {
