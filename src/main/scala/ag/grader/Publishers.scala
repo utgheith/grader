@@ -100,91 +100,13 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
   private def clear(dir: os.Path): Unit =
     for (f <- os.list(dir) if !f.last.startsWith(".")) os.remove.all(f)
 
-  // the project's aliases (as Project.publish_aliases)
-  lazy val aliases: (CourseName, ProjectName) => Target[WithData[Publish]] =
-    fun { (c: CourseName, p: ProjectName) =>
-      publisher(
-        subs.aliases_repo(c, p),
-        "more aliases",
-        Some(Create("empty", Seq(staff(c)), Seq()))
-      )((aliases = runs.aliases(c, p))) { (_, deps, dir) =>
-        os.write.over(
-          dir / "aliases.json",
-          upickle.default.write(deps.aliases, indent = 2)
-        )
-      }
-    }
+  // the project's aliases (see repos.AliasesRepo)
+  def aliases(c: CourseName, p: ProjectName): Target[WithData[Publish]] =
+    repos.AliasesRepo(c, p, env).latest
 
-  // The override repo, which the course's staff keep: made once from the
-  // project repo's tests and Makefiles (as Project.publish_override_repo),
-  // then left to them
-  lazy val override_repo
-      : (CourseName, ProjectName) => Target[WithData[Publish]] = fun {
-    (c: CourseName, p: ProjectName) =>
-      publisher(
-        subs.override_repo(c, p),
-        "update override",
-        Some(Create("empty", Seq("@all"), Seq(staff(c))))
-      )(
-        (
-          project = source.master(subs.project_repo(c, p)),
-          ext = defs.test_extensions(c, p)
-        )
-      ) { (producer, deps, dir) =>
-        val marker = dir / ".initialized"
-        if (!os.exists(marker)) {
-          for (m <- deps.project) {
-            val from = producer.checkout(producer.commit(m).tree)
-            def add(f: os.Path): Unit = {
-              val to = dir / f.relativeTo(from)
-              if (!os.exists(to, followLinks = false))
-                os.copy(
-                  from = f,
-                  to = to,
-                  followLinks = false,
-                  createFolders = true,
-                  copyAttributes = true
-                )
-            }
-            // its tests
-            for {
-              f <- os.list(from)
-              if !f.last.startsWith(".")
-              if deps.ext.contains(f.ext)
-            } add(f)
-            // its Makefiles, anywhere
-            os.walk
-              .stream(from, followLinks = false)
-              .foreach(f =>
-                if (os.isFile(f) && automatic_overrides.contains(f.last)) add(f)
-              )
-          }
-          os.write(marker, "")
-        }
-      }
-  }
-
-  private val automatic_overrides = Set("Makefile", "makefile")
-
-  // the students' tests, by alias, at <alias>.<ext>
-  private def copy_student_tests(
-      producer: Producer[?],
-      tests: scala.collection.SortedMap[CSID, WithData[String]],
-      aliases: scala.collection.SortedMap[CSID, Alias],
-      ext: Iterable[String],
-      dir: os.Path
-  ): Unit =
-    for {
-      (csid, t) <- tests.toSeq
-      alias <- aliases.get(csid).toSeq
-      e <- ext
-    } {
-      val _ = producer.copy_path(
-        t.data,
-        os.RelPath(s"${csid.value}.$e"),
-        dir / s"${alias.toString}.$e"
-      )
-    }
+  // the override repo (see repos.OverrideRepo)
+  def override_repo(c: CourseName, p: ProjectName): Target[WithData[Publish]] =
+    repos.OverrideRepo(c, p, env).latest
 
   // the students' own tests, for the staff (as
   // Project.publish_submitted_tests)
@@ -203,43 +125,19 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
         )
       ) { (producer, deps, dir) =>
         clear(dir)
-        copy_student_tests(producer, deps.tests, deps.aliases, deps.ext, dir)
+        repos.TestsRepo.copy_student_tests(
+          producer,
+          deps.tests,
+          deps.aliases,
+          deps.ext,
+          dir
+        )
       }
     }
 
-  // every test, for everyone: the students' and the override repo's (as
-  // Project.publish_tests)
-  lazy val tests: (CourseName, ProjectName) => Target[WithData[Publish]] = fun {
-    (c: CourseName, p: ProjectName) =>
-      publisher(
-        s"${subs.project_repo(c, p)}__tests",
-        "tests",
-        Some(Create("empty", Seq("@all"), Seq()))
-      )(
-        (
-          tests = subs.student_tests_by_csid(c, p),
-          aliases = runs.aliases(c, p),
-          ext = defs.test_extensions(c, p),
-          names = runs.override_test_names(c, p),
-          ov = source.master(subs.override_repo(c, p))
-        )
-      ) { (producer, deps, dir) =>
-        clear(dir)
-        copy_student_tests(producer, deps.tests, deps.aliases, deps.ext, dir)
-        for {
-          o <- deps.ov.toSeq
-          tree = producer.commit(o).tree
-          n <- deps.names.toSeq
-          e <- deps.ext
-        } {
-          val _ = producer.copy_path(
-            tree,
-            os.RelPath(s"$n.$e"),
-            dir / s"$n.$e"
-          )
-        }
-      }
-  }
+  // every test, for everyone (see repos.TestsRepo)
+  def tests(c: CourseName, p: ProjectName): Target[WithData[Publish]] =
+    repos.TestsRepo(c, p, env).latest
 
   // what a project publishes, in the order to sync it: the override repo
   // first, since the tests come from it

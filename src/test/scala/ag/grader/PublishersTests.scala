@@ -112,6 +112,32 @@ class PublishersTests extends FunSuite {
     assert(!ob.record(again))
   }
 
+  test("the override repo the staff made first: the project's tests and Makefiles added, theirs kept") {
+    val root = TempDirs.dir()
+    val (r, pubs, _) = setup(root)
+    val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x", "t0.cc" -> "a test", "Makefile" -> "all:")()
+    val _ = r.commit("c1_p1__override", test_cutoff.minusDays(29), "Makefile" -> "theirs", "t9.cc" -> "theirs")()
+    val s = State(root / "ws")
+    val p = s.track(pubs.override_repo(c1, p1))
+    val dir = s.checkout(p.data)
+    assertEquals(files(dir), Seq(".initialized", "Makefile", "t0.cc", "t9.cc"))
+    assertEquals(os.read(dir / "Makefile"), "theirs")
+  }
+
+  test("aliases: a published alias stays, even without a submission; new ones go on from the highest") {
+    val root = TempDirs.dir()
+    val (r, pubs, _) = setup(root)
+    val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
+    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_p1__aliases", test_cutoff, "aliases.json" -> upickle.default.write(SortedMap(CSID("gone") -> Alias(7))))()
+    val s = State(root / "ws")
+    val p = s.track(pubs.aliases(c1, p1))
+    assertEquals(
+      upickle.default.read[SortedMap[CSID, Alias]](os.read(s.checkout(p.data) / "aliases.json")),
+      SortedMap(CSID("gone") -> Alias(7), s1 -> Alias(8))
+    )
+  }
+
   test("tests: the students' by alias and the override repo's; submitted tests: only the students'") {
     val root = TempDirs.dir()
     val (r, pubs, _) = setup(root)

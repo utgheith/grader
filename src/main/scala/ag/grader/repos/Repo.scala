@@ -1,6 +1,7 @@
 package ag.grader.repos
 
 import ag.grader.{Create, Notice, Publish}
+import scala.annotation.unused
 import ag.r3.{Commit, Producer, Target, Tracker, WithData, create_data}
 
 // A repo on the git server, one kind per file, each a case class whose
@@ -102,10 +103,18 @@ trait AdditiveRepo[S] extends PublishedRepo[S] { self: S =>
 // what it's forked from), then someone else's: once it's there, it's left
 // as it is.
 trait HandedOverRepo[S] extends PublishedRepo[S] { self: S =>
+  // whether it's been handed over, given what it holds now: by default,
+  // once it's there
+  protected def is_handed_over(
+      @unused dir: os.Path,
+      exists: Boolean
+  ): Boolean =
+    exists
+
   protected final def handed_over[I](inputs: Tracker[?] => I)(
       initial: (I, Producer[?], os.Path) => Seq[Notice]
   )(using sourcecode.FullName): Target[WithData[Publish]] =
     published(inputs) { (in, producer, dir, exists) =>
-      if (exists) Seq() else initial(in, producer, dir)
+      if (is_handed_over(dir, exists)) Seq() else initial(in, producer, dir)
     }
 }

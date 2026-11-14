@@ -35,9 +35,9 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${project_repo(c, p)}_${csid.value}"
   def override_repo(c: CourseName, p: ProjectName): String =
-    s"${project_repo(c, p)}__override"
+    repos.OverrideRepo.name_of(c, p)
   def aliases_repo(c: CourseName, p: ProjectName): String =
-    s"${project_repo(c, p)}__aliases"
+    repos.AliasesRepo.name_of(c, p)
   def results_repo(c: CourseName, p: ProjectName): String =
     s"${project_repo(c, p)}__results"
   def student_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
