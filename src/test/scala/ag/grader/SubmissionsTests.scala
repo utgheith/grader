@@ -23,7 +23,7 @@ class SubmissionsTests extends FunSuite {
     val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "int main() { return 1; }")()
     val _ = r.commit("c1_p1_s2", test_cutoff.minusDays(30), base_files*)()
     val s = State(root / "ws")
-    assertEquals(s.track(subs.enrolled_csids(c1)), SortedSet(s1, CSID("s2")))
+    assertEquals(s.track(Course(c1, subs.env).enrolled_csids), SortedSet(s1, CSID("s2")))
     assertEquals(s.track(subs.students_with_submission(c1, p1)), SortedSet(s1))
     assertEquals(s.track(subs.has_student_report(c1, p1, s1)), false)
   }
@@ -114,7 +114,7 @@ class SubmissionsTests extends FunSuite {
     val _ = r.commit("courses_config", test_cutoff, "courses.json" -> upickle.default.write(Map("c1" -> rc)))()
     val _ = r.commit("c1_p2", test_cutoff.minusDays(30), "main.c" -> "base")()
     val t = r.commit("c1_p2_s1", test_cutoff.minusDays(1), "s1.cc" -> "test", "s1.dir/a/b" -> "deep", "s1.dir/c" -> "top")()
-    val subs = Submissions(Definitions(Source(r.mirror)))
+    val subs = Submissions(repos.Env(Source(r.mirror)))
     val s = State(root / "ws")
     val tests = s.track(subs.student_tests_by_csid(c1, p2))
     assertEquals(tests.get(s1).map(_.value), Some(t))

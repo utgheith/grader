@@ -1,5 +1,6 @@
 import ag.common.{RunLock, given_ReadWriter_SortedMap}
-import ag.grader.{CSID, Phase, HtmlGen}
+import ag.grader.{CSID, Course, Phase, HtmlGen, Project}
+import ag.grader.repos.CoursesConfig
 import mainargs.{
   Flag,
   ParserForClass,
@@ -110,14 +111,15 @@ object Main {
   @main
   def dropbox(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val defs = pubs.grading.runs.subs.defs
+      val env = env_of(commonArgs.workspace)
       for {
-        c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
+        c <- s
+          .track(CoursesConfig(env).active_courses(commonArgs.courses_))
+          .toSeq
       } {
         println(s"\n------ $c -------")
         println(
-          upickle.default.write(s.track(pubs.dropbox.keys(c)), indent = 2)
+          upickle.default.write(s.track(env.dropbox.keys(c)), indent = 2)
         )
       }
     }
@@ -128,12 +130,15 @@ object Main {
   @main
   def bad_tests(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val subs = publishers_of(commonArgs.workspace).grading.runs.subs
-      val defs = subs.defs
+      val subs = env_of(commonArgs.workspace).subs
+      val env = subs.env
       val r = (for {
-        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
-        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
-        csid <- subs.enrolled(c, commonArgs.students_).tally(s).toSeq
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+        p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
+        csid <- Course(c, env).enrolled(commonArgs.students_).tally(s).toSeq
         // counted on its own, to tell no results from results without tests
         _ <- subs.student_results(c, p, csid).tally(s).toSeq
         (test, outcome) <- subs
@@ -151,24 +156,25 @@ object Main {
     }
 
   // Records the dropbox's keys in gitolite-admin in the outbox, for `sync`
-  // to push (see Publishers.keys): every active course's, since they share
+  // to push (see repos.KeysRepo): every active course's, since they share
   // the repo; -c picks the courses whose key counts are shown.
   @main
   def publish_keys(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val defs = pubs.grading.runs.subs.defs
-      if (pubs.dropbox.root.isEmpty)
+      val env = env_of(commonArgs.workspace)
+      if (env.dropbox.root.isEmpty)
         println("no dropbox_path in config.json: keys left alone")
       else {
         for {
-          c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
+          c <- s
+            .track(CoursesConfig(env).active_courses(commonArgs.courses_))
+            .toSeq
         } {
           println(s"\n------ $c -------")
-          println(s.track(pubs.dropbox.keys(c)).size)
+          println(s.track(env.dropbox.keys(c)).size)
         }
         val ob = outbox_of(commonArgs.workspace)
-        val p = s.track(pubs.keys)
+        val p = s.track(ag.grader.repos.KeysRepo(env).latest)
         val todo = ob.record(p)
         println(
           s"gitolite-admin: ${if (todo) "to push" else "up to date"}; " +
@@ -178,25 +184,28 @@ object Main {
     }
 
   // Records each picked active course's enrollment, from the dropbox, in
-  // the outbox, for `sync` to push (see Publishers.enrollment): a course
+  // the outbox, for `sync` to push (see repos.EnrollmentRepo): a course
   // the dropbox has no directory for is left alone.
   @main
   def publish_enrollment(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val defs = pubs.grading.runs.subs.defs
-      if (pubs.dropbox.root.isEmpty)
+      val env = env_of(commonArgs.workspace)
+      if (env.dropbox.root.isEmpty)
         println("no dropbox_path in config.json: enrollments left alone")
       else {
         val ob = outbox_of(commonArgs.workspace)
         for {
-          c <- s.track(defs.active_courses(commonArgs.courses_)).toSeq
+          c <- s
+            .track(CoursesConfig(env).active_courses(commonArgs.courses_))
+            .toSeq
         } {
           println(s"\n------ $c -------")
-          s.track(pubs.dropbox.course_keys(c)) match {
+          s.track(env.dropbox.course_keys(c)) match {
             case None => println("no directory in the dropbox: left alone")
             case Some(keys) =>
-              val todo = ob.record(s.track(pubs.enrollment(c)))
+              val todo = ob.record(
+                s.track(ag.grader.repos.EnrollmentRepo(c, env).latest)
+              )
               println(
                 s"${keys.size} students; ${
                     if (todo) "to push" else "up to date"
@@ -213,12 +222,14 @@ object Main {
   @main
   def enrollment(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val subs = publishers_of(commonArgs.workspace).grading.runs.subs
+      val env = env_of(commonArgs.workspace)
       for {
-        c <- s.track(subs.defs.active_courses(commonArgs.courses_)).toSeq
+        c <- s
+          .track(CoursesConfig(env).active_courses(commonArgs.courses_))
+          .toSeq
       } {
         println(s"\n------ $c -------")
-        println(s.track(subs.enrollment(c)).size)
+        println(s.track(Course(c, env).enrollment).size)
       }
     }
 
@@ -228,10 +239,9 @@ object Main {
   @main
   def create_grades_repos(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
-      val env = ag.grader.repos.Env(defs.source)
+      val env = env_of(commonArgs.workspace)
       val ob = outbox_of(commonArgs.workspace)
-      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      val cs = CoursesConfig(env).active_courses(commonArgs.courses_).tally(s)
       for (c <- cs.toSeq) {
         val repo = ag.grader.repos.GradesRepo(c, env)
         val todo = ob.record(s.track(repo.latest))
@@ -247,8 +257,8 @@ object Main {
   @main
   def courses(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
-      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      val env = env_of(commonArgs.workspace)
+      val cs = CoursesConfig(env).active_courses(commonArgs.courses_).tally(s)
       cs.foreach(println)
       s.tally.report("courses", cs.size, commonArgs.verbose.value)
     }
@@ -271,10 +281,13 @@ object Main {
   @main
   def projects(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val defs = publishers_of(commonArgs.workspace).grading.runs.subs.defs
+      val env = env_of(commonArgs.workspace)
       val ps = for {
-        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
-        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+        p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } yield ag.grader.repos.ProjectRepo.name_of(c, p)
       ps.foreach(println)
       s.tally.report("projects", ps.size, commonArgs.verbose.value)
@@ -285,13 +298,19 @@ object Main {
   @main
   def students(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val subs = publishers_of(commonArgs.workspace).grading.runs.subs
-      val defs = subs.defs
+      val subs = env_of(commonArgs.workspace).subs
+      val env = subs.env
       var shown = 0
-      for (c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq) {
-        val ps = s.track(defs.active_projects(c, commonArgs.projects_)).toSeq
+      for (
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+      ) {
+        val ps =
+          s.track(Course(c, env).active_projects(commonArgs.projects_)).toSeq
         val submitted = s.track_all(ps.map(subs.students_with_submission(c, _)))
-        val csids = subs.enrolled(c, commonArgs.students_).tally(s).toSeq
+        val csids = Course(c, env).enrolled(commonArgs.students_).tally(s).toSeq
         println(s"\n$c (${csids.size.toString} students):")
         val width = csids.map(_.value.length).maxOption.getOrElse(0)
         for (csid <- csids) {
@@ -323,20 +342,23 @@ object Main {
       sortMode: AliasSortMode = AliasSortMode.CSID
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val runs = publishers_of(commonArgs.workspace).grading.runs
+      val runs = env_of(commonArgs.workspace).runs
       val subs = runs.subs
-      val defs = subs.defs
+      val env = subs.env
       val tests_re = commonArgs.tests_
       val f = s.tally
       var shown = 0
       for {
-        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
-        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+        p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } {
         val aliases = runs.aliases(c, p).tally(s)
         val published = s.track(subs.aliases(c, p))
-        val csids = subs
-          .enrolled(c, commonArgs.students_)
+        val csids = Course(c, env)
+          .enrolled(commonArgs.students_)
           .tally(s)
           .toSeq
           .filter(csid =>
@@ -387,14 +409,17 @@ object Main {
       phase: Phase = Phase.Latest
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val grading = publishers_of(commonArgs.workspace).grading
-      val defs = grading.runs.subs.defs
+      val grading = env_of(commonArgs.workspace).grading
+      val env = grading.runs.subs.env
       val tests_re = commonArgs.tests_
       val f = s.tally
       var found = 0
       for {
-        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
-        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+        p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } {
         val state = s.track(grading.state(c, p))
         val tests = state.tests(phase)
@@ -426,20 +451,19 @@ object Main {
   @main
   def publish_work_repos(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val subs = pubs.grading.runs.subs
-      val defs = subs.defs
+      val env = env_of(commonArgs.workspace)
       val ob = outbox_of(commonArgs.workspace)
       var found = 0
       for {
-        c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq
-        p <- defs.active_projects(c, commonArgs.projects_).tally(s).toSeq
+        c <- CoursesConfig(env)
+          .active_courses(commonArgs.courses_)
+          .tally(s)
+          .toSeq
+        p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } {
-        val csids = subs.enrolled(c, commonArgs.students_).tally(s).toSeq
+        val csids = Course(c, env).enrolled(commonArgs.students_).tally(s).toSeq
         val made = s.track_all(
-          csids.map(csid =>
-            ag.grader.repos.WorkRepo(c, p, csid, pubs.env).latest
-          )
+          csids.map(csid => ag.grader.repos.WorkRepo(c, p, csid, env).latest)
         )
         val k = made.count(ob.record)
         println(s"${c}_$p: ${csids.size} students, $k to make")
@@ -461,7 +485,7 @@ object Main {
     )
 
   // Works out, from the local mirror, what the repos the arguments pick
-  // should hold (ag.grader.Publishers), and records what differs in the
+  // should hold (ag.grader.repos), and records what differs in the
   // outbox, for `sync` to push: the students' keys and each active course's
   // enrollment (from the dropbox), grades repo and site; each project's
   // override, aliases, submitted tests and tests repos; and each enrolled
@@ -475,19 +499,17 @@ object Main {
       val course_re = commonArgs.courses_
       val project_re = commonArgs.projects_
       val student_re = commonArgs.students_
-      val pubs = publishers_of(commonArgs.workspace)
-      val subs = pubs.grading.runs.subs
-      val defs = subs.defs
+      val env = env_of(commonArgs.workspace)
       val picked = for {
-        c <- s.track(defs.course_names).toSeq
+        c <- s.track(CoursesConfig(env).course_names).toSeq
         if course_re.matches(c.value)
-        p <- s.track(defs.project_names(c)).toSeq
+        p <- s.track(Course(c, env).project_names).toSeq
         if project_re.matches(p.value)
       } yield (c, p)
-      val courses = s.track(defs.active_courses(course_re)).toSeq
+      val courses = s.track(CoursesConfig(env).active_courses(course_re)).toSeq
       // with no dropbox, the keys and enrollments are left alone: they're
       // written from it, and an empty one would unenroll everyone
-      val has_dropbox = pubs.dropbox.root.isDefined
+      val has_dropbox = env.dropbox.root.isDefined
       if (!has_dropbox)
         println(
           "no dropbox_path in config.json: keys and enrollments left alone"
@@ -495,14 +517,22 @@ object Main {
       // each enrolled student's repo for each active project
       val work_repos = for {
         c <- courses
-        p <- s.track(defs.active_projects(c, project_re)).toSeq
-        csid <- s.track(subs.enrolled(c, student_re)).toSeq
-      } yield pubs.work_repo(c, p, csid)
+        p <- s.track(Course(c, env).active_projects(project_re)).toSeq
+        csid <- s.track(Course(c, env).enrolled(student_re)).toSeq
+      } yield ag.grader.repos.WorkRepo(c, p, csid, env).latest
       val wanted = s.track_all(
-        (if (has_dropbox) pubs.keys +: courses.map(pubs.enrollment)
+        (if (has_dropbox)
+           ag.grader.repos.KeysRepo(env).latest +: courses.map(
+             ag.grader.repos.EnrollmentRepo(_, env).latest
+           )
          else Seq()) ++
-          courses.flatMap(c => Seq(pubs.grades(c), pubs.site(c))) ++
-          picked.flatMap((c, p) => pubs.all(c, p)) ++
+          courses.flatMap(c =>
+            Seq(
+              ag.grader.repos.GradesRepo(c, env).latest,
+              ag.grader.repos.SiteRepo(c, env).latest
+            )
+          ) ++
+          picked.flatMap((c, p) => ag.grader.repos.Grade.project(c, p, env)) ++
           work_repos
       )
       val ob = outbox_of(commonArgs.workspace)
@@ -513,16 +543,11 @@ object Main {
       )
     }
 
-  // the r3 layers, on the workspace's local mirror
-  private def publishers_of(workspace: os.Path): ag.grader.Publishers =
-    ag.grader.Publishers(
-      ag.grader.Grading(
-        ag.grader.TestRuns(
-          ag.grader.Submissions(
-            ag.grader.Definitions(ag.rules.Source(mirror_root(workspace)))
-          )
-        )
-      ),
+  // what the r3 targets work from: the workspace's local mirror and the
+  // dropbox
+  private def env_of(workspace: os.Path): ag.grader.repos.Env =
+    ag.grader.repos.Env(
+      ag.rules.Source(mirror_root(workspace)),
       ag.grader.Dropbox(ag.grader.Config.dropbox_root)
     )
 
@@ -547,12 +572,12 @@ object Main {
   ): Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] = {
     val course_re = commonArgs.courses_
     val project_re = commonArgs.projects_
-    val grading = publishers_of(commonArgs.workspace).grading
+    val grading = env_of(commonArgs.workspace).grading
     val subs = grading.runs.subs
-    val defs = subs.defs
+    val env = subs.env
     val candidates = for {
-      c <- s.track(defs.active_courses(course_re)).toSeq
-      p <- s.track(defs.active_projects(c, project_re)).toSeq
+      c <- s.track(CoursesConfig(env).active_courses(course_re)).toSeq
+      p <- s.track(Course(c, env).active_projects(project_re)).toSeq
     } yield (c, p)
     def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
     def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
@@ -565,7 +590,7 @@ object Main {
     ): Option[(ag.grader.Band, Int)] =
       ag.grader.Priority.band(
         state(c, p).is_live,
-        s.track(defs.iterations(c, p)),
+        s.track(Project(c, p, env).iterations),
         n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
       )
     def report(
@@ -586,7 +611,7 @@ object Main {
           for ((c, p) <- candidates) yield {
             val w = work(c, p)
             report(c, p, w)
-            (c, p, w.fold(s.track(defs.iterations(c, p)).max)(_._2))
+            (c, p, w.fold(s.track(Project(c, p, env).iterations).max)(_._2))
           }
         case None =>
           val busy = for {
@@ -675,10 +700,10 @@ object Main {
   // Runs the picked projects (as run does), then records their results, as
   // far as they got, in the outbox, for `sync` to push: what the project
   // publishes (override, aliases, submitted tests, tests), its results, and
-  // each student's own results and prepared code (see Publishers.graded).
+  // each student's own results and prepared code (see repos.Grade.all).
   // The r3 form of publish_results. With -s or -t, only the students and
   // tests they pick are run (as run's), and what's recorded is everyone's
-  // results as far as they've run (see Publishers.graded_so_far), with only
+  // results as far as they've run (see repos.Grade.so_far), with only
   // the picked students' own repos.
   @main
   def grade(
@@ -689,21 +714,22 @@ object Main {
       tries: Option[Int] = None
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val subs = pubs.grading.runs.subs
+      val env = env_of(commonArgs.workspace)
+      val subs = env.subs
       val picking =
         commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
       val projects = run_projects(s, commonArgs, tries, picking, None)
       val wanted = s.track_all(projects.flatMap { (c, p, n) =>
         val students = s.track(subs.students_with_submission(c, p)).toSeq
         if (picking)
-          pubs.graded_so_far(
+          ag.grader.repos.Grade.so_far(
             c,
             p,
             // as run_projects picked them (its report counts them)
-            students.filter(csid => commonArgs.students_.matches(csid.value))
+            students.filter(csid => commonArgs.students_.matches(csid.value)),
+            env
           )
-        else pubs.graded(c, p, students, n)
+        else ag.grader.repos.Grade.all(c, p, students, n, env)
       })
       val ob = outbox_of(commonArgs.workspace)
       val k = wanted.count(ob.record)
@@ -726,14 +752,14 @@ object Main {
     in_r3_workspace(commonArgs) { s =>
       val course_re = commonArgs.courses_
       val project_re = commonArgs.projects_
-      val grading = publishers_of(commonArgs.workspace).grading
+      val grading = env_of(commonArgs.workspace).grading
       val runs = grading.runs
-      val defs = runs.subs.defs
+      val env = runs.subs.env
       for {
-        c <- s.track(defs.active_courses(course_re)).toSeq
-        p <- s.track(defs.active_projects(c, project_re)).toSeq
+        c <- s.track(CoursesConfig(env).active_courses(course_re)).toSeq
+        p <- s.track(Course(c, env).active_projects(project_re)).toSeq
       } {
-        val weights = s.track(defs.test_weights(c, p))
+        val weights = s.track(Project(c, p, env).test_weights)
         val weight = (for {
           t <- s.track(runs.test_ids(c, p)).toSeq
           w <- weights
@@ -778,18 +804,17 @@ object Main {
   @main
   def push_to_cloudflare(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val pubs = publishers_of(commonArgs.workspace)
-      val defs = pubs.grading.runs.subs.defs
+      val env = env_of(commonArgs.workspace)
       val host = ag.grader.Config.cloudflare.filter(_.enabled)
       if (host.isEmpty)
         println("cloudflare isn't enabled in config.json: sites not served")
       val ob = outbox_of(commonArgs.workspace)
-      val cs = defs.active_courses(commonArgs.courses_).tally(s)
+      val cs = CoursesConfig(env).active_courses(commonArgs.courses_).tally(s)
       for (c <- cs.toSeq) {
         val todo =
-          ob.record(s.track(ag.grader.repos.SiteRepo(c, pubs.env).latest))
+          ob.record(s.track(ag.grader.repos.SiteRepo(c, env).latest))
         val at = host.map(h =>
-          s.track(ag.grader.repos.SiteDeployment(c, h, pubs.env).deployed)
+          s.track(ag.grader.repos.SiteDeployment(c, h, env).deployed)
         )
         println(
           s"$c: site ${if (todo) "to push" else "up to date"}; " +

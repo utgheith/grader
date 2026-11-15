@@ -13,7 +13,7 @@ class RepoTests extends FunSuite {
 
   private def env(root: os.Path): (Repos, Env) = {
     val (r, subs) = Fixture.setup(root)
-    (r, Env(subs.defs.source))
+    (r, Env(subs.env.source))
   }
 
   private def put(files: Seq[(String, String)], dir: os.Path): Seq[Notice] = {
@@ -93,7 +93,7 @@ class RepoTests extends FunSuite {
     val t = StudentResultsRepo(c1, p1, s1, e).latest(3)
     assertEquals(t.path, os.RelPath("ag/grader/repos/StudentResultsRepo/latest/c1/p1/s1/3"))
     assertEquals(StudentResultsRepo(c1, p1, s1, e).repo_name, "c1_p1_s1_results")
-    assertEquals(ProjectConfig(c1, p1, e).deadline(s1, ag.grader.Phase.One).path,
-      os.RelPath("ag/grader/repos/ProjectConfig/deadline/c1/p1/s1/phase1"))
+    assertEquals(ag.grader.Project(c1, p1, e).deadline(s1, ag.grader.Phase.One).path,
+      os.RelPath("ag/grader/Project/deadline/c1/p1/s1/phase1"))
   }
 }

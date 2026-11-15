@@ -58,7 +58,7 @@ class ReadOnlyTests extends FunSuite {
   test("running a test is refused, before it starts") {
     val ws = TempDirs.dir()
     val empty = Tree(Outbox.empty_tree)
-    val run = repos.TestRun(empty, empty, "t1", 1, None, None)
+    val run = TestRun(empty, empty, "t1", 1, None, None)
     val before = runs_started()
     val e = intercept[Exception](
       State(ws, read_only = true).track(run.runs(TestId("t1", "t1"), "c_p_s", true, 1))

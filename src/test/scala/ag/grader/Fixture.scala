@@ -88,7 +88,7 @@ object Fixture {
     val _ = r.commit("courses_config", test_cutoff, "courses.json" -> upickle.default.write(Map("c1" -> rc)))()
     val _ = r.commit("c1__enrollment", test_cutoff,
       "enrollment.json" -> upickle.default.write(SortedMap(s1 -> "k1", CSID("s2") -> "k2")))()
-    (r, Submissions(Definitions(Source(r.mirror))))
+    (r, Submissions(repos.Env(Source(r.mirror))))
   }
 
 }

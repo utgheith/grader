@@ -8,14 +8,14 @@ import scala.collection.{SortedMap, SortedSet}
 
 // Grading: the students' results and scores, as r3 targets on the local
 // mirror. The r3 form of student_results, has_work and compute_scores in
-// r2's Project. What's published from them is in Publishers.
+// r2's Project. What's published from them is in repos (see repos.Grade).
 //
 // Which tests a phase runs, and whether a test keeps running after it fails,
 // come from the project's state (as r2's publish_results picked
 // them); `n` is how many tries each test gets (see TestRuns.run_one).
 final class Grading(val runs: TestRuns) extends Scope("grading") {
   private val subs = runs.subs
-  private val defs = subs.defs
+  private val env = subs.env
 
   // Where the project is relative to its deadlines (as Project.state):
   // worked out again every minute as time passes; what depends on it reruns
@@ -24,8 +24,8 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
     (c: CourseName, p: ProjectName) =>
       target(
         (
-          first = defs.test_cutoff(c, p),
-          second = defs.code_cutoff(c, p),
+          first = Project(c, p, env).test_cutoff,
+          second = Project(c, p, env).code_cutoff,
           clock = periodic(60 * 1000L)
         )
       ) { (_, deps) =>
@@ -114,7 +114,7 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
       val results =
         tracker.track_all(students.map(student_results(c, p, _, phase, n)))
       val deadlines =
-        tracker.track_all(students.map(defs.deadline(c, p, _, phase)))
+        tracker.track_all(students.map(Project(c, p, env).deadline(_, phase)))
       val aliases = tracker.track_all(students.map(alias(c, p, _)))
       tracker.run_if_needed { _ =>
         (for {
@@ -211,19 +211,19 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
           one = subs.results(c, p, Phase.One),
           two = subs.results(c, p, Phase.Two),
           state = state(c, p),
-          phase1_tests = defs.phase1_tests(c, p),
-          phase1_weight = defs.phase1_weight(c, p),
-          phase2_tests = defs.phase2_tests(c, p),
-          phase2_weight = defs.phase2_weight(c, p),
-          weights = defs.test_weights(c, p),
-          bad_tests = defs.bad_tests(c, p),
-          test_cutoff = defs.test_cutoff(c, p),
-          code_cutoff = defs.code_cutoff(c, p),
-          enrollment = subs.enrollment(c),
+          phase1_tests = Project(c, p, env).phase1_tests,
+          phase1_weight = Project(c, p, env).phase1_weight,
+          phase2_tests = Project(c, p, env).phase2_tests,
+          phase2_weight = Project(c, p, env).phase2_weight,
+          weights = Project(c, p, env).test_weights,
+          bad_tests = Project(c, p, env).bad_tests,
+          test_cutoff = Project(c, p, env).test_cutoff,
+          code_cutoff = Project(c, p, env).code_cutoff,
+          enrollment = Course(c, env).enrollment,
           aliases = runs.aliases(c, p),
-          course_staff = defs.course_staff(c),
-          project_staff = defs.project_staff(c, p),
-          projects = defs.active_projects(c, Definitions.any)
+          course_staff = Course(c, env).staff,
+          project_staff = Project(c, p, env).staff,
+          projects = Course(c, env).active_projects(repos.CoursesConfig.any)
         )
       ) { (_, deps) =>
         ReportInputs(
@@ -257,7 +257,9 @@ final class Grading(val runs: TestRuns) extends Scope("grading") {
     (c: CourseName) =>
       complex_target[Seq[ReportInputs]] { tracker =>
         val projects =
-          tracker.track(defs.active_projects(c, Definitions.any)).toSeq
+          tracker
+            .track(Course(c, env).active_projects(repos.CoursesConfig.any))
+            .toSeq
         val inputs = tracker.track_all(projects.map(report_inputs(c, _)))
         tracker.run_if_needed(_ => inputs)
       }

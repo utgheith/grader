@@ -7,7 +7,7 @@ import munit.FunSuite
 
 import scala.collection.{SortedMap, SortedSet}
 
-// Grading (Grading) and publishing the results (Publishers), on made-up
+// Grading (Grading) and publishing the results (repos.Grade), on made-up
 // repos (see Fixture): past both deadlines, so every phase is published, on
 // its chosen tests, keeping going after a failure
 class GradingTests extends FunSuite {
@@ -31,9 +31,9 @@ class GradingTests extends FunSuite {
     val sha = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit("c1_p1__override", test_cutoff.minusDays(30),
       (Seq("Makefile" -> makefile, "t0.cc" -> "pass", "t0.ok" -> "", "t1.cc" -> "nope", "t1.ok" -> "") ++ more)*)()
-    val pubs = Publishers(Grading(TestRuns(subs)), Dropbox(None))
+    val env = repos.Env(subs.env.source, Dropbox(None))
     val ob = Outbox(root / "outbox", r.mirror, root / "ws" / "r3.git")
-    (r, pubs, ob, sha)
+    (r, env, ob, sha)
   }
 
   private def git(dir: os.Path, args: String*): String =
@@ -56,8 +56,8 @@ class GradingTests extends FunSuite {
 
   test("student_results: the phase's tests on the graded commit, by alias") {
     val root = TempDirs.dir()
-    val (_, pubs, _, sha) = setup(root)
-    val g = pubs.grading
+    val (_, env, _, sha) = setup(root)
+    val g = env.grading
     val s = State(root / "ws")
     assertEquals(s.track(g.state(c1, p1)), ProjectState.AfterSecondDeadline)
     val latest = s.track(g.student_results(c1, p1, s1, Phase.Latest, 1)).get
@@ -81,15 +81,15 @@ class GradingTests extends FunSuite {
 
   test("the results repo: a file per phase; has_work until the results cover n tries") {
     val root = TempDirs.dir()
-    val (r, pubs, ob, _) = setup(root)
-    val g = pubs.grading
+    val (r, env, ob, _) = setup(root)
+    val g = env.grading
     def has_work(n: Int) =
       Seq(Phase.Latest, Phase.One, Phase.Two)
         .exists(ph => State(root / "ws").track(g.has_work(c1, p1, ph, n)))
     assert(has_work(1))
 
     val s = State(root / "ws")
-    val p = s.track(pubs.results(c1, p1, 1))
+    val p = s.track(repos.ResultsRepo(c1, p1, env).latest(1))
     assertEquals(p.value.create, Some(Create("empty", Seq("@all"), Seq())))
     val dir = s.checkout(p.data)
     assertEquals(
@@ -110,7 +110,7 @@ class GradingTests extends FunSuite {
     assertEquals(one(Alias(1)).outcomes.keySet.map(_.external_name), SortedSet("t0"))
 
     // once published (with the aliases), nothing to do for 1 try; more for 2
-    assert(ob.record(s.track(pubs.aliases(c1, p1))))
+    assert(ob.record(s.track(repos.AliasesRepo(c1, p1, env).latest)))
     as_if_synced(r, ob, "c1_p1__aliases")
     assert(ob.record(p))
     as_if_synced(r, ob, "c1_p1__results")
@@ -120,34 +120,34 @@ class GradingTests extends FunSuite {
 
   test("a student's prepared repo: a directory per phase with a commit to grade; the runs run on it") {
     val root = TempDirs.dir()
-    val (_, pubs, _, sha) = setup(root)
+    val (_, env, _, sha) = setup(root)
     val s = State(root / "ws")
-    val repo = repos.PreparedRepo(c1, p1, s1, pubs.env)
+    val repo = repos.PreparedRepo(c1, p1, s1, env)
     val p = s.track(repo.latest)
     assertEquals(p.value.repo, "c1_p1_s1__prepared")
     assertEquals(p.value.create, Some(Create("empty", Seq("s1", "@c1_staff"), Seq("@c1_staff"))))
     assertEquals(os.list(s.checkout(p.data)).map(_.last).sorted, Seq("latest", "phase1", "phase2"))
     // each is the prepared submission's tree, as is: the same runs
-    val prepared = s.track(pubs.grading.runs.subs.prepare(c1, p1, s1, sha)).data.id
+    val prepared = s.track(env.grading.runs.subs.prepare(c1, p1, s1, sha)).data.id
     for (phase <- Seq(Phase.Latest, Phase.One, Phase.Two))
       assertEquals(s.track(repo.prepared(phase)).map(_.id), Some(prepared))
     // nothing to grade: no directory, and nothing to run on
-    assertEquals(s.track(repos.PreparedRepo(c1, p1, CSID("s2"), pubs.env).prepared(Phase.Latest)), None)
-    val _ = intercept[Throwable](s.track(pubs.grading.runs.run_one(true, 1)(c1, p1, CSID("s2"), Phase.Latest, t0)))
+    assertEquals(s.track(repos.PreparedRepo(c1, p1, CSID("s2"), env).prepared(Phase.Latest)), None)
+    val _ = intercept[Throwable](s.track(env.grading.runs.run_one(true, 1)(c1, p1, CSID("s2"), Phase.Latest, t0)))
     // grading publishes it with the student's results
-    assert(pubs.graded(c1, p1, Seq(s1), 1).map(_.path).contains(repo.latest.path))
+    assert(repos.Grade.all(c1, p1, Seq(s1), 1, env).map(_.path).contains(repo.latest.path))
     // and, first, what the project publishes: its override, aliases,
     // submitted tests and tests
-    assertEquals(pubs.graded(c1, p1, Seq(s1), 1).map(_.path).take(4), pubs.all(c1, p1).map(_.path))
+    assertEquals(repos.Grade.all(c1, p1, Seq(s1), 1, env).map(_.path).take(4), repos.Grade.project(c1, p1, env).map(_.path))
   }
 
   test("a student's results repo: their outcomes and each test's output files") {
     val root = TempDirs.dir()
-    val (r, pubs, _, sha) = setup(root)
+    val (r, env, _, sha) = setup(root)
     // what was there before goes, but its dot files
     val _ = r.commit("c1_p1_s1_results", test_cutoff, ".gitignore" -> "*.o\n", "old.result" -> "x")()
     val s = State(root / "ws")
-    val p = s.track(pubs.student_results(c1, p1, s1, 1))
+    val p = s.track(repos.StudentResultsRepo(c1, p1, s1, env).latest(1))
     assertEquals(p.value.create, Some(Create("empty", Seq("s1", "@c1_staff"), Seq())))
     val dir = s.checkout(p.data)
     assertEquals(
@@ -162,8 +162,8 @@ class GradingTests extends FunSuite {
   test("latest results show the other good tests, as far as they've run") {
     val root = TempDirs.dir()
     // t2: good but not chosen
-    val (_, pubs, _, _) = setup(root, "t2.cc" -> "pass", "t2.ok" -> "")
-    val g = pubs.grading
+    val (_, env, _, _) = setup(root, "t2.cc" -> "pass", "t2.ok" -> "")
+    val g = env.grading
     def latest = State(root / "ws")
       .track(g.student_results(c1, p1, s1, Phase.Latest, 1))
       .get
@@ -174,7 +174,7 @@ class GradingTests extends FunSuite {
     assertEquals(latest, SortedSet("t0", "t1"))
     // once it has run, it's shown (but not in phase 2)
     val t2 = TestId("t2", "t2")
-    val _ = State(root / "ws").track(pubs.grading.runs.run_one(false, 1)(c1, p1, s1, Phase.Latest, t2))
+    val _ = State(root / "ws").track(env.grading.runs.run_one(false, 1)(c1, p1, s1, Phase.Latest, t2))
     assertEquals(latest, SortedSet("t0", "t1", "t2"))
     val two = State(root / "ws").track(g.student_results(c1, p1, s1, Phase.Two, 1)).get
     assertEquals(two.outcomes.keySet.map(_.external_name), SortedSet("t0", "t1"))

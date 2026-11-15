@@ -39,10 +39,11 @@ final class StatusData(val source: Source) extends Scope("status") {
     ctx.read_text(ctx.commit(c).tree, os.RelPath(file))
 
   // what the courses and projects are: shared with grading
-  val definitions: Definitions = Definitions(source)
-  def courses: Target[SortedMap[CourseName, RawCourse]] = definitions.courses
+  private val env = repos.Env(source)
+  def courses: Target[SortedMap[CourseName, RawCourse]] =
+    repos.CoursesConfig(env).courses
   def project(c: CourseName, p: ProjectName): Target[Option[RawProject]] =
-    definitions.find_project(c, p)
+    Project(c, p, env).find
 
   // a phase's published results, by alias, and when they were committed
   lazy val phase_results

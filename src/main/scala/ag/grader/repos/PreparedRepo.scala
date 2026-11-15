@@ -44,7 +44,7 @@ final case class PreparedRepo(
 
   // What a phase's runs run on: its directory in what's published; None if
   // the phase has no commit to grade. The same files as the tree it was
-  // copied from, so the same id (and the same runs, see TestRun).
+  // copied from, so the same id (and the same runs, see ag.grader.TestRun).
   lazy val prepared: Phase => Target[Option[Tree]] = fun { (phase: Phase) =>
     target((published = latest)) { (producer, deps) =>
       val data = deps.published.data

@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{Definitions, Dropbox, Grading, Submissions, TestRuns}
+import ag.grader.{Dropbox, Grading, Submissions, TestRuns}
 import ag.rules.Source
 
 // What the target definitions work from: the local mirror and the dropbox.
@@ -13,8 +13,7 @@ import ag.rules.Source
 // known by its name, so a layer built here and one built elsewhere on the
 // same mirror have the same targets.
 final class Env(val source: Source, val dropbox: Dropbox = Dropbox(None)) {
-  lazy val defs: Definitions = Definitions(source)
-  lazy val subs: Submissions = Submissions(defs)
+  lazy val subs: Submissions = Submissions(this)
   lazy val runs: TestRuns = TestRuns(subs)
   lazy val grading: Grading = Grading(runs)
 }

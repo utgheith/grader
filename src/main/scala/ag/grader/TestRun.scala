@@ -1,16 +1,6 @@
-package ag.grader.repos
+package ag.grader
 
 import ag.common.{down, shout}
-import ag.grader.{
-  Docker,
-  OutcomeStatus,
-  TimeFormat,
-  TestId,
-  finished_runs,
-  governor,
-  limit,
-  started_runs
-}
 import ag.rules.{Keyed, Producer, Target, Tree, WithData, create_data}
 import ag.rules.run
 import upickle.default.ReadWriter
@@ -104,7 +94,7 @@ object TestRun {
   // named like the test (a student's own <test>.result, say), and the test's
   // files; then `make -k clean` and `make -k <test>.test` there. Its output
   // files go to `out`.
-  private[repos] def run_test(
+  private def run_test(
       producer: Producer[?],
       what: String,
       id: TestId,

@@ -16,7 +16,7 @@ final class Dropbox(
 ) extends Scope("dropbox") {
 
   // A course's keys; None if there's no root, or no directory for the
-  // course (which isn't the same as no keys: see Publishers.enrollment)
+  // course (which isn't the same as no keys: see repos.EnrollmentRepo)
   lazy val course_keys: CourseName => Target[Option[SortedMap[CSID, String]]] =
     fun { (c: CourseName) =>
       target((clock = periodic(60 * 1000L))) { (_, _) =>

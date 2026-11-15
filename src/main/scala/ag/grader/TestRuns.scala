@@ -14,9 +14,8 @@ import scala.collection.{SortedMap, SortedSet}
 // prepared submission with the test's files added, so runs never share a
 // directory.
 final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
-  private val env = repos.Env(subs.defs.source)
-  private val defs = subs.defs
-  private val source = defs.source
+  private val env = subs.env
+  private val source = env.source
 
   // ---- aliases ----------------------------------------------------------
 
@@ -57,7 +56,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
       target(
         (
           ov = source.master(subs.override_repo(c, p)),
-          ext = defs.test_extensions(c, p)
+          ext = Project(c, p, env).test_extensions
         )
       ) { (producer, deps) =>
         val found = for {
@@ -115,7 +114,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   lazy val phase1_test_ids
       : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
     fun { (c: CourseName, p: ProjectName) =>
-      target((ids = test_ids(c, p), chosen = defs.phase1_tests(c, p))) {
+      target((ids = test_ids(c, p), chosen = Project(c, p, env).phase1_tests)) {
         (_, deps) => named(deps.ids, deps.chosen)
       }
     }
@@ -123,7 +122,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   lazy val phase2_test_ids
       : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
     fun { (c: CourseName, p: ProjectName) =>
-      target((ids = test_ids(c, p), chosen = defs.phase2_tests(c, p))) {
+      target((ids = test_ids(c, p), chosen = Project(c, p, env).phase2_tests)) {
         (_, deps) => named(deps.ids, deps.chosen)
       }
     }
@@ -132,8 +131,9 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   lazy val good_test_ids
       : (CourseName, ProjectName) => Target[SortedSet[TestId]] =
     fun { (c: CourseName, p: ProjectName) =>
-      target((ids = test_ids(c, p), bad = defs.bad_tests(c, p))) { (_, deps) =>
-        deps.ids.filterNot(named(deps.ids, deps.bad).contains)
+      target((ids = test_ids(c, p), bad = Project(c, p, env).bad_tests)) {
+        (_, deps) =>
+          deps.ids.filterNot(named(deps.ids, deps.bad).contains)
       }
     }
 
@@ -211,7 +211,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   lazy val test_info
       : (CourseName, ProjectName, TestId) => Target[WithData[Unit]] =
     fun { (c: CourseName, p: ProjectName, id: TestId) =>
-      target((tests = tests(c, p), ext = defs.test_extensions(c, p))) {
+      target((tests = tests(c, p), ext = Project(c, p, env).test_extensions)) {
         (producer, deps) =>
           val tree = deps.tests.getOrElse(
             id,
@@ -245,7 +245,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
     fun { (c: CourseName, p: ProjectName) =>
       complex_target[Option[String]] { tracker =>
         val image = tracker
-          .track(defs.docker_file(c, p))
+          .track(Project(c, p, env).docker_file)
           .map(f => tracker.track(docker_image_of(f)))
         tracker.run_if_needed(_ => image)
       }
@@ -261,7 +261,7 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
   // Project.run_one): what their prepared repo has for it (see
   // repos.PreparedRepo.prepared), so they run on what the student sees. The
   // outcome of each run so far, the latest run's output files as its data.
-  // The runs are kept by what they ran on (see repos.TestRun), so they stay
+  // The runs are kept by what they ran on (see TestRun), so they stay
   // whatever this target is called, and phases graded at the same commit
   // share them; it runs again while it has fewer than `n` runs, but stops
   // at a failure unless `keep_going`. With n = 0, never runs: just the runs
@@ -280,8 +280,8 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
               test = test_info(c, p, id),
               info = subs.prepare_info(c, p, csid, phase),
               prepared = repos.PreparedRepo(c, p, csid, env).prepared(phase),
-              cores = defs.cores(c, p),
-              docker_file = defs.docker_file(c, p),
+              cores = Project(c, p, env).cores,
+              docker_file = Project(c, p, env).docker_file,
               image = docker_image(c, p)
             )
           )
@@ -293,15 +293,14 @@ final class TestRuns(val subs: Submissions) extends Scope("test_runs") {
               )
           }
           val runs = tracker.track(
-            repos
-              .TestRun(
-                prepared = prepared,
-                test = deps.test.data,
-                test_name = id.external_name,
-                cores = deps.cores,
-                docker_file = deps.docker_file,
-                image = deps.image
-              )
+            TestRun(
+              prepared = prepared,
+              test = deps.test.data,
+              test_name = id.external_name,
+              cores = deps.cores,
+              docker_file = deps.docker_file,
+              image = deps.image
+            )
               .runs(id, s"${c}_${p}_${csid.value}", keep_going, n)
           )
           tracker.run_if_needed { _ =>

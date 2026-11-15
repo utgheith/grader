@@ -1,7 +1,15 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CSID, CourseName, Create, Notice, ProjectName, Publish}
+import ag.grader.{
+  CSID,
+  Course,
+  CourseName,
+  Create,
+  Notice,
+  ProjectName,
+  Publish
+}
 import ag.rules.{Target, WithData}
 
 // A student's repo for a project (as Project.publish_work_repo): forked
@@ -22,17 +30,16 @@ final case class WorkRepo(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   val message = "create"
 
   lazy val latest: Target[WithData[Publish]] =
-    created(_.track(CourseConfig(c, env).notifications)) {
-      (n, producer, base) =>
-        if (!n.repo_create) Seq()
-        else {
-          val readme = base
-            .flatMap(b =>
-              producer.read_text(producer.commit(b).tree, os.rel / "README")
-            )
-            .getOrElse("")
-          Notice.routed(n, csid, Notice.What.RepoCreated(repo_name, readme))
-        }
+    created(_.track(Course(c, env).notifications)) { (n, producer, base) =>
+      if (!n.repo_create) Seq()
+      else {
+        val readme = base
+          .flatMap(b =>
+            producer.read_text(producer.commit(b).tree, os.rel / "README")
+          )
+          .getOrElse("")
+        Notice.routed(n, csid, Notice.What.RepoCreated(repo_name, readme))
+      }
     }
 }
 

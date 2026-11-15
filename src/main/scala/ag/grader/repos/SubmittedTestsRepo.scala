@@ -1,0 +1,34 @@
+package ag.grader.repos
+
+import ag.common.ToRelPath
+import ag.grader.{CourseName, Create, Project, ProjectName, Publish}
+import ag.rules.{Target, WithData}
+
+// The students' own tests, by alias, for the staff (as
+// Project.publish_submitted_tests)
+final case class SubmittedTestsRepo(c: CourseName, p: ProjectName, env: Env)
+    extends OwnedRepo[SubmittedTestsRepo] derives ToRelPath {
+  def repo_name: String = SubmittedTestsRepo.name_of(c, p)
+  def create: Option[Create] =
+    Some(Create("empty", Seq(Groups.staff(c)), Seq()))
+  val message = "tests"
+
+  lazy val latest: Target[WithData[Publish]] =
+    owned(
+      _.track_all(
+        (
+          tests = env.subs.student_tests_by_csid(c, p),
+          aliases = env.runs.aliases(c, p),
+          ext = Project(c, p, env).test_extensions
+        )
+      )
+    ) { (in, producer, dir) =>
+      TestsRepo.copy_student_tests(producer, in.tests, in.aliases, in.ext, dir)
+      Seq()
+    }
+}
+
+object SubmittedTestsRepo {
+  def name_of(c: CourseName, p: ProjectName): String =
+    s"${ProjectRepo.name_of(c, p)}__submitted_tests"
+}

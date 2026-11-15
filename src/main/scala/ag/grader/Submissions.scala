@@ -22,17 +22,17 @@ import scala.util.matching.Regex
 
 // The students' submissions, and what's read from the other repos the
 // grader keeps per course, project and student (enrollment, overrides,
-// aliases, results), as r3 targets on the local mirror (`defs.source`). The
+// aliases, results), as r3 targets on the local mirror (`env.source`). The
 // r3 form of what ag.r2 works out from Gitolite.mirror in Course and Project.
 //
 // Every read is pinned: to the commit a ref snapshot names, or to a commit's
 // id. Nothing here clones or keeps a git repo: a commit's files are read
 // from the mirror, and copied out (prepare) only where a tool needs them.
-final class Submissions(val defs: Definitions) extends Scope("submissions") {
-  private val source = defs.source
+final class Submissions(val env: repos.Env) extends Scope("submissions") {
+  private val source = env.source
 
   def project_repo(c: CourseName, p: ProjectName): String =
-    defs.project_repo(c, p)
+    repos.ProjectRepo.name_of(c, p)
   def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     repos.WorkRepo.name_of(c, p, csid)
   def override_repo(c: CourseName, p: ProjectName): String =
@@ -40,10 +40,11 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
   def aliases_repo(c: CourseName, p: ProjectName): String =
     repos.AliasesRepo.name_of(c, p)
   def results_repo(c: CourseName, p: ProjectName): String =
-    s"${project_repo(c, p)}__results"
+    repos.ResultsRepo.name_of(c, p)
   def student_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
     repos.StudentResultsRepo.name_of(c, p, csid)
-  def enrollment_repo(c: CourseName): String = s"${c}__enrollment"
+  def enrollment_repo(c: CourseName): String =
+    repos.EnrollmentRepo.name_of(c)
 
   private val report_name = os.rel / "REPORT.txt"
 
@@ -61,34 +62,6 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       file: String
   ): Option[String] =
     m.flatMap(c => ctx.read_text(ctx.commit(c).tree, os.RelPath(file)))
-
-  // ---- enrollment ------------------------------------------------------
-
-  // csid -> their ssh key, from the course's enrollment repo
-  lazy val enrollment: CourseName => Target[SortedMap[CSID, String]] = fun {
-    (c: CourseName) =>
-      target((m = source.master(enrollment_repo(c)))) { (producer, deps) =>
-        text_on(producer, deps.m, "enrollment.json") match {
-          case Some(json) => upickle.default.read[SortedMap[CSID, String]](json)
-          case None       =>
-            if (deps.m.isDefined)
-              producer.log(s"${enrollment_repo(c)} has no enrollment.json\n")
-            SortedMap[CSID, String]()
-        }
-      }
-  }
-
-  lazy val enrolled_csids: CourseName => Target[SortedSet[CSID]] = fun {
-    (c: CourseName) => target((e = enrollment(c)))((_, deps) => deps.e.keySet)
-  }
-
-  // the course's enrolled students whose CSIDs match `re`
-  lazy val enrolled: (CourseName, Regex) => Target[SortedSet[CSID]] = fun {
-    (c: CourseName, re: Regex) =>
-      target((e = enrolled_csids(c)))((_, deps) =>
-        deps.e.filter(csid => re.matches(csid.value))
-      )
-  }
 
   // ---- submissions -----------------------------------------------------
 
@@ -116,7 +89,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       : (CourseName, ProjectName) => Target[SortedMap[CSID, Commit]] =
     fun { (c: CourseName, p: ProjectName) =>
       complex_target[SortedMap[CSID, Commit]] { tracker =>
-        val csids = tracker.track(enrolled_csids(c)).toSeq
+        val csids = tracker.track(Course(c, env).enrolled_csids).toSeq
         val subs = tracker.track_all(csids.map(csid => submission(c, p, csid)))
         tracker.run_if_needed(_ =>
           csids
@@ -171,7 +144,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
         (
           sub = submission(c, p, csid),
           refs = source.refs(work_repo(c, p, csid)),
-          deadline = defs.deadline(c, p, csid, phase)
+          deadline = Project(c, p, env).deadline(csid, phase)
         )
       ) { (producer, deps) =>
         deps.sub.flatMap { m =>
@@ -247,7 +220,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       target(
         (
           info = prepare_info(c, p, csid, phase),
-          deadline = defs.deadline(c, p, csid, phase)
+          deadline = Project(c, p, env).deadline(csid, phase)
         )
       ) { (_, deps) =>
         deps.info.forall(_.commit_time.isAfter(local(deps.deadline)))
@@ -266,7 +239,7 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       target(
         (
           ov = source.master(override_repo(c, p)),
-          ext = defs.test_extensions(c, p)
+          ext = Project(c, p, env).test_extensions
         )
       ) { (producer, deps) =>
         create_data(producer) { dir =>
@@ -293,8 +266,8 @@ final class Submissions(val defs: Definitions) extends Scope("submissions") {
       target(
         (
           sub = submission(c, p, csid),
-          ext = defs.test_extensions(c, p),
-          cutoff = defs.test_cutoff(c, p)
+          ext = Project(c, p, env).test_extensions,
+          cutoff = Project(c, p, env).test_cutoff
         )
       ) { (producer, deps) =>
         val by = local(deps.cutoff).toInstant.nn

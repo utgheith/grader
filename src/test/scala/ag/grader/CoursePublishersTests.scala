@@ -26,9 +26,9 @@ class CoursePublishersTests extends FunSuite {
     val box = root / "dropbox"
     os.makeDir.all(box / "c1")
     for ((name, key) <- keys) os.write(box / "c1" / s"$name.pub", key + "\n")
-    val pubs = Publishers(Grading(TestRuns(subs)), Dropbox(Some(box)))
+    val env = repos.Env(subs.env.source, Dropbox(Some(box)))
     val ob = Outbox(root / "outbox", r.mirror, root / "ws" / "r3.git")
-    (r, pubs, ob)
+    (r, env, ob)
   }
 
   private def files(dir: os.Path): Seq[String] =
@@ -36,11 +36,11 @@ class CoursePublishersTests extends FunSuite {
 
   test("keys: added or changed in gitolite-admin, never removed; never made") {
     val root = TempDirs.dir()
-    val (r, pubs, _) = setup(root, me.value -> "ssh-ed25519 new")
+    val (r, env, _) = setup(root, me.value -> "ssh-ed25519 new")
     val _ = r.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n",
       s"keydir/${me.value}.pub" -> "ssh-ed25519 old", "keydir/gone.pub" -> "k")()
     val s = State(root / "ws")
-    val p = s.track(pubs.keys)
+    val p = s.track(repos.KeysRepo(env).latest)
     assertEquals((p.value.exists, p.value.create), (true, None))
     val dir = s.checkout(p.data)
     assertEquals(files(dir), Seq("conf/gitolite.conf", "keydir/gone.pub", s"keydir/${me.value}.pub").sorted)
@@ -49,35 +49,35 @@ class CoursePublishersTests extends FunSuite {
 
   test("a key added or changed is told about, as the course says; an unchanged one isn't") {
     val root = TempDirs.dir()
-    val (r, pubs, _) = setup_with(root, tell, me.value -> "ssh-ed25519 new")
+    val (r, env, _) = setup_with(root, tell, me.value -> "ssh-ed25519 new")
     val _ = r.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
-    val p = State(root / "ws").track(pubs.keys)
+    val p = State(root / "ws").track(repos.KeysRepo(env).latest)
     assertEquals(
       p.value.notices,
       Seq(Notice(me, Some(CSID("s9")), Notice.What.KeyUpdated(c1, me)))
     )
     // once it's there, nothing to tell
     val _ = r.commit("gitolite-admin", test_cutoff, s"keydir/${me.value}.pub" -> "ssh-ed25519 new")()
-    assertEquals(State(root / "ws").track(pubs.keys).value.notices, Seq())
+    assertEquals(State(root / "ws").track(repos.KeysRepo(env).latest).value.notices, Seq())
     // the course doesn't tell about keys
     val root2 = TempDirs.dir()
-    val (r2, pubs2, _) = setup_with(root2, tell.copy(key_update = false), me.value -> "k")
+    val (r2, env2, _) = setup_with(root2, tell.copy(key_update = false), me.value -> "k")
     val _ = r2.commit("gitolite-admin", test_cutoff, "conf/gitolite.conf" -> "repo x\n")()
-    assertEquals(State(root2 / "ws").track(pubs2.keys).value.notices, Seq())
+    assertEquals(State(root2 / "ws").track(repos.KeysRepo(env2).latest).value.notices, Seq())
   }
 
   test("a work repo that's made: the student is told, with the project's README") {
     val root = TempDirs.dir()
-    val (r, pubs, _) = setup_with(root, tell)
+    val (r, env, _) = setup_with(root, tell)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "README" -> "read me")()
-    val p = State(root / "ws").track(pubs.work_repo(c1, p1, s1))
+    val p = State(root / "ws").track(repos.WorkRepo(c1, p1, s1, env).latest)
     assertEquals(
       p.value.notices,
       Seq(Notice(s1, Some(CSID("s9")), Notice.What.RepoCreated("c1_p1_s1", "read me")))
     )
     // once it's there, nothing to tell
     val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
-    assertEquals(State(root / "ws").track(pubs.work_repo(c1, p1, s1)).value.notices, Seq())
+    assertEquals(State(root / "ws").track(repos.WorkRepo(c1, p1, s1, env).latest).value.notices, Seq())
   }
 
   test("who's told: the student (copying cc), just cc, or nobody") {
@@ -106,31 +106,31 @@ class CoursePublishersTests extends FunSuite {
 
   test("a key file owned by neither its student nor the keeper fails") {
     val root = TempDirs.dir()
-    val (_, pubs, _) = setup(root, "someone_else" -> "k")
-    val strict = Dropbox(pubs.dropbox.root, keeper = "nobody_here")
+    val (_, env, _) = setup(root, "someone_else" -> "k")
+    val strict = Dropbox(env.dropbox.root, keeper = "nobody_here")
     intercept[Exception](State(root / "ws").track(strict.keys(c1)))
   }
 
   test("a course without a directory in the dropbox has no keys") {
     val root = TempDirs.dir()
-    val (_, pubs, _) = setup(root, s1.value -> "k")
-    assertEquals(State(root / "ws").track(pubs.dropbox.keys(c2)), SortedMap[CSID, String]())
+    val (_, env, _) = setup(root, s1.value -> "k")
+    assertEquals(State(root / "ws").track(env.dropbox.keys(c2)), SortedMap[CSID, String]())
   }
 
   test("the keeper (by default, the grader's user) can own anyone's key file") {
     val root = TempDirs.dir()
-    val (_, pubs, _) = setup(root, "someone_else" -> "k")
+    val (_, env, _) = setup(root, "someone_else" -> "k")
     assertEquals(
-      State(root / "ws").track(pubs.dropbox.keys(c1)),
+      State(root / "ws").track(env.dropbox.keys(c1)),
       SortedMap(CSID("someone_else") -> "k")
     )
   }
 
   test("enrollment: the dropbox's students and keys") {
     val root = TempDirs.dir()
-    val (_, pubs, _) = setup(root, me.value -> "ssh-ed25519 mine")
+    val (_, env, _) = setup(root, me.value -> "ssh-ed25519 mine")
     val s = State(root / "ws")
-    val p = s.track(pubs.enrollment(c1))
+    val p = s.track(repos.EnrollmentRepo(c1, env).latest)
     assertEquals(
       upickle.default.read[SortedMap[CSID, String]](os.read(s.checkout(p.data) / "enrollment.json")),
       SortedMap(me -> "ssh-ed25519 mine")
@@ -140,30 +140,30 @@ class CoursePublishersTests extends FunSuite {
 
   test("enrollment: left alone if the dropbox has no directory for the course") {
     val root = TempDirs.dir()
-    val (r, pubs, ob) = setup(root)
+    val (r, env, ob) = setup(root)
     val _ = r.commit("c1__enrollment", test_cutoff, "enrollment.json" -> "[]")()
-    os.remove.all(pubs.dropbox.root.get / "c1")
-    assert(!ob.record(State(root / "ws").track(pubs.enrollment(c1))))
-    assertEquals(State(root / "ws").track(pubs.dropbox.keys(c1)), SortedMap[CSID, String]())
+    os.remove.all(env.dropbox.root.get / "c1")
+    assert(!ob.record(State(root / "ws").track(repos.EnrollmentRepo(c1, env).latest)))
+    assertEquals(State(root / "ws").track(env.dropbox.keys(c1)), SortedMap[CSID, String]())
   }
 
   test("grades: made with a README, then left to the staff") {
     val root = TempDirs.dir()
-    val (r, pubs, ob) = setup(root)
+    val (r, env, ob) = setup(root)
     val s = State(root / "ws")
-    val p = s.track(pubs.grades(c1))
+    val p = s.track(repos.GradesRepo(c1, env).latest)
     assertEquals(files(s.checkout(p.data)), Seq("README.md"))
     assert(os.read(s.checkout(p.data) / "README.md").contains("# Grading data for `c1`"))
     assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff"))))
     // once it's there, their changes stand
     val _ = r.commit("c1__grades", test_cutoff, "grades.csv" -> "x")()
-    assert(!ob.record(State(root / "ws").track(pubs.grades(c1))))
+    assert(!ob.record(State(root / "ws").track(repos.GradesRepo(c1, env).latest)))
   }
 
   test("a work repo: a fork of the project's repo, nothing pushed") {
     val root = TempDirs.dir()
-    val (r, pubs, ob) = setup(root)
-    val p = State(root / "ws").track(pubs.work_repo(c1, p1, s1))
+    val (r, env, ob) = setup(root)
+    val p = State(root / "ws").track(repos.WorkRepo(c1, p1, s1, env).latest)
     assertEquals(p.value.create, Some(Create("c1_p1", Seq("s1", "@c1_staff"), Seq("s1"))))
     assert(ob.record(p))
     assert(
@@ -172,7 +172,7 @@ class CoursePublishersTests extends FunSuite {
     )
     // once made, nothing: the student's commits are theirs
     val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
-    assert(!ob.record(State(root / "ws").track(pubs.work_repo(c1, p1, s1))))
+    assert(!ob.record(State(root / "ws").track(repos.WorkRepo(c1, p1, s1, env).latest)))
   }
 
   // a commit of `name` adding a submodule entry (a gitlink) at `path`
@@ -185,24 +185,24 @@ class CoursePublishersTests extends FunSuite {
 
   test("a submodule: a work repo is left alone; a commit that would drop one isn't made") {
     val root = TempDirs.dir()
-    val (r, pubs, ob) = setup(root)
+    val (r, env, ob) = setup(root)
     val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
     add_submodule(r, root, "c1_p1_s1", "sub")
-    assert(!ob.record(State(root / "ws").track(pubs.work_repo(c1, p1, s1))))
+    assert(!ob.record(State(root / "ws").track(repos.WorkRepo(c1, p1, s1, env).latest)))
     // the grades repo is copied to work it out, which loses the submodule
     val _ = r.commit("c1__grades", test_cutoff, "grades.csv" -> "x")()
     add_submodule(r, root, "c1__grades", "sub")
-    val e = intercept[Exception](ob.record(State(root / "ws").track(pubs.grades(c1))))
+    val e = intercept[Exception](ob.record(State(root / "ws").track(repos.GradesRepo(c1, env).latest)))
     assert(e.getMessage.contains("submodule"), e.getMessage)
     assertEquals(ob.pending, Seq())
   }
 
   test("site: a page per phase and the front page; old pages stay, unchanged pages aren't rewritten") {
     val root = TempDirs.dir()
-    val (r, pubs, ob) = setup(root)
+    val (r, env, ob) = setup(root)
     val _ = r.commit("c1__site", test_cutoff, "c1_p0.html" -> "an old project's page")()
     val s = State(root / "ws")
-    val p = s.track(pubs.site(c1))
+    val p = s.track(repos.SiteRepo(c1, env).latest)
     val dir = s.checkout(p.data)
     assertEquals(
       files(dir),
@@ -215,12 +215,12 @@ class CoursePublishersTests extends FunSuite {
     assert(ob.record(p))
     val _ = os.proc("git", "push", "-q", m.toString, "master:refs/heads/master").call(cwd = ob.dir("c1__site"))
     Thread.sleep(1100)
-    assert(!ob.record(State(root / "ws").track(pubs.site(c1))))
+    assert(!ob.record(State(root / "ws").track(repos.SiteRepo(c1, env).latest)))
   }
 
   test("a site is served when its pages change, and only then; its host is named without secrets") {
     val root = TempDirs.dir()
-    val (r, pubs, _) = setup(root)
+    val (r, env, _) = setup(root)
     val served = scala.collection.mutable.Buffer[Seq[String]]()
     val host = new repos.SiteHost {
       def name = "test-host"
@@ -229,7 +229,7 @@ class CoursePublishersTests extends FunSuite {
         s"https://$c.example"
       }
     }
-    def deployment = repos.SiteDeployment(c1, host, pubs.env)
+    def deployment = repos.SiteDeployment(c1, host, env)
     assertEquals(State(root / "ws").track(deployment.deployed), "https://c1.example")
     // the pages, without the repo's dot files
     assertEquals(served.toSeq, Seq(Seq("c1_p1.html", "c1_p1_phase1.html", "c1_p1_phase2.html", "index.html")))
@@ -243,7 +243,7 @@ class CoursePublishersTests extends FunSuite {
     assert(served.last.contains("c1_p0.html"))
     // a Cloudflare host's name: where it serves, not its account or key
     val cf = CloudflareConfig(true, "the-account", "the-key", Some("example.net"), Some("test-"))
-    val path = repos.SiteDeployment(c1, cf, pubs.env).deployed.path.toString
+    val path = repos.SiteDeployment(c1, cf, env).deployed.path.toString
     assert(path.contains("example.net") && path.contains("test-"), path)
     assert(!path.contains("the-account") && !path.contains("the-key"), path)
   }

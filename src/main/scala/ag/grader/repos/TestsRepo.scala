@@ -1,7 +1,15 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{Alias, CSID, CourseName, Create, ProjectName, Publish}
+import ag.grader.{
+  Alias,
+  CSID,
+  CourseName,
+  Create,
+  Project,
+  ProjectName,
+  Publish
+}
 import ag.rules.{Producer, Target, WithData}
 
 import scala.collection.SortedMap
@@ -21,7 +29,7 @@ final case class TestsRepo(c: CourseName, p: ProjectName, env: Env)
         (
           tests = env.subs.student_tests_by_csid(c, p),
           aliases = env.runs.aliases(c, p),
-          ext = ProjectConfig(c, p, env).test_extensions,
+          ext = Project(c, p, env).test_extensions,
           names = env.runs.override_test_names(c, p),
           ov = OverrideRepo(c, p, env).inspect
         )

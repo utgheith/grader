@@ -1,30 +1,21 @@
-package ag.grader.repos
+package ag.grader
 
 import ag.common.{
   ToRelPath,
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedSet
 }
-import ag.grader.{
-  CSID,
-  CourseName,
-  Extensions,
-  Iterations,
-  Phase,
-  ProjectName,
-  RawProject,
-  Weight
-}
+import ag.grader.repos.{CoursesConfig, Env, Instance, ProjectRepo}
 import ag.rules.Target
 
 import java.time.LocalDateTime
 import scala.collection.SortedSet
 
-// A project's settings, from courses_config (see CoursesConfig), as Project
-// has them in ag.r2. They fail if courses.json doesn't have the project:
-// `find` says if it's there.
-final case class ProjectConfig(c: CourseName, p: ProjectName, env: Env)
-    extends Instance[ProjectConfig] derives ToRelPath {
+// A project's targets: its settings, from courses_config (see
+// CoursesConfig), which fail if courses.json doesn't have the project
+// (`find` says if it's there), and what's worked out from them.
+final case class Project(c: CourseName, p: ProjectName, env: Env)
+    extends Instance[Project] derives ToRelPath {
 
   lazy val find: Target[Option[RawProject]] =
     target((cs = CoursesConfig(env).courses))((_, deps) =>
@@ -40,7 +31,7 @@ final case class ProjectConfig(c: CourseName, p: ProjectName, env: Env)
   lazy val active: Target[Boolean] =
     target(
       (
-        course = CourseConfig(c, env).active,
+        course = Course(c, env).active,
         rp = project,
         repo = ProjectRepo(c, p, env).has_master
       )

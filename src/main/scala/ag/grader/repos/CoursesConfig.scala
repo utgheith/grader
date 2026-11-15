@@ -5,7 +5,7 @@ import ag.common.{
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
 }
-import ag.grader.{CourseName, RawCourse, RawCourseNotSorted}
+import ag.grader.{Course, CourseName, RawCourse, RawCourseNotSorted}
 import ag.rules.Target
 
 import scala.collection.{SortedMap, SortedSet}
@@ -41,7 +41,7 @@ final case class CoursesConfig(env: Env) extends ReadOnlyRepo[CoursesConfig]
     complex_target[SortedSet[CourseName]] { tracker =>
       val names = tracker.track(course_names).toSeq
       val flags =
-        tracker.track_all(names.map(c => CourseConfig(c, env).active))
+        tracker.track_all(names.map(c => Course(c, env).active))
       tracker.run_if_needed(_ =>
         names.zip(flags).collect { case (n, true) => n }.to(SortedSet)
       )
