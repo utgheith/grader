@@ -2,15 +2,15 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{Course, CourseName, Create, HtmlGen, Publish}
-import ag.rules.{Target, Tree, WithData}
+import ag.rules.{Source, Target, Tree, WithData}
 
 // A course's report site (as r2's Course.publish_site): the report pages of its
 // active projects, and a front page listing every project's page in the
 // repo. Everyone can read it. A page is rewritten only when what it shows
 // changes, and pages of projects no longer active stay, so it isn't
 // replaced whole.
-final case class SiteRepo(c: CourseName, env: Env) extends OwnedRepo[SiteRepo]
-    derives ToRelPath {
+final case class SiteRepo(c: CourseName, source: Source)
+    extends OwnedRepo[SiteRepo] derives ToRelPath {
   def repo_name: String = SiteRepo.name_of(c)
   def create: Option[Create] =
     Some(Create("empty", Seq(Groups.everyone), Seq()))
@@ -18,7 +18,7 @@ final case class SiteRepo(c: CourseName, env: Env) extends OwnedRepo[SiteRepo]
   override protected def replaces_all: Boolean = false
 
   lazy val latest: Target[WithData[Publish]] =
-    owned(_.track(Course(c, env).site_inputs)) { (inputs, producer, dir) =>
+    owned(_.track(Course(c, source).site_inputs)) { (inputs, producer, dir) =>
       val now = java.time.LocalDateTime.now().nn
       for {
         i <- inputs
@@ -61,11 +61,11 @@ object SiteHost {
 // A course's site, served by `host`: its latest pages, as the outbox has
 // them (sync pushes them to the site repo), whether or not they've been
 // synced. Served again only when they change.
-final case class SiteDeployment(c: CourseName, host: SiteHost, env: Env)
+final case class SiteDeployment(c: CourseName, host: SiteHost, source: Source)
     extends Instance[SiteDeployment] derives ToRelPath {
   // the site's address
   lazy val deployed: Target[String] =
-    target((pages = SiteRepo(c, env).pages)) { (producer, deps) =>
+    target((pages = SiteRepo(c, source).pages)) { (producer, deps) =>
       os.makeDir.all(producer.state.scratch_root)
       // the pages less the repo's dot files; the host's tools run in the
       // site's parent (wrangler's .wrangler cache goes there)

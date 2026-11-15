@@ -21,7 +21,7 @@ trait Repo[S] extends Instance[S] { self: S =>
   def repo_name: String
 
   // its master on the mirror, if it has one
-  lazy val inspect: Target[Option[Commit]] = env.source.master(repo_name)
+  lazy val inspect: Target[Option[Commit]] = source.master(repo_name)
 }
 
 trait ReadOnlyRepo[S] extends Repo[S] { self: S => }
@@ -58,9 +58,9 @@ sealed trait PublishedRepo[S] extends Repo[S] { self: S =>
   protected final def exists_and_base(
       tracker: Tracker[?]
   ): (Boolean, Option[Commit]) = {
-    val exists = tracker.track(env.source.exists(repo_name))
+    val exists = tracker.track(source.exists(repo_name))
     val base = tracker.track(create.filterNot(_ => exists) match {
-      case Some(c) => env.source.master(c.fork_from)
+      case Some(c) => source.master(c.fork_from)
       case None    => inspect
     })
     (exists, base)

@@ -70,7 +70,7 @@ object Fixture {
       root: os.Path,
       change: RawProject => RawProject = identity,
       notifications: NotificationConfig = quiet
-  ): (Repos, repos.Env) = {
+  ): (Repos, Source) = {
     val r = Repos(root)
     val raw = RawProject(
       active = true, cores = 1, code_cutoff = code_cutoff, test_cutoff = test_cutoff,
@@ -88,7 +88,7 @@ object Fixture {
     val _ = r.commit("courses_config", test_cutoff, "courses.json" -> upickle.default.write(Map("c1" -> rc)))()
     val _ = r.commit("c1__enrollment", test_cutoff,
       "enrollment.json" -> upickle.default.write(SortedMap(s1 -> "k1", CSID("s2") -> "k2")))()
-    (r, repos.Env(Source(r.mirror)))
+    (r, Source(r.mirror))
   }
 
 }

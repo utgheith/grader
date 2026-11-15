@@ -45,3 +45,8 @@ final class Dropbox(
       )
   }
 }
+
+object Dropbox {
+  // never part of a target's name (see ag.rules.Source's)
+  given ag.common.ToRelPath[Dropbox] = ag.common.ToRelPath.Omitted()
+}

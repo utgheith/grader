@@ -2,12 +2,12 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, Publish}
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 // A course's grades repo: the staff's workspace for grading data (as
 // r2's Course.create_grades_repo). The grader makes it, with a README, and
 // otherwise leaves it to them; only the staff read and write it.
-final case class GradesRepo(c: CourseName, env: Env)
+final case class GradesRepo(c: CourseName, source: Source)
     extends HandedOverRepo[GradesRepo] derives ToRelPath {
   def repo_name: String = GradesRepo.name_of(c)
   def create: Option[Create] =

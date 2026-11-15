@@ -10,7 +10,7 @@ import ag.grader.{
   ProjectName,
   Publish
 }
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 import scala.collection.SortedMap
 
@@ -18,7 +18,7 @@ import scala.collection.SortedMap
 // Project.publish_aliases): the staff's to read. Added to as students
 // submit; an alias, once published, never changes or goes, since what's
 // published is keyed by it.
-final case class AliasesRepo(c: CourseName, p: ProjectName, env: Env)
+final case class AliasesRepo(c: CourseName, p: ProjectName, source: Source)
     extends AdditiveRepo[AliasesRepo] derives ToRelPath {
   def repo_name: String = AliasesRepo.name_of(c, p)
   def create: Option[Create] =
@@ -26,7 +26,7 @@ final case class AliasesRepo(c: CourseName, p: ProjectName, env: Env)
   val message = "more aliases"
 
   lazy val latest: Target[WithData[Publish]] =
-    additive(_.track(Project(c, p, env).aliases)) { (aliases, _, dir) =>
+    additive(_.track(Project(c, p, source).aliases)) { (aliases, _, dir) =>
       val f = dir / "aliases.json"
       val before =
         if (os.isFile(f))

@@ -10,13 +10,13 @@ import ag.grader.{
   ProjectName,
   Publish
 }
-import ag.rules.{Producer, Target, WithData}
+import ag.rules.{Producer, Source, Target, WithData}
 
 import scala.collection.SortedMap
 
 // Every test of a project, for everyone to read (as Project.publish_tests):
 // the students' (by alias, at <alias>.<ext>) and the override repo's.
-final case class TestsRepo(c: CourseName, p: ProjectName, env: Env)
+final case class TestsRepo(c: CourseName, p: ProjectName, source: Source)
     extends OwnedRepo[TestsRepo] derives ToRelPath {
   def repo_name: String = s"${ProjectRepo.name_of(c, p)}__tests"
   def create: Option[Create] =
@@ -27,11 +27,11 @@ final case class TestsRepo(c: CourseName, p: ProjectName, env: Env)
     owned(
       _.track_all(
         (
-          tests = Project(c, p, env).student_tests_by_csid,
-          aliases = Project(c, p, env).aliases,
-          ext = Project(c, p, env).test_extensions,
-          names = Project(c, p, env).override_test_names,
-          ov = OverrideRepo(c, p, env).inspect
+          tests = Project(c, p, source).student_tests_by_csid,
+          aliases = Project(c, p, source).aliases,
+          ext = Project(c, p, source).test_extensions,
+          names = Project(c, p, source).override_test_names,
+          ov = OverrideRepo(c, p, source).inspect
         )
       )
     ) { (in, producer, dir) =>

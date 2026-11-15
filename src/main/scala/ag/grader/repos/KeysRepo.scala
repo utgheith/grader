@@ -1,16 +1,16 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{Course, Notice, Publish}
-import ag.rules.{Target, WithData}
+import ag.grader.{Course, Dropbox, Notice, Publish}
+import ag.rules.{Source, Target, WithData}
 
 // The students' keys in gitolite-admin, as they are in the dropbox: added
 // or changed, never removed (as Course.publish_keys, for every active
 // course at once, since they share the repo); each student whose key is
 // added or changed is told (for the first course that has it), as their
 // course says. It's never made.
-final case class KeysRepo(env: Env) extends AdditiveRepo[KeysRepo]
-    derives ToRelPath {
+final case class KeysRepo(source: Source, dropbox: Dropbox)
+    extends AdditiveRepo[KeysRepo] derives ToRelPath {
   def repo_name: String = KeysRepo.name
   def create: None.type = None
   val message = "updated keys"
@@ -19,11 +19,11 @@ final case class KeysRepo(env: Env) extends AdditiveRepo[KeysRepo]
     additive { tracker =>
       val courses =
         tracker
-          .track(CoursesConfig(env).active_courses(CoursesConfig.any))
+          .track(CoursesConfig(source).active_courses(CoursesConfig.any))
           .toSeq
-      val keys = tracker.track_all(courses.map(env.dropbox.keys))
+      val keys = tracker.track_all(courses.map(dropbox.keys))
       val notifications =
-        tracker.track_all(courses.map(Course(_, env).notifications))
+        tracker.track_all(courses.map(Course(_, source).notifications))
       courses.lazyZip(keys).lazyZip(notifications).toSeq
     } { (courses, _, dir) =>
       for {

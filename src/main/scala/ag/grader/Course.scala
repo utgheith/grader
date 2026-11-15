@@ -5,8 +5,8 @@ import ag.common.{
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
 }
-import ag.grader.repos.{CoursesConfig, EnrollmentRepo, Env, Instance}
-import ag.rules.Target
+import ag.grader.repos.{CoursesConfig, EnrollmentRepo, Instance}
+import ag.rules.{Source, Target}
 
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.matching.Regex
@@ -14,11 +14,11 @@ import scala.util.matching.Regex
 // A course's targets: its settings, from courses_config (see
 // CoursesConfig), which fail if courses.json doesn't have the course
 // (`find` says if it's there), and what's worked out from them.
-final case class Course(c: CourseName, env: Env) extends Instance[Course]
+final case class Course(c: CourseName, source: Source) extends Instance[Course]
     derives ToRelPath {
 
   lazy val find: Target[Option[RawCourse]] =
-    target((cs = CoursesConfig(env).courses))((_, deps) => deps.cs.get(c))
+    target((cs = CoursesConfig(source).courses))((_, deps) => deps.cs.get(c))
 
   private lazy val course: Target[RawCourse] =
     target((rc = find))((_, deps) =>
@@ -40,7 +40,7 @@ final case class Course(c: CourseName, env: Env) extends Instance[Course]
     complex_target[SortedSet[ProjectName]] { tracker =>
       val names = tracker.track(project_names).toSeq
       val flags =
-        tracker.track_all(names.map(p => Project(c, p, env).active))
+        tracker.track_all(names.map(p => Project(c, p, source).active))
       tracker.run_if_needed(_ =>
         names.zip(flags).collect { case (n, true) => n }.to(SortedSet)
       )
@@ -58,7 +58,7 @@ final case class Course(c: CourseName, env: Env) extends Instance[Course]
 
   // csid -> their ssh key, from the course's enrollment repo
   lazy val enrollment: Target[SortedMap[CSID, String]] =
-    target((m = EnrollmentRepo(c, env).inspect)) { (producer, deps) =>
+    target((m = source.master(EnrollmentRepo.name_of(c)))) { (producer, deps) =>
       deps.m.flatMap(m =>
         producer.read_text(producer.commit(m).tree, os.rel / "enrollment.json")
       ) match {
@@ -91,7 +91,9 @@ final case class Course(c: CourseName, env: Env) extends Instance[Course]
       val projects =
         tracker.track(active_projects(CoursesConfig.any)).toSeq
       val inputs =
-        tracker.track_all(projects.map(p => Project(c, p, env).report_inputs))
+        tracker.track_all(
+          projects.map(p => Project(c, p, source).report_inputs)
+        )
       tracker.run_if_needed(_ => inputs)
     }
 }

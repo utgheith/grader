@@ -10,7 +10,7 @@ import ag.grader.{
   Publish,
   Submission
 }
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 // A student's latest results for a project, with each test's output, in
 // their own results repo (as Project.publish_student_results): the
@@ -19,7 +19,7 @@ final case class StudentResultsRepo(
     c: CourseName,
     p: ProjectName,
     csid: CSID,
-    env: Env
+    source: Source
 ) extends OwnedRepo[StudentResultsRepo] derives ToRelPath {
   def repo_name: String = StudentResultsRepo.name_of(c, p, csid)
   def create: Option[Create] =
@@ -31,8 +31,8 @@ final case class StudentResultsRepo(
     owned(
       _.track_all(
         (
-          results = Submission(c, p, csid, env).results(Phase.Latest, n),
-          outcomes = Submission(c, p, csid, env).outcomes(Phase.Latest, n)
+          results = Submission(c, p, csid, source).results(Phase.Latest, n),
+          outcomes = Submission(c, p, csid, source).outcomes(Phase.Latest, n)
         )
       )
     ) { (in, producer, dir) =>

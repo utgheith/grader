@@ -7,11 +7,12 @@ import ag.common.{
   given_ReadWriter_LocalDateTime,
   given_ReadWriter_SortedSet
 }
-import ag.grader.repos.{CoursesConfig, Env, Instance, ProjectRepo}
+import ag.grader.repos.{CoursesConfig, Instance, ProjectRepo}
 import ag.rules.{
   Commit,
   Context,
   Producer,
+  Source,
   Target,
   Tree,
   WithData,
@@ -26,11 +27,11 @@ import scala.util.Try
 // A project's targets: its settings, from courses_config (see
 // CoursesConfig), which fail if courses.json doesn't have the project
 // (`find` says if it's there), and what's worked out from them.
-final case class Project(c: CourseName, p: ProjectName, env: Env)
+final case class Project(c: CourseName, p: ProjectName, source: Source)
     extends Instance[Project] derives ToRelPath {
 
   lazy val find: Target[Option[RawProject]] =
-    target((cs = CoursesConfig(env).courses))((_, deps) =>
+    target((cs = CoursesConfig(source).courses))((_, deps) =>
       deps.cs.get(c).flatMap(_.projects.get(p.value))
     )
 
@@ -43,9 +44,9 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   lazy val active: Target[Boolean] =
     target(
       (
-        course = Course(c, env).active,
+        course = Course(c, source).active,
         rp = project,
-        repo = ProjectRepo(c, p, env).has_master
+        repo = ProjectRepo(c, p, source).has_master
       )
     )((_, deps) => deps.course && deps.rp.active && deps.repo)
 
@@ -99,10 +100,10 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   // the enrolled students' submissions
   lazy val submissions: Target[SortedMap[CSID, Commit]] =
     complex_target[SortedMap[CSID, Commit]] { tracker =>
-      val csids = tracker.track(Course(c, env).enrolled_csids).toSeq
+      val csids = tracker.track(Course(c, source).enrolled_csids).toSeq
       val subs =
         tracker.track_all(
-          csids.map(csid => Submission(c, p, csid, env).submission)
+          csids.map(csid => Submission(c, p, csid, source).submission)
         )
       tracker.run_if_needed(_ =>
         csids
@@ -119,7 +120,9 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     complex_target[SortedMap[CSID, WithData[String]]] { tracker =>
       val csids = tracker.track(students_with_submission).toSeq
       val tests =
-        tracker.track_all(csids.map(csid => Submission(c, p, csid, env).test))
+        tracker.track_all(
+          csids.map(csid => Submission(c, p, csid, source).test)
+        )
       tracker.run_if_needed(_ =>
         (for {
           (csid, t) <- csids.zip(tests)
@@ -148,7 +151,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   // the project's aliases (none if the repo or file isn't there, or can't
   // be read)
   lazy val published_aliases: Target[SortedMap[CSID, Alias]] =
-    target((m = env.source.master(repos.AliasesRepo.name_of(c, p)))) {
+    target((m = source.master(repos.AliasesRepo.name_of(c, p)))) {
       (producer, deps) =>
         Project
           .text_on(producer, deps.m, "aliases.json")
@@ -159,7 +162,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     }
 
   lazy val results_readable: Phase => Target[Boolean] = fun { (phase: Phase) =>
-    target((m = env.source.master(repos.ResultsRepo.name_of(c, p)))) {
+    target((m = source.master(repos.ResultsRepo.name_of(c, p)))) {
       (producer, deps) =>
         Project.readable[SortedMap[Alias, RedactedStudentResults]](
           Project.text_on(producer, deps.m, phase.results_file),
@@ -174,7 +177,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   lazy val published_results: Phase => Target[
     Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
   ] = fun { (phase: Phase) =>
-    target((m = env.source.master(repos.ResultsRepo.name_of(c, p)))) {
+    target((m = source.master(repos.ResultsRepo.name_of(c, p)))) {
       (producer, deps) =>
         val out: Either[
           String,
@@ -206,7 +209,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   lazy val override_test_names: Target[SortedSet[String]] =
     target(
       (
-        ov = env.source.master(repos.OverrideRepo.name_of(c, p)),
+        ov = source.master(repos.OverrideRepo.name_of(c, p)),
         ext = test_extensions
       )
     ) { (producer, deps) =>
@@ -234,7 +237,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         students = student_tests_by_csid,
         aliases = this.aliases,
         names = override_test_names,
-        ov = env.source.master(repos.OverrideRepo.name_of(c, p))
+        ov = source.master(repos.OverrideRepo.name_of(c, p))
       )
     ) { (producer, deps) =>
       val theirs = for {
@@ -331,7 +334,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     complex_target[Option[String]] { tracker =>
       val image = tracker
         .track(docker_file)
-        .map(f => tracker.track(DockerImage(f, env).image))
+        .map(f => tracker.track(DockerImage(f, source).image))
       tracker.run_if_needed(_ => image)
     }
 
@@ -361,13 +364,15 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val students = tracker.track(students_with_submission).toSeq
         val results =
           tracker.track_all(
-            students.map(csid => Submission(c, p, csid, env).results(phase, n))
+            students.map(csid =>
+              Submission(c, p, csid, source).results(phase, n)
+            )
           )
         val deadlines =
           tracker.track_all(students.map(deadline(_, phase)))
         val aliases =
           tracker.track_all(
-            students.map(csid => Submission(c, p, csid, env).alias)
+            students.map(csid => Submission(c, p, csid, source).alias)
           )
         tracker.run_if_needed { _ =>
           (for {
@@ -423,12 +428,12 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val infos =
           tracker.track_all(
             students.map(csid =>
-              Submission(c, p, csid, env).prepare_info(phase)
+              Submission(c, p, csid, source).prepare_info(phase)
             )
           )
         val aliases =
           tracker.track_all(
-            students.map(csid => Submission(c, p, csid, env).alias)
+            students.map(csid => Submission(c, p, csid, source).alias)
           )
         tracker.run_if_needed { _ =>
           published.toOption.flatten match {
@@ -476,11 +481,11 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         bad_tests = bad_tests,
         test_cutoff = test_cutoff,
         code_cutoff = code_cutoff,
-        enrollment = Course(c, env).enrollment,
+        enrollment = Course(c, source).enrollment,
         aliases = this.aliases,
-        course_staff = Course(c, env).staff,
+        course_staff = Course(c, source).staff,
         project_staff = staff,
-        projects = Course(c, env).active_projects(repos.CoursesConfig.any)
+        projects = Course(c, source).active_projects(repos.CoursesConfig.any)
       )
     ) { (_, deps) =>
       ReportInputs(
@@ -514,7 +519,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val csids = tracker.track(students_with_submission).toSeq
         val passed =
           tracker.track_all(
-            csids.map(csid => Submission(c, p, csid, env).scores(phase, n))
+            csids.map(csid => Submission(c, p, csid, source).scores(phase, n))
           )
         tracker.run_if_needed(_ => csids.zip(passed).to(SortedMap))
       }

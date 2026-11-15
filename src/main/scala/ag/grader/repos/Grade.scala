@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.grader.{CSID, CourseName, ProjectName, Publish}
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 // What publishing a project means, in the order to sync it (a repo's
 // contents can depend on another's being there first)
@@ -12,13 +12,13 @@ object Grade {
   def project(
       c: CourseName,
       p: ProjectName,
-      env: Env
+      source: Source
   ): Seq[Target[WithData[Publish]]] =
     Seq(
-      OverrideRepo(c, p, env).latest,
-      AliasesRepo(c, p, env).latest,
-      SubmittedTestsRepo(c, p, env).latest,
-      TestsRepo(c, p, env).latest
+      OverrideRepo(c, p, source).latest,
+      AliasesRepo(c, p, source).latest,
+      SubmittedTestsRepo(c, p, source).latest,
+      TestsRepo(c, p, source).latest
     )
 
   // grading a project to `n` tries, for `students` (those with a
@@ -30,10 +30,10 @@ object Grade {
       p: ProjectName,
       students: Iterable[CSID],
       n: Int,
-      env: Env
+      source: Source
   ): Seq[Target[WithData[Publish]]] =
-    project(c, p, env) ++
-      (ResultsRepo(c, p, env).latest(n) +: own(c, p, students, n, env))
+    project(c, p, source) ++
+      (ResultsRepo(c, p, source).latest(n) +: own(c, p, students, n, source))
 
   // the same, as far as everyone has run, with `students` (some of those
   // with a submission) for the own repos: no test runs again (n = 0; see
@@ -43,9 +43,9 @@ object Grade {
       c: CourseName,
       p: ProjectName,
       students: Iterable[CSID],
-      env: Env
+      source: Source
   ): Seq[Target[WithData[Publish]]] =
-    all(c, p, students, 0, env)
+    all(c, p, students, 0, source)
 
   // each student's own results and prepared code
   private def own(
@@ -53,12 +53,12 @@ object Grade {
       p: ProjectName,
       students: Iterable[CSID],
       n: Int,
-      env: Env
+      source: Source
   ): Seq[Target[WithData[Publish]]] =
     students.toSeq.flatMap(csid =>
       Seq(
-        StudentResultsRepo(c, p, csid, env).latest(n),
-        PreparedRepo(c, p, csid, env).latest
+        StudentResultsRepo(c, p, csid, source).latest(n),
+        PreparedRepo(c, p, csid, source).latest
       )
     )
 }

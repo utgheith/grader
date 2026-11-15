@@ -10,14 +10,18 @@ import ag.grader.{
   ProjectName,
   Publish
 }
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 // A student's repo for a project (as Project.publish_work_repo): forked
 // from the project's repo, then theirs, never touched. The student and the
 // staff read it, the student writes it. When it's made, they're told, with
 // the project's README, as the course says.
-final case class WorkRepo(c: CourseName, p: ProjectName, csid: CSID, env: Env)
-    extends CreatedRepo[WorkRepo] derives ToRelPath {
+final case class WorkRepo(
+    c: CourseName,
+    p: ProjectName,
+    csid: CSID,
+    source: Source
+) extends CreatedRepo[WorkRepo] derives ToRelPath {
   def repo_name: String = WorkRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(
@@ -30,7 +34,7 @@ final case class WorkRepo(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   val message = "create"
 
   lazy val latest: Target[WithData[Publish]] =
-    created(_.track(Course(c, env).notifications)) { (n, producer, base) =>
+    created(_.track(Course(c, source).notifications)) { (n, producer, base) =>
       if (!n.repo_create) Seq()
       else {
         val readme = base

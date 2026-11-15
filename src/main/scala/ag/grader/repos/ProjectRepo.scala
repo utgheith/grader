@@ -2,11 +2,11 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, ProjectName}
-import ag.rules.Target
+import ag.rules.{Source, Target}
 
 // A project's repo, which the staff keep: the starting point of the
 // students' work repos. The grader only reads it.
-final case class ProjectRepo(c: CourseName, p: ProjectName, env: Env)
+final case class ProjectRepo(c: CourseName, p: ProjectName, source: Source)
     extends ReadOnlyRepo[ProjectRepo] derives ToRelPath {
   def repo_name: String = ProjectRepo.name_of(c, p)
 

@@ -10,7 +10,7 @@ import ag.grader.{
   Publish,
   Submission
 }
-import ag.rules.{Target, Tree, WithData}
+import ag.rules.{Source, Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
 // (see Submission.prepare): a directory for each phase that has a commit to
@@ -22,7 +22,7 @@ final case class PreparedRepo(
     c: CourseName,
     p: ProjectName,
     csid: CSID,
-    env: Env
+    source: Source
 ) extends OwnedRepo[PreparedRepo] derives ToRelPath {
   def repo_name: String = PreparedRepo.name_of(c, p, csid)
   def create: Option[Create] =
@@ -37,14 +37,14 @@ final case class PreparedRepo(
 
   lazy val latest: Target[WithData[Publish]] = owned { t =>
     val infos = t.track_all(
-      PreparedRepo.phases.map(Submission(c, p, csid, env).prepare_info(_))
+      PreparedRepo.phases.map(Submission(c, p, csid, source).prepare_info(_))
     )
     val graded = PreparedRepo.phases.zip(infos).collect {
       case (phase, Some(info)) => (phase, info.sha)
     }
     val trees =
       t.track_all(
-        graded.map((_, sha) => Submission(c, p, csid, env).prepare(sha))
+        graded.map((_, sha) => Submission(c, p, csid, source).prepare(sha))
       )
     graded.map(_._1).zip(trees.map(_.data))
   } { (in, producer, dir) =>

@@ -2,7 +2,7 @@ package ag.grader.repos
 
 import ag.common.{TempDirs, ToRelPath}
 import ag.grader.{Create, Fixture, Notice}
-import ag.rules.{State, Target, WithData}
+import ag.rules.{Source, State, Target, WithData}
 import ag.grader.Publish
 import munit.FunSuite
 
@@ -11,21 +11,21 @@ import munit.FunSuite
 class RepoTests extends FunSuite {
   import Fixture.*
 
-  private def env(root: os.Path): (Repos, Env) = Fixture.setup(root)
+  private def source(root: os.Path): (Repos, Source) = Fixture.setup(root)
 
   private def put(files: Seq[(String, String)], dir: os.Path): Seq[Notice] = {
     for ((f, text) <- files) os.write.over(dir / f, text)
     Seq()
   }
 
-  final case class Owned(k: String, files: Seq[(String, String)], env: Env)
+  final case class Owned(k: String, files: Seq[(String, String)], source: Source)
       extends OwnedRepo[Owned] derives ToRelPath {
     def repo_name = k
     def create = Some(Create("empty", Seq(), Seq()))
     val message = "test"
     lazy val latest = owned(_ => files)((in, _, dir) => put(in, dir))
   }
-  final case class Kept(k: String, files: Seq[(String, String)], env: Env)
+  final case class Kept(k: String, files: Seq[(String, String)], source: Source)
       extends OwnedRepo[Kept] derives ToRelPath {
     def repo_name = k
     def create = Some(Create("empty", Seq(), Seq()))
@@ -33,7 +33,7 @@ class RepoTests extends FunSuite {
     override protected def replaces_all = false
     lazy val latest = owned(_ => files)((in, _, dir) => put(in, dir))
   }
-  final case class Added(k: String, files: Seq[(String, String)], drop: Option[String], env: Env)
+  final case class Added(k: String, files: Seq[(String, String)], drop: Option[String], source: Source)
       extends AdditiveRepo[Added] derives ToRelPath {
     def repo_name = k
     def create = Some(Create("empty", Seq(), Seq()))
@@ -43,7 +43,7 @@ class RepoTests extends FunSuite {
       put(in, dir)
     }
   }
-  final case class HandedOver(k: String, files: Seq[(String, String)], env: Env)
+  final case class HandedOver(k: String, files: Seq[(String, String)], source: Source)
       extends HandedOverRepo[HandedOver] derives ToRelPath {
     def repo_name = k
     def create = Some(Create("empty", Seq(), Seq()))
@@ -56,7 +56,7 @@ class RepoTests extends FunSuite {
 
   test("owned: replaces what's there (but dot files), or adds to it if it keeps the rest") {
     val root = TempDirs.dir()
-    val (r, e) = env(root)
+    val (r, e) = source(root)
     val _ = r.commit("x", test_cutoff, ".gitignore" -> "", "old" -> "o")()
     val s = State(root / "ws")
     assertEquals(files(s, Owned("x", Seq("new" -> "n"), e).latest), Seq("new"))
@@ -65,7 +65,7 @@ class RepoTests extends FunSuite {
 
   test("additive: adds and changes, fails if a file would go") {
     val root = TempDirs.dir()
-    val (r, e) = env(root)
+    val (r, e) = source(root)
     val _ = r.commit("x", test_cutoff, "a" -> "1")()
     val s = State(root / "ws")
     assertEquals(files(s, Added("x", Seq("a" -> "2", "b" -> "3"), None, e).latest), Seq("a", "b"))
@@ -75,7 +75,7 @@ class RepoTests extends FunSuite {
 
   test("handed over: made with its initial files, then left as it is") {
     val root = TempDirs.dir()
-    val (r, e) = env(root)
+    val (r, e) = source(root)
     val s = State(root / "ws")
     val made = s.track(HandedOver("x", Seq("a" -> "1"), e).latest)
     assertEquals((made.value.exists, made.value.create.isDefined), (false, true))
@@ -84,9 +84,9 @@ class RepoTests extends FunSuite {
     assertEquals(files(State(root / "ws2"), HandedOver("x", Seq("a" -> "1"), e).latest), Seq("theirs"))
   }
 
-  test("a target is named by where it's defined, then every field of its instance (but env), then fun's arguments") {
+  test("a target is named by where it's defined, then every field of its instance (but source), then fun's arguments") {
     val root = TempDirs.dir()
-    val (_, e) = env(root)
+    val (_, e) = source(root)
     val t = StudentResultsRepo(c1, p1, s1, e).latest(3)
     assertEquals(t.path, os.RelPath("ag/grader/repos/StudentResultsRepo/latest/c1/p1/s1/3"))
     assertEquals(StudentResultsRepo(c1, p1, s1, e).repo_name, "c1_p1_s1_results")

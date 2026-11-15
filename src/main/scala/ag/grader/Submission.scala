@@ -1,8 +1,8 @@
 package ag.grader
 
 import ag.common.{NoNulls, ToRelPath, given_ReadWriter_SortedMap}
-import ag.grader.repos.{Env, Instance}
-import ag.rules.{Commit, CommitInfo, Target, WithData, create_data}
+import ag.grader.repos.Instance
+import ag.rules.{Commit, CommitInfo, Source, Target, WithData, create_data}
 
 import java.time.{Instant, OffsetDateTime, ZoneId, ZoneOffset, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
@@ -17,8 +17,12 @@ import scala.util.matching.Regex
 // Every read is pinned: to the commit a ref snapshot names, or to a commit's
 // id. Nothing here clones or keeps a git repo: a commit's files are read
 // from the mirror, and copied out (prepare) only where a tool needs them.
-final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
-    extends Instance[Submission] derives ToRelPath {
+final case class Submission(
+    c: CourseName,
+    p: ProjectName,
+    csid: CSID,
+    source: Source
+) extends Instance[Submission] derives ToRelPath {
   private val report_name = os.rel / "REPORT.txt"
 
   // the time git gives a commit (its committer's), as an instant
@@ -35,8 +39,8 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   lazy val submission: Target[Option[Commit]] =
     target(
       (
-        w = env.source.master(repos.WorkRepo.name_of(c, p, csid)),
-        base = env.source.master(repos.ProjectRepo.name_of(c, p))
+        w = source.master(repos.WorkRepo.name_of(c, p, csid)),
+        base = source.master(repos.ProjectRepo.name_of(c, p))
       )
     ) { (producer, deps) =>
       deps.w.filter(w =>
@@ -52,7 +56,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
     target(
       (
         sub = submission,
-        base = env.source.master(repos.ProjectRepo.name_of(c, p))
+        base = source.master(repos.ProjectRepo.name_of(c, p))
       )
     ) { (producer, deps) =>
       def report(m: Option[Commit]) =
@@ -62,7 +66,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
 
   // whether the student's repo has a spamon file
   lazy val has_spamon: Target[Boolean] =
-    target((w = env.source.master(repos.WorkRepo.name_of(c, p, csid)))) {
+    target((w = source.master(repos.WorkRepo.name_of(c, p, csid)))) {
       (producer, deps) =>
         deps.w.exists(m =>
           producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
@@ -79,8 +83,8 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
       target(
         (
           sub = submission,
-          refs = env.source.refs(repos.WorkRepo.name_of(c, p, csid)),
-          deadline = Project(c, p, env).deadline(csid, phase)
+          refs = source.refs(repos.WorkRepo.name_of(c, p, csid)),
+          deadline = Project(c, p, source).deadline(csid, phase)
         )
       ) { (producer, deps) =>
         deps.sub.flatMap { m =>
@@ -157,7 +161,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
     target(
       (
         info = prepare_info(phase),
-        deadline = Project(c, p, env).deadline(csid, phase)
+        deadline = Project(c, p, source).deadline(csid, phase)
       )
     ) { (_, deps) =>
       deps.info.forall(_.commit_time.isAfter(local(deps.deadline)))
@@ -171,14 +175,14 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   lazy val prepare: String => Target[WithData[Unit]] = fun { (sha: String) =>
     target(
       (
-        ov = env.source.master(repos.OverrideRepo.name_of(c, p)),
-        ext = Project(c, p, env).test_extensions
+        ov = source.master(repos.OverrideRepo.name_of(c, p)),
+        ext = Project(c, p, source).test_extensions
       )
     ) { (producer, deps) =>
       create_data(producer) { dir =>
         val commit = producer.commit(
           Commit(
-            env.source.dir(repos.WorkRepo.name_of(c, p, csid)).toString,
+            source.dir(repos.WorkRepo.name_of(c, p, csid)).toString,
             sha
           )
         )
@@ -198,8 +202,8 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
     target(
       (
         sub = submission,
-        ext = Project(c, p, env).test_extensions,
-        cutoff = Project(c, p, env).test_cutoff
+        ext = Project(c, p, source).test_extensions,
+        cutoff = Project(c, p, source).test_cutoff
       )
     ) { (producer, deps) =>
       val by = local(deps.cutoff).toInstant.nn
@@ -224,7 +228,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   // read them
   lazy val published_results_readable: Target[Boolean] =
     target(
-      (m = env.source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
+      (m = source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
     ) { (producer, deps) =>
       Project.readable[StudentResults](
         Project.text_on(producer, deps.m, "the_results.json"),
@@ -236,7 +240,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   // be read, saying what rewrites them (as Project.get_student_results).
   lazy val published_results: Target[Option[StudentResults]] =
     target(
-      (m = env.source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
+      (m = source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
     ) { (producer, deps) =>
       Project.text_on(producer, deps.m, "the_results.json").map { json =>
         Try(
@@ -274,12 +278,12 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   // ---- grading -------------------------------------------------------
 
   lazy val alias: Target[Option[Alias]] =
-    target((aliases = Project(c, p, env).aliases))((_, deps) =>
+    target((aliases = Project(c, p, source).aliases))((_, deps) =>
       deps.aliases.get(csid)
     )
 
   lazy val has_test: Target[Boolean] =
-    target((with_tests = Project(c, p, env).csids_with_tests))((_, deps) =>
+    target((with_tests = Project(c, p, source).csids_with_tests))((_, deps) =>
       deps.with_tests.contains(csid)
     )
 
@@ -290,12 +294,12 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
   lazy val outcomes: (Phase, Int) => Target[Seq[WithData[Outcome]]] = fun {
     (phase: Phase, n: Int) =>
       complex_target[Seq[WithData[Outcome]]] { tracker =>
-        val st = tracker.track(Project(c, p, env).state)
+        val st = tracker.track(Project(c, p, source).state)
         val keep_going = st.keeps_going(phase)
         val run =
-          tracker.track(Project(c, p, env).test_ids_for(st.tests(phase)))
+          tracker.track(Project(c, p, source).test_ids_for(st.tests(phase)))
         val others = tracker
-          .track(Project(c, p, env).test_ids_for(st.shows(phase)))
+          .track(Project(c, p, source).test_ids_for(st.shows(phase)))
           .filterNot(run.contains)
         val wanted = for {
           _ <- tracker.track(prepare_info(phase)).toSeq
@@ -343,7 +347,7 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
       complex_target[SortedSet[TestId]] { tracker =>
         val wanted = for {
           _ <- tracker.track(prepare_info(phase)).toSeq
-          id <- tracker.track(Project(c, p, env).phase2_test_ids).toSeq
+          id <- tracker.track(Project(c, p, source).phase2_test_ids).toSeq
         } yield run_one(true, n)(phase, id)
         val outs = tracker.track_all(wanted)
         tracker.run_if_needed { _ =>
@@ -374,12 +378,12 @@ final case class Submission(c: CourseName, p: ProjectName, csid: CSID, env: Env)
       complex_target[WithData[Outcome]] { tracker =>
         val deps = tracker.track_all(
           (
-            test = Project(c, p, env).test_info(id),
+            test = Project(c, p, source).test_info(id),
             info = prepare_info(phase),
-            prepared = repos.PreparedRepo(c, p, csid, env).prepared(phase),
-            cores = Project(c, p, env).cores,
-            docker_file = Project(c, p, env).docker_file,
-            image = Project(c, p, env).docker_image
+            prepared = repos.PreparedRepo(c, p, csid, source).prepared(phase),
+            cores = Project(c, p, source).cores,
+            docker_file = Project(c, p, source).docker_file,
+            image = Project(c, p, source).docker_image
           )
         )
         val (sha, prepared) = (deps.info, deps.prepared) match {

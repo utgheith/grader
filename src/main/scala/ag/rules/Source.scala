@@ -84,6 +84,10 @@ final class Source(val root: os.Path) {
 }
 
 object Source {
+  // never part of a target's name: it's what targets work from, not which
+  // they are (see ag.grader.repos.Instance)
+  given ag.common.ToRelPath[Source] = ag.common.ToRelPath.Omitted()
+
   def is_repo(d: os.Path): Boolean =
     os.isFile(d / "HEAD") && os.isDir(d / "objects") && os.isDir(d / "refs")
 }

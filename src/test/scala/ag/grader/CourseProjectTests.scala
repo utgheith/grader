@@ -61,34 +61,34 @@ class CourseProjectTests extends FunSuite {
     val mirror = root / "mirror"
     courses(mirror)
     repo(mirror, "c1_p1", "README" -> "base")
-    val env = repos.Env(Source(mirror))
+    val source = Source(mirror)
     val s = State(root / "ws")
-    assertEquals(s.track(CoursesConfig(env).course_names), SortedSet(c1))
-    assertEquals(s.track(CoursesConfig(env).active_courses(CoursesConfig.any)), SortedSet(c1))
-    assertEquals(s.track(Course(c1, env).staff), SortedSet(CSID("prof")))
-    assertEquals(s.track(Course(c1, env).project_names), SortedSet(p1, p2))
+    assertEquals(s.track(CoursesConfig(source).course_names), SortedSet(c1))
+    assertEquals(s.track(CoursesConfig(source).active_courses(CoursesConfig.any)), SortedSet(c1))
+    assertEquals(s.track(Course(c1, source).staff), SortedSet(CSID("prof")))
+    assertEquals(s.track(Course(c1, source).project_names), SortedSet(p1, p2))
     // p2 has no repo
-    assertEquals(s.track(Project(c1, p1, env).active), true)
-    assertEquals(s.track(Project(c1, p2, env).active), false)
-    assertEquals(s.track(Course(c1, env).active_projects(CoursesConfig.any)), SortedSet(p1))
+    assertEquals(s.track(Project(c1, p1, source).active), true)
+    assertEquals(s.track(Project(c1, p2, source).active), false)
+    assertEquals(s.track(Course(c1, source).active_projects(CoursesConfig.any)), SortedSet(p1))
     // picked by a regex on the name
-    assertEquals(s.track(CoursesConfig(env).active_courses("c[2-9]".r)), SortedSet[CourseName]())
-    assertEquals(s.track(Course(c1, env).active_projects("p[1-2]".r)), SortedSet(p1))
-    assertEquals(s.track(Course(c1, env).active_projects("p2".r)), SortedSet[ProjectName]())
-    assertEquals(s.track(Project(c1, p1, env).phase1_tests), SortedSet("a", "b"))
-    assertEquals(s.track(Project(c1, p1, env).docker_file), Some("Dockerfile"))
-    assertEquals(s.track(Project(c1, p1, env).staff), SortedSet(CSID("ta")))
-    assertEquals(s.track(Project(c1, ProjectName("nope"), env).find), None)
-    assertEquals(s.track(Course(CourseName("nope"), env).find), None)
+    assertEquals(s.track(CoursesConfig(source).active_courses("c[2-9]".r)), SortedSet[CourseName]())
+    assertEquals(s.track(Course(c1, source).active_projects("p[1-2]".r)), SortedSet(p1))
+    assertEquals(s.track(Course(c1, source).active_projects("p2".r)), SortedSet[ProjectName]())
+    assertEquals(s.track(Project(c1, p1, source).phase1_tests), SortedSet("a", "b"))
+    assertEquals(s.track(Project(c1, p1, source).docker_file), Some("Dockerfile"))
+    assertEquals(s.track(Project(c1, p1, source).staff), SortedSet(CSID("ta")))
+    assertEquals(s.track(Project(c1, ProjectName("nope"), source).find), None)
+    assertEquals(s.track(Course(CourseName("nope"), source).find), None)
   }
 
   test("deadlines: phase 1 at the test cutoff, phase 2 and the latest at the code cutoff, plus extensions") {
     val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
-    val env = repos.Env(Source(mirror))
+    val source = Source(mirror)
     val s = State(root / "ws")
-    def deadline(csid: CSID, phase: Phase) = s.track(Project(c1, p1, env).deadline(csid, phase))
+    def deadline(csid: CSID, phase: Phase) = s.track(Project(c1, p1, source).deadline(csid, phase))
     val other = CSID("s2")
     assertEquals(deadline(other, Phase.One), cutoff.minusDays(7).nn)
     assertEquals(deadline(other, Phase.Two), cutoff)
@@ -102,21 +102,21 @@ class CourseProjectTests extends FunSuite {
     val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
-    val env = repos.Env(Source(mirror))
-    assertEquals(State(root / "ws").track(Course(c1, env).active_projects(CoursesConfig.any)), SortedSet[ProjectName]())
+    val source = Source(mirror)
+    assertEquals(State(root / "ws").track(Course(c1, source).active_projects(CoursesConfig.any)), SortedSet[ProjectName]())
     repo(mirror, "c1_p1", "README" -> "base")
     repo(mirror, "c1_p2", "README" -> "base")
-    assertEquals(State(root / "ws").track(Course(c1, env).active_projects(CoursesConfig.any)), SortedSet(p1, p2))
+    assertEquals(State(root / "ws").track(Course(c1, source).active_projects(CoursesConfig.any)), SortedSet(p1, p2))
     courses(mirror, p1_active = false)
-    assertEquals(State(root / "ws").track(Course(c1, env).active_projects(CoursesConfig.any)), SortedSet(p2))
+    assertEquals(State(root / "ws").track(Course(c1, source).active_projects(CoursesConfig.any)), SortedSet(p2))
   }
 
   test("a missing course or project fails its settings, with its name") {
     val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
-    val env = repos.Env(Source(mirror))
-    val e = intercept[Throwable](State(root / "ws").track(Project(c1, ProjectName("nope"), env).cores))
+    val source = Source(mirror)
+    val e = intercept[Throwable](State(root / "ws").track(Project(c1, ProjectName("nope"), source).cores))
     assert(clue(Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")).contains("c1/nope"))
   }
 }

@@ -6,7 +6,7 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.grader.{Course, CourseName, RawCourse, RawCourseNotSorted}
-import ag.rules.Target
+import ag.rules.{Source, Target}
 
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.matching.Regex
@@ -15,8 +15,8 @@ import scala.util.matching.Regex
 // are (courses.json). A course's settings are in CourseConfig, a project's
 // in ProjectConfig: each setting a target of its own, so what reads one
 // isn't worked out again when another changes.
-final case class CoursesConfig(env: Env) extends ReadOnlyRepo[CoursesConfig]
-    derives ToRelPath {
+final case class CoursesConfig(source: Source)
+    extends ReadOnlyRepo[CoursesConfig] derives ToRelPath {
   def repo_name: String = "courses_config"
 
   // courses.json, or no courses if courses_config or the file isn't there
@@ -41,7 +41,7 @@ final case class CoursesConfig(env: Env) extends ReadOnlyRepo[CoursesConfig]
     complex_target[SortedSet[CourseName]] { tracker =>
       val names = tracker.track(course_names).toSeq
       val flags =
-        tracker.track_all(names.map(c => Course(c, env).active))
+        tracker.track_all(names.map(c => Course(c, source).active))
       tracker.run_if_needed(_ =>
         names.zip(flags).collect { case (n, true) => n }.to(SortedSet)
       )

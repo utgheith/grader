@@ -2,14 +2,14 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{CourseName, Create, Project, ProjectName, Publish}
-import ag.rules.{Target, WithData}
+import ag.rules.{Source, Target, WithData}
 
 // A project's override repo: its tests and Makefiles, which the staff keep
 // (as Project.publish_override_repo). Everyone can read it, the staff
 // write it. The grader starts it from the project repo's tests and
 // Makefiles (adding them to what's there, if the staff made it first), and
 // marks it .initialized; then it's theirs.
-final case class OverrideRepo(c: CourseName, p: ProjectName, env: Env)
+final case class OverrideRepo(c: CourseName, p: ProjectName, source: Source)
     extends HandedOverRepo[OverrideRepo] derives ToRelPath {
   def repo_name: String = OverrideRepo.name_of(c, p)
   def create: Option[Create] =
@@ -24,8 +24,8 @@ final case class OverrideRepo(c: CourseName, p: ProjectName, env: Env)
     handed_over(
       _.track_all(
         (
-          project = ProjectRepo(c, p, env).inspect,
-          ext = Project(c, p, env).test_extensions
+          project = ProjectRepo(c, p, source).inspect,
+          ext = Project(c, p, source).test_extensions
         )
       )
     ) { (in, producer, dir) =>
