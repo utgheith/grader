@@ -185,12 +185,31 @@ final class Publishers(val grading: Grading, val dropbox: Dropbox)
       students: Iterable[CSID],
       n: Int
   ): Seq[Target[WithData[Publish]]] =
-    all(c, p) ++ (results(c, p, n) +: students.toSeq.flatMap(csid =>
+    all(c, p) ++ (results(c, p, n) +: students_graded(c, p, students, n))
+
+  // the same, as far as `students` (some of those with a submission) have
+  // run: no test runs again (n = 0; see TestRuns.run_one), so students and
+  // tests run to different counts can share the results repo
+  def graded_so_far(
+      c: CourseName,
+      p: ProjectName,
+      students: Iterable[CSID]
+  ): Seq[Target[WithData[Publish]]] =
+    all(c, p) ++ (results(c, p, 0) +: students_graded(c, p, students, 0))
+
+  // each student's own results and prepared code
+  private def students_graded(
+      c: CourseName,
+      p: ProjectName,
+      students: Iterable[CSID],
+      n: Int
+  ): Seq[Target[WithData[Publish]]] =
+    students.toSeq.flatMap(csid =>
       Seq(
         student_results(c, p, csid, n),
         repos.PreparedRepo(c, p, csid, env).latest
       )
-    ))
+    )
 
   // ---- the courses' repos ----------------------------------------------
 

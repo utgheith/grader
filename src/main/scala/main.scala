@@ -280,6 +280,34 @@ object Main {
       s.tally.report("projects", ps.size, commonArgs.verbose.value)
     }
 
+  // Each picked active course's enrolled students (picked by -s), each with
+  // the picked active projects they have a submission in
+  @main
+  def students(commonArgs: CommonArgs): Unit =
+    in_r3_workspace(commonArgs) { s =>
+      val subs = publishers_of(commonArgs.workspace).grading.runs.subs
+      val defs = subs.defs
+      var shown = 0
+      for (c <- defs.active_courses(commonArgs.courses_).tally(s).toSeq) {
+        val ps = s.track(defs.active_projects(c, commonArgs.projects_)).toSeq
+        val submitted = s.track_all(ps.map(subs.students_with_submission(c, _)))
+        val csids = subs.enrolled(c, commonArgs.students_).tally(s).toSeq
+        println(s"\n$c (${csids.size.toString} students):")
+        val width = csids.map(_.value.length).maxOption.getOrElse(0)
+        for (csid <- csids) {
+          val in = for {
+            (p, with_submission) <- ps.zip(submitted)
+            if with_submission.contains(csid)
+          } yield p.value
+          println(
+            String.format(s"  %-${width}s  %s", csid.value, in.mkString(" "))
+          )
+        }
+        shown += csids.size
+      }
+      s.tally.report("students", shown, commonArgs.verbose.value)
+    }
+
   // Each picked enrolled student's alias in each picked active project, as
   // `grade` would publish it (marked if it isn't published yet; ? if they
   // have none: no submission yet). -s picks students by CSID; -t picks them
@@ -648,7 +676,10 @@ object Main {
   // far as they got, in the outbox, for `sync` to push: what the project
   // publishes (override, aliases, submitted tests, tests), its results, and
   // each student's own results and prepared code (see Publishers.graded).
-  // The r3 form of publish_results.
+  // The r3 form of publish_results. With -s or -t, only the students and
+  // tests they pick are run (as run's), and what's recorded is everyone's
+  // results as far as they've run (see Publishers.graded_so_far), with only
+  // the picked students' own repos.
   @main
   def grade(
       commonArgs: CommonArgs,
@@ -660,11 +691,19 @@ object Main {
     in_r3_workspace(commonArgs) { s =>
       val pubs = publishers_of(commonArgs.workspace)
       val subs = pubs.grading.runs.subs
-      if (commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*")
-        println("grade publishes whole projects: -s and -t are ignored")
-      val projects = run_projects(s, commonArgs, tries, false, None)
+      val picking =
+        commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
+      val projects = run_projects(s, commonArgs, tries, picking, None)
       val wanted = s.track_all(projects.flatMap { (c, p, n) =>
-        pubs.graded(c, p, s.track(subs.students_with_submission(c, p)), n)
+        val students = s.track(subs.students_with_submission(c, p)).toSeq
+        if (picking)
+          pubs.graded_so_far(
+            c,
+            p,
+            // as run_projects picked them (its report counts them)
+            students.filter(csid => commonArgs.students_.matches(csid.value))
+          )
+        else pubs.graded(c, p, students, n)
       })
       val ob = outbox_of(commonArgs.workspace)
       val k = wanted.count(ob.record)
