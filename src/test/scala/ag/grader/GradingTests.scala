@@ -59,7 +59,7 @@ class GradingTests extends FunSuite {
     val (_, env, _, sha) = setup(root)
     val g = env.grading
     val s = State(root / "ws")
-    assertEquals(s.track(g.state(c1, p1)), ProjectState.AfterSecondDeadline)
+    assertEquals(s.track(Project(c1, p1, env).state), ProjectState.AfterSecondDeadline)
     val latest = s.track(g.student_results(c1, p1, s1, Phase.Latest, 1)).get
     assertEquals(latest.prepare_info.sha, sha)
     assertEquals(latest.alias, Some(Alias(1)))
@@ -74,7 +74,7 @@ class GradingTests extends FunSuite {
     assertEquals(s.track(g.student_results(c1, p1, CSID("s2"), Phase.Latest, 1)), None)
     // scores: the phase 2 tests passed
     assertEquals(
-      s.track(g.scores(c1, p1, Phase.Latest, 1)),
+      s.track(Project(c1, p1, env).scores(Phase.Latest, 1)),
       SortedMap(s1 -> SortedSet(t0))
     )
   }
@@ -82,10 +82,9 @@ class GradingTests extends FunSuite {
   test("the results repo: a file per phase; has_work until the results cover n tries") {
     val root = TempDirs.dir()
     val (r, env, ob, _) = setup(root)
-    val g = env.grading
     def has_work(n: Int) =
       Seq(Phase.Latest, Phase.One, Phase.Two)
-        .exists(ph => State(root / "ws").track(g.has_work(c1, p1, ph, n)))
+        .exists(ph => State(root / "ws").track(Project(c1, p1, env).has_work(ph, n)))
     assert(has_work(1))
 
     val s = State(root / "ws")

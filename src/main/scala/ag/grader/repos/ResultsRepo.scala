@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CourseName, Create, ProjectName, Publish}
+import ag.grader.{CourseName, Create, Project, ProjectName, Publish}
 import ag.rules.{Target, WithData}
 
 // Every student's results, by alias, for each phase the project publishes
@@ -18,7 +18,7 @@ final case class ResultsRepo(c: CourseName, p: ProjectName, env: Env)
   // graded to `n` tries (0: as far as each student has run; see
   // TestRuns.run_one)
   lazy val latest: Int => Target[WithData[Publish]] = fun { (n: Int) =>
-    owned(_.track(env.grading.results_files(c, p, n))) { (files, _, dir) =>
+    owned(_.track(Project(c, p, env).results_files(n))) { (files, _, dir) =>
       for ((name, data) <- files)
         os.write.over(dir / name, upickle.default.write(data, indent = 2))
       Seq()

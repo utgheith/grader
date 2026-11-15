@@ -1,10 +1,6 @@
 package ag.grader
 
-import ag.common.{
-  given_ReadWriter_SortedMap,
-  given_ReadWriter_SortedSet,
-  NoNulls
-}
+import ag.common.{given_ReadWriter_SortedMap, NoNulls}
 import ag.rules.{
   Commit,
   CommitInfo,
@@ -30,21 +26,6 @@ import scala.util.matching.Regex
 // from the mirror, and copied out (prepare) only where a tool needs them.
 final class Submissions(val env: repos.Env) extends Scope("submissions") {
   private val source = env.source
-
-  def project_repo(c: CourseName, p: ProjectName): String =
-    repos.ProjectRepo.name_of(c, p)
-  def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    repos.WorkRepo.name_of(c, p, csid)
-  def override_repo(c: CourseName, p: ProjectName): String =
-    repos.OverrideRepo.name_of(c, p)
-  def aliases_repo(c: CourseName, p: ProjectName): String =
-    repos.AliasesRepo.name_of(c, p)
-  def results_repo(c: CourseName, p: ProjectName): String =
-    repos.ResultsRepo.name_of(c, p)
-  def student_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    repos.StudentResultsRepo.name_of(c, p, csid)
-  def enrollment_repo(c: CourseName): String =
-    repos.EnrollmentRepo.name_of(c)
 
   private val report_name = os.rel / "REPORT.txt"
 
@@ -72,8 +53,8 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
     (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
         (
-          w = source.master(work_repo(c, p, csid)),
-          base = source.master(project_repo(c, p))
+          w = source.master(repos.WorkRepo.name_of(c, p, csid)),
+          base = source.master(repos.ProjectRepo.name_of(c, p))
         )
       ) { (producer, deps) =>
         deps.w.filter(w =>
@@ -84,35 +65,16 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
       }
   }
 
-  // the enrolled students' submissions
-  lazy val submissions
-      : (CourseName, ProjectName) => Target[SortedMap[CSID, Commit]] =
-    fun { (c: CourseName, p: ProjectName) =>
-      complex_target[SortedMap[CSID, Commit]] { tracker =>
-        val csids = tracker.track(Course(c, env).enrolled_csids).toSeq
-        val subs = tracker.track_all(csids.map(csid => submission(c, p, csid)))
-        tracker.run_if_needed(_ =>
-          csids
-            .zip(subs)
-            .collect { case (csid, Some(s)) => (csid, s) }
-            .to(SortedMap)
-        )
-      }
-    }
-
-  lazy val students_with_submission
-      : (CourseName, ProjectName) => Target[SortedSet[CSID]] = fun {
-    (c: CourseName, p: ProjectName) =>
-      target((s = submissions(c, p)))((_, deps) => deps.s.keySet)
-  }
-
   // Whether the submission's REPORT.txt differs from the project's (either
   // may be missing)
   lazy val has_student_report
       : (CourseName, ProjectName, CSID) => Target[Boolean] = fun {
     (c: CourseName, p: ProjectName, csid: CSID) =>
       target(
-        (sub = submission(c, p, csid), base = source.master(project_repo(c, p)))
+        (
+          sub = submission(c, p, csid),
+          base = source.master(repos.ProjectRepo.name_of(c, p))
+        )
       ) { (producer, deps) =>
         def report(m: Option[Commit]) =
           m.flatMap(m => producer.id_at(producer.commit(m).tree, report_name))
@@ -123,10 +85,11 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
   // whether the student's repo has a spamon file
   lazy val has_spamon: (CourseName, ProjectName, CSID) => Target[Boolean] =
     fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-      target((w = source.master(work_repo(c, p, csid)))) { (producer, deps) =>
-        deps.w.exists(m =>
-          producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
-        )
+      target((w = source.master(repos.WorkRepo.name_of(c, p, csid)))) {
+        (producer, deps) =>
+          deps.w.exists(m =>
+            producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
+          )
       }
     }
 
@@ -143,7 +106,7 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
       target(
         (
           sub = submission(c, p, csid),
-          refs = source.refs(work_repo(c, p, csid)),
+          refs = source.refs(repos.WorkRepo.name_of(c, p, csid)),
           deadline = Project(c, p, env).deadline(csid, phase)
         )
       ) { (producer, deps) =>
@@ -238,13 +201,13 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
     fun { (c: CourseName, p: ProjectName, csid: CSID, sha: String) =>
       target(
         (
-          ov = source.master(override_repo(c, p)),
+          ov = source.master(repos.OverrideRepo.name_of(c, p)),
           ext = Project(c, p, env).test_extensions
         )
       ) { (producer, deps) =>
         create_data(producer) { dir =>
           val commit = producer.commit(
-            Commit(source.dir(work_repo(c, p, csid)).toString, sha)
+            Commit(source.dir(repos.WorkRepo.name_of(c, p, csid)).toString, sha)
           )
           producer.copy_to(commit.tree, dir)
           deps.ov.foreach(o => producer.copy_to(producer.commit(o).tree, dir))
@@ -291,43 +254,7 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
       }
     }
 
-  lazy val student_tests_by_csid
-      : (CourseName, ProjectName) => Target[SortedMap[CSID, WithData[String]]] =
-    fun { (c: CourseName, p: ProjectName) =>
-      complex_target[SortedMap[CSID, WithData[String]]] { tracker =>
-        val csids = tracker.track(students_with_submission(c, p)).toSeq
-        val tests =
-          tracker.track_all(csids.map(csid => student_test(c, p, csid)))
-        tracker.run_if_needed(_ =>
-          (for {
-            (csid, t) <- csids.zip(tests)
-            rev <- t.value.toSeq
-          } yield (csid, WithData(rev, t.data))).to(SortedMap)
-        )
-      }
-    }
-
-  lazy val csids_with_tests
-      : (CourseName, ProjectName) => Target[SortedSet[CSID]] = fun {
-    (c: CourseName, p: ProjectName) =>
-      target((t = student_tests_by_csid(c, p)))((_, deps) => deps.t.keySet)
-  }
-
   // ---- what the grader published, read back ----------------------------
-
-  // the project's aliases (none if the repo or file isn't there, or can't
-  // be read)
-  lazy val aliases
-      : (CourseName, ProjectName) => Target[SortedMap[CSID, Alias]] = fun {
-    (c: CourseName, p: ProjectName) =>
-      target((m = source.master(aliases_repo(c, p)))) { (producer, deps) =>
-        text_on(producer, deps.m, "aliases.json")
-          .flatMap(json =>
-            Try(upickle.default.read[SortedMap[CSID, Alias]](json)).toOption
-          )
-          .getOrElse(SortedMap[CSID, Alias]())
-      }
-  }
 
   private def readable[A: upickle.default.Reader](
       json: Option[String],
@@ -342,81 +269,42 @@ final class Submissions(val env: repos.Env) extends Scope("submissions") {
   lazy val student_results_readable
       : (CourseName, ProjectName, CSID) => Target[Boolean] =
     fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-      target((m = source.master(student_results_repo(c, p, csid)))) {
-        (producer, deps) =>
-          readable[StudentResults](
-            text_on(producer, deps.m, "the_results.json"),
-            "the_results.json"
-          )
-      }
-    }
-
-  lazy val results_readable
-      : (CourseName, ProjectName, Phase) => Target[Boolean] = fun {
-    (c: CourseName, p: ProjectName, phase: Phase) =>
-      target((m = source.master(results_repo(c, p)))) { (producer, deps) =>
-        readable[SortedMap[Alias, RedactedStudentResults]](
-          text_on(producer, deps.m, phase.results_file),
-          phase.results_file
+      target(
+        (m = source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
+      ) { (producer, deps) =>
+        readable[StudentResults](
+          text_on(producer, deps.m, "the_results.json"),
+          "the_results.json"
         )
       }
-  }
-
-  // A phase's published results, by alias (as Project.results): Right(None)
-  // if there are none yet, Left(why) if they can't be read by this version
-  // of the grader
-  lazy val results: (CourseName, ProjectName, Phase) => Target[
-    Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
-  ] = fun { (c: CourseName, p: ProjectName, phase: Phase) =>
-    target((m = source.master(results_repo(c, p)))) { (producer, deps) =>
-      val out: Either[
-        String,
-        Option[SortedMap[Alias, RedactedStudentResults]]
-      ] = text_on(producer, deps.m, phase.results_file) match {
-        case None       => Right(None)
-        case Some(json) =>
-          Try(
-            NoNulls.check(
-              upickle.default
-                .read[SortedMap[Alias, RedactedStudentResults]](json),
-              phase.results_file
-            )
-          ).toEither.left
-            .map(e =>
-              s"${results_repo(c, p)}'s ${phase.results_file} isn't readable by this version " +
-                s"of the grader; `run grade -c $c -p $p` rewrites it (${String.valueOf(e.getMessage)})"
-            )
-            .map(Some(_))
-      }
-      out
     }
-  }
 
   // The student's published results, if there are any. Fails if they can't
   // be read, saying what rewrites them (as Project.get_student_results).
   lazy val student_results
       : (CourseName, ProjectName, CSID) => Target[Option[StudentResults]] =
     fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-      target((m = source.master(student_results_repo(c, p, csid)))) {
-        (producer, deps) =>
-          text_on(producer, deps.m, "the_results.json").map { json =>
-            Try(
-              NoNulls.check(
-                upickle.default.read[StudentResults](json),
-                "the_results.json"
-              )
+      target(
+        (m = source.master(repos.StudentResultsRepo.name_of(c, p, csid)))
+      ) { (producer, deps) =>
+        text_on(producer, deps.m, "the_results.json").map { json =>
+          Try(
+            NoNulls.check(
+              upickle.default.read[StudentResults](json),
+              "the_results.json"
             )
-              .fold(
-                e =>
-                  throw IllegalStateException(
-                    s"${student_results_repo(c, p, csid)}'s the_results.json isn't readable by this " +
-                      s"version of the grader; `run grade -c $c -p $p` " +
-                      s"rewrites it (${e.getMessage})",
-                    e
-                  ),
-                identity
-              )
-          }
+          )
+            .fold(
+              e =>
+                throw IllegalStateException(
+                  s"${repos.StudentResultsRepo.name_of(c, p, csid)}'s the_results.json isn't readable by this " +
+                    s"version of the grader; `run grade -c $c -p $p` " +
+                    s"rewrites it (${e.getMessage})",
+                  e
+                ),
+              identity
+            )
+        }
       }
     }
 

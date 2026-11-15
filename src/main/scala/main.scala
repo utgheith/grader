@@ -309,7 +309,9 @@ object Main {
       ) {
         val ps =
           s.track(Course(c, env).active_projects(commonArgs.projects_)).toSeq
-        val submitted = s.track_all(ps.map(subs.students_with_submission(c, _)))
+        val submitted = s.track_all(
+          ps.map(p => Project(c, p, env).students_with_submission)
+        )
         val csids = Course(c, env).enrolled(commonArgs.students_).tally(s).toSeq
         println(s"\n$c (${csids.size.toString} students):")
         val width = csids.map(_.value.length).maxOption.getOrElse(0)
@@ -355,8 +357,8 @@ object Main {
           .toSeq
         p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } {
-        val aliases = runs.aliases(c, p).tally(s)
-        val published = s.track(subs.aliases(c, p))
+        val aliases = Project(c, p, env).aliases.tally(s)
+        val published = s.track(Project(c, p, env).published_aliases)
         val csids = Course(c, env)
           .enrolled(commonArgs.students_)
           .tally(s)
@@ -421,11 +423,11 @@ object Main {
           .toSeq
         p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
       } {
-        val state = s.track(grading.state(c, p))
+        val state = s.track(Project(c, p, env).state)
         val tests = state.tests(phase)
         val shown = state.shows(phase)
-        val ids = grading.runs
-          .test_ids_for(c, p, tests)
+        val ids = Project(c, p, env)
+          .test_ids_for(tests)
           .tally(s)
           .toSeq
           .filter(id =>
@@ -581,7 +583,7 @@ object Main {
     } yield (c, p)
     def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
     def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
-      s.track(grading.state(c, p))
+      s.track(Project(c, p, env).state)
     def phases(c: ag.grader.CourseName, p: ag.grader.ProjectName): Seq[Phase] =
       Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
     def work(
@@ -591,7 +593,8 @@ object Main {
       ag.grader.Priority.band(
         state(c, p).is_live,
         s.track(Project(c, p, env).iterations),
-        n => phases(c, p).exists(ph => s.track(grading.has_work(c, p, ph, n)))
+        n =>
+          phases(c, p).exists(ph => s.track(Project(c, p, env).has_work(ph, n)))
       )
     def report(
         c: ag.grader.CourseName,
@@ -642,11 +645,11 @@ object Main {
         val runs = grading.runs
         val outs = s.track_all(for {
           ph <- run_phases
-          csid <- subs.students_with_submission(c, p).tally(s).toSeq
+          csid <- Project(c, p, env).students_with_submission.tally(s).toSeq
           if f.keep("matching -s", commonArgs.students_.matches(csid.value))
           // a commit to grade for the phase
           _ <- subs.prepare_info(c, p, csid, ph).tally(s).toSeq
-          id <- runs.test_ids_for(c, p, st.tests(ph)).tally(s).toSeq
+          id <- Project(c, p, env).test_ids_for(st.tests(ph)).tally(s).toSeq
           if f.keep(
             "matching -t",
             commonArgs.tests_.matches(id.external_name) ||
@@ -660,8 +663,9 @@ object Main {
         )
         f.report("run", results.size, commonArgs.verbose.value)
       } else {
-        val students = s.track(subs.students_with_submission(c, p)).toSeq
-        val files = s.track(grading.results_files(c, p, n))
+        val students =
+          s.track(Project(c, p, env).students_with_submission).toSeq
+        val files = s.track(Project(c, p, env).results_files(n))
         val latest = s.track_all(
           students.map(grading.student_results(c, p, _, Phase.Latest, n))
         )
@@ -715,12 +719,12 @@ object Main {
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
       val env = env_of(commonArgs.workspace)
-      val subs = env.subs
       val picking =
         commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
       val projects = run_projects(s, commonArgs, tries, picking, None)
       val wanted = s.track_all(projects.flatMap { (c, p, n) =>
-        val students = s.track(subs.students_with_submission(c, p)).toSeq
+        val students =
+          s.track(Project(c, p, env).students_with_submission).toSeq
         if (picking)
           ag.grader.repos.Grade.so_far(
             c,
@@ -761,13 +765,15 @@ object Main {
       } {
         val weights = s.track(Project(c, p, env).test_weights)
         val weight = (for {
-          t <- s.track(runs.test_ids(c, p)).toSeq
+          t <- s.track(Project(c, p, env).test_ids).toSeq
           w <- weights
           if Regex(w.pattern).matches(t.external_name)
         } yield (t, w.weight)).to(SortedMap)
         val total = weight.values.sum
         println(s"${c}_$p after 1 runs, total $total:")
-        for ((csid, passed) <- s.track(grading.scores(c, p, phase, tries))) {
+        for (
+          (csid, passed) <- s.track(Project(c, p, env).scores(phase, tries))
+        ) {
           val raw = passed.toSeq.map(weight).sum
           val late = s.track(runs.subs.is_late(c, p, csid, phase))
           val score = if (late) raw.toDouble / 2.0 else raw.toDouble

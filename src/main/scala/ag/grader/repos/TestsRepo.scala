@@ -27,10 +27,10 @@ final case class TestsRepo(c: CourseName, p: ProjectName, env: Env)
     owned(
       _.track_all(
         (
-          tests = env.subs.student_tests_by_csid(c, p),
-          aliases = env.runs.aliases(c, p),
+          tests = Project(c, p, env).student_tests_by_csid,
+          aliases = Project(c, p, env).aliases,
           ext = Project(c, p, env).test_extensions,
-          names = env.runs.override_test_names(c, p),
+          names = Project(c, p, env).override_test_names,
           ov = OverrideRepo(c, p, env).inspect
         )
       )

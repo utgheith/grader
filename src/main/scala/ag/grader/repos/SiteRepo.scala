@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CourseName, Create, HtmlGen, Publish}
+import ag.grader.{Course, CourseName, Create, HtmlGen, Publish}
 import ag.rules.{Target, Tree, WithData}
 
 // A course's report site (as r2's Course.publish_site): the report pages of its
@@ -18,7 +18,7 @@ final case class SiteRepo(c: CourseName, env: Env) extends OwnedRepo[SiteRepo]
   override protected def replaces_all: Boolean = false
 
   lazy val latest: Target[WithData[Publish]] =
-    owned(_.track(env.grading.site_inputs(c))) { (inputs, producer, dir) =>
+    owned(_.track(Course(c, env).site_inputs)) { (inputs, producer, dir) =>
       val now = java.time.LocalDateTime.now().nn
       for {
         i <- inputs

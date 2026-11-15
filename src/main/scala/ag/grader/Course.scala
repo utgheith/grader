@@ -81,4 +81,17 @@ final case class Course(c: CourseName, env: Env) extends Instance[Course]
       deps.e.filter(csid => re.matches(csid.value))
     )
   }
+
+  // ---- report pages ----------------------------------------------------
+
+  // what every active project's report pages show (see
+  // Project.report_inputs)
+  lazy val site_inputs: Target[Seq[ReportInputs]] =
+    complex_target[Seq[ReportInputs]] { tracker =>
+      val projects =
+        tracker.track(active_projects(CoursesConfig.any)).toSeq
+      val inputs =
+        tracker.track_all(projects.map(p => Project(c, p, env).report_inputs))
+      tracker.run_if_needed(_ => inputs)
+    }
 }

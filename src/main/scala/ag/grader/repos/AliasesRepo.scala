@@ -1,7 +1,15 @@
 package ag.grader.repos
 
 import ag.common.{ToRelPath, given_ReadWriter_SortedMap}
-import ag.grader.{Alias, CSID, CourseName, Create, ProjectName, Publish}
+import ag.grader.{
+  Alias,
+  CSID,
+  CourseName,
+  Create,
+  Project,
+  ProjectName,
+  Publish
+}
 import ag.rules.{Target, WithData}
 
 import scala.collection.SortedMap
@@ -18,7 +26,7 @@ final case class AliasesRepo(c: CourseName, p: ProjectName, env: Env)
   val message = "more aliases"
 
   lazy val latest: Target[WithData[Publish]] =
-    additive(_.track(env.runs.aliases(c, p))) { (aliases, _, dir) =>
+    additive(_.track(Project(c, p, env).aliases)) { (aliases, _, dir) =>
       val f = dir / "aliases.json"
       val before =
         if (os.isFile(f))
