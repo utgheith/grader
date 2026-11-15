@@ -11,10 +11,7 @@ import munit.FunSuite
 class RepoTests extends FunSuite {
   import Fixture.*
 
-  private def env(root: os.Path): (Repos, Env) = {
-    val (r, subs) = Fixture.setup(root)
-    (r, Env(subs.env.source))
-  }
+  private def env(root: os.Path): (Repos, Env) = Fixture.setup(root)
 
   private def put(files: Seq[(String, String)], dir: os.Path): Seq[Notice] = {
     for ((f, text) <- files) os.write.over(dir / f, text)

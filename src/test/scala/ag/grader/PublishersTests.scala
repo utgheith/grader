@@ -13,8 +13,8 @@ class PublishersTests extends FunSuite {
   import Fixture.*
 
   private def setup(root: os.Path) = {
-    val (r, subs) = Fixture.setup(root)
-    val env = repos.Env(subs.env.source, Dropbox(None))
+    val (r, env0) = Fixture.setup(root)
+    val env = repos.Env(env0.source, Dropbox(None))
     val ob = Outbox(root / "outbox", r.mirror, root / "ws" / "r3.git")
     (r, env, ob)
   }

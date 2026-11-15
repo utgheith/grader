@@ -37,7 +37,7 @@ object Grade {
 
   // the same, as far as everyone has run, with `students` (some of those
   // with a submission) for the own repos: no test runs again (n = 0; see
-  // TestRuns.run_one), so students and tests run to different counts can
+  // Submission.run_one), so students and tests run to different counts can
   // share the results repo
   def so_far(
       c: CourseName,

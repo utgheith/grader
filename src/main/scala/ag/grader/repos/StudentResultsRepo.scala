@@ -1,7 +1,15 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CSID, CourseName, Create, Phase, ProjectName, Publish}
+import ag.grader.{
+  CSID,
+  CourseName,
+  Create,
+  Phase,
+  ProjectName,
+  Publish,
+  Submission
+}
 import ag.rules.{Target, WithData}
 
 // A student's latest results for a project, with each test's output, in
@@ -23,8 +31,8 @@ final case class StudentResultsRepo(
     owned(
       _.track_all(
         (
-          results = env.grading.student_results(c, p, csid, Phase.Latest, n),
-          outcomes = env.grading.outcomes(c, p, csid, Phase.Latest, n)
+          results = Submission(c, p, csid, env).results(Phase.Latest, n),
+          outcomes = Submission(c, p, csid, env).outcomes(Phase.Latest, n)
         )
       )
     ) { (in, producer, dir) =>

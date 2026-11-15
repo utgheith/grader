@@ -1,5 +1,5 @@
 import ag.common.{RunLock, given_ReadWriter_SortedMap}
-import ag.grader.{CSID, Course, Phase, HtmlGen, Project}
+import ag.grader.{CSID, Course, Phase, HtmlGen, Project, Submission}
 import ag.grader.repos.CoursesConfig
 import mainargs.{
   Flag,
@@ -125,13 +125,12 @@ object Main {
     }
 
   // The tests (picked by -t) no picked enrolled student is happy with, in
-  // their published results (see Submissions.student_outcomes):
+  // their published results (see Submission.published_outcomes):
   // course_project:test
   @main
   def bad_tests(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val subs = env_of(commonArgs.workspace).subs
-      val env = subs.env
+      val env = env_of(commonArgs.workspace)
       val r = (for {
         c <- CoursesConfig(env)
           .active_courses(commonArgs.courses_)
@@ -140,9 +139,9 @@ object Main {
         p <- Course(c, env).active_projects(commonArgs.projects_).tally(s).toSeq
         csid <- Course(c, env).enrolled(commonArgs.students_).tally(s).toSeq
         // counted on its own, to tell no results from results without tests
-        _ <- subs.student_results(c, p, csid).tally(s).toSeq
-        (test, outcome) <- subs
-          .student_outcomes(c, p, csid, commonArgs.tests_)
+        _ <- Submission(c, p, csid, env).published_results.tally(s).toSeq
+        (test, outcome) <- Submission(c, p, csid, env)
+          .published_outcomes(commonArgs.tests_)
           .tally(s)
           .toSeq
       } yield ((c, p, test), !outcome.is_happy)).groupMapReduce(_._1)(_._2)(
@@ -298,8 +297,7 @@ object Main {
   @main
   def students(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val subs = env_of(commonArgs.workspace).subs
-      val env = subs.env
+      val env = env_of(commonArgs.workspace)
       var shown = 0
       for (
         c <- CoursesConfig(env)
@@ -344,9 +342,7 @@ object Main {
       sortMode: AliasSortMode = AliasSortMode.CSID
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val runs = env_of(commonArgs.workspace).runs
-      val subs = runs.subs
-      val env = subs.env
+      val env = env_of(commonArgs.workspace)
       val tests_re = commonArgs.tests_
       val f = s.tally
       var shown = 0
@@ -411,8 +407,7 @@ object Main {
       phase: Phase = Phase.Latest
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val grading = env_of(commonArgs.workspace).grading
-      val env = grading.runs.subs.env
+      val env = env_of(commonArgs.workspace)
       val tests_re = commonArgs.tests_
       val f = s.tally
       var found = 0
@@ -574,9 +569,7 @@ object Main {
   ): Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] = {
     val course_re = commonArgs.courses_
     val project_re = commonArgs.projects_
-    val grading = env_of(commonArgs.workspace).grading
-    val subs = grading.runs.subs
-    val env = subs.env
+    val env = env_of(commonArgs.workspace)
     val candidates = for {
       c <- s.track(CoursesConfig(env).active_courses(course_re)).toSeq
       p <- s.track(Course(c, env).active_projects(project_re)).toSeq
@@ -642,20 +635,22 @@ object Main {
       if (narrow) {
         val f = s.tally
         val st = state(c, p)
-        val runs = grading.runs
-        val outs = s.track_all(for {
-          ph <- run_phases
-          csid <- Project(c, p, env).students_with_submission.tally(s).toSeq
-          if f.keep("matching -s", commonArgs.students_.matches(csid.value))
-          // a commit to grade for the phase
-          _ <- subs.prepare_info(c, p, csid, ph).tally(s).toSeq
-          id <- Project(c, p, env).test_ids_for(st.tests(ph)).tally(s).toSeq
-          if f.keep(
-            "matching -t",
-            commonArgs.tests_.matches(id.external_name) ||
-              commonArgs.tests_.matches(id.internal_name)
-          )
-        } yield runs.run_one(st.keeps_going(ph), n)(c, p, csid, ph, id))
+        val outs = s.track_all(
+          for {
+            ph <- run_phases
+            csid <- Project(c, p, env).students_with_submission.tally(s).toSeq
+            if f.keep("matching -s", commonArgs.students_.matches(csid.value))
+            // a commit to grade for the phase
+            _ <- Submission(c, p, csid, env).prepare_info(ph).tally(s).toSeq
+            id <- Project(c, p, env).test_ids_for(st.tests(ph)).tally(s).toSeq
+            if f.keep(
+              "matching -t",
+              commonArgs.tests_.matches(id.external_name) ||
+                commonArgs.tests_.matches(id.internal_name)
+            )
+          } yield Submission(c, p, csid, env)
+            .run_one(st.keeps_going(ph), n)(ph, id)
+        )
         val results = outs.map(_.value)
         println(
           s"${name(c, p)}: ${(ag.grader.runs_started() - started).toString} runs; " +
@@ -667,7 +662,9 @@ object Main {
           s.track(Project(c, p, env).students_with_submission).toSeq
         val files = s.track(Project(c, p, env).results_files(n))
         val latest = s.track_all(
-          students.map(grading.student_results(c, p, _, Phase.Latest, n))
+          students.map(csid =>
+            Submission(c, p, csid, env).results(Phase.Latest, n)
+          )
         )
         val outcomes = latest.flatten.flatMap(_.outcomes.values)
         println(
@@ -756,9 +753,7 @@ object Main {
     in_r3_workspace(commonArgs) { s =>
       val course_re = commonArgs.courses_
       val project_re = commonArgs.projects_
-      val grading = env_of(commonArgs.workspace).grading
-      val runs = grading.runs
-      val env = runs.subs.env
+      val env = env_of(commonArgs.workspace)
       for {
         c <- s.track(CoursesConfig(env).active_courses(course_re)).toSeq
         p <- s.track(Course(c, env).active_projects(project_re)).toSeq
@@ -775,10 +770,10 @@ object Main {
           (csid, passed) <- s.track(Project(c, p, env).scores(phase, tries))
         ) {
           val raw = passed.toSeq.map(weight).sum
-          val late = s.track(runs.subs.is_late(c, p, csid, phase))
+          val late = s.track(Submission(c, p, csid, env).is_late(phase))
           val score = if (late) raw.toDouble / 2.0 else raw.toDouble
           println(
-            f"    ${csid.toString} ${score.toString} ${100.0 * (score / total.toDouble)}%0.2f ${
+            f"    ${csid.toString} ${score.toString} ${100.0 * (score / total.toDouble)}%.2f ${
                 if (late) "late" else "ontime"
               }"
           )

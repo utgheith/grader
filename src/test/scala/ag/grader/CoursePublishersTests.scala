@@ -21,12 +21,12 @@ class CoursePublishersTests extends FunSuite {
   private def setup(root: os.Path, keys: (String, String)*) = setup_with(root, quiet, keys*)
 
   private def setup_with(root: os.Path, n: NotificationConfig, keys: (String, String)*) = {
-    val (r, subs) = Fixture.setup(root, notifications = n)
+    val (r, env0) = Fixture.setup(root, notifications = n)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val box = root / "dropbox"
     os.makeDir.all(box / "c1")
     for ((name, key) <- keys) os.write(box / "c1" / s"$name.pub", key + "\n")
-    val env = repos.Env(subs.env.source, Dropbox(Some(box)))
+    val env = repos.Env(env0.source, Dropbox(Some(box)))
     val ob = Outbox(root / "outbox", r.mirror, root / "ws" / "r3.git")
     (r, env, ob)
   }

@@ -101,7 +101,9 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     complex_target[SortedMap[CSID, Commit]] { tracker =>
       val csids = tracker.track(Course(c, env).enrolled_csids).toSeq
       val subs =
-        tracker.track_all(csids.map(csid => env.subs.submission(c, p, csid)))
+        tracker.track_all(
+          csids.map(csid => Submission(c, p, csid, env).submission)
+        )
       tracker.run_if_needed(_ =>
         csids
           .zip(subs)
@@ -117,7 +119,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     complex_target[SortedMap[CSID, WithData[String]]] { tracker =>
       val csids = tracker.track(students_with_submission).toSeq
       val tests =
-        tracker.track_all(csids.map(csid => env.subs.student_test(c, p, csid)))
+        tracker.track_all(csids.map(csid => Submission(c, p, csid, env).test))
       tracker.run_if_needed(_ =>
         (for {
           (csid, t) <- csids.zip(tests)
@@ -148,7 +150,8 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   lazy val published_aliases: Target[SortedMap[CSID, Alias]] =
     target((m = env.source.master(repos.AliasesRepo.name_of(c, p)))) {
       (producer, deps) =>
-        text_on(producer, deps.m, "aliases.json")
+        Project
+          .text_on(producer, deps.m, "aliases.json")
           .flatMap(json =>
             Try(upickle.default.read[SortedMap[CSID, Alias]](json)).toOption
           )
@@ -158,8 +161,8 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
   lazy val results_readable: Phase => Target[Boolean] = fun { (phase: Phase) =>
     target((m = env.source.master(repos.ResultsRepo.name_of(c, p)))) {
       (producer, deps) =>
-        readable[SortedMap[Alias, RedactedStudentResults]](
-          text_on(producer, deps.m, phase.results_file),
+        Project.readable[SortedMap[Alias, RedactedStudentResults]](
+          Project.text_on(producer, deps.m, phase.results_file),
           phase.results_file
         )
     }
@@ -176,7 +179,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val out: Either[
           String,
           Option[SortedMap[Alias, RedactedStudentResults]]
-        ] = text_on(producer, deps.m, phase.results_file) match {
+        ] = Project.text_on(producer, deps.m, phase.results_file) match {
           case None       => Right(None)
           case Some(json) =>
             Try(
@@ -328,7 +331,7 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
     complex_target[Option[String]] { tracker =>
       val image = tracker
         .track(docker_file)
-        .map(f => tracker.track(env.runs.docker_image_of(f)))
+        .map(f => tracker.track(DockerImage(f, env).image))
       tracker.run_if_needed(_ => image)
     }
 
@@ -358,12 +361,14 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val students = tracker.track(students_with_submission).toSeq
         val results =
           tracker.track_all(
-            students.map(env.grading.student_results(c, p, _, phase, n))
+            students.map(csid => Submission(c, p, csid, env).results(phase, n))
           )
         val deadlines =
           tracker.track_all(students.map(deadline(_, phase)))
         val aliases =
-          tracker.track_all(students.map(env.grading.alias(c, p, _)))
+          tracker.track_all(
+            students.map(csid => Submission(c, p, csid, env).alias)
+          )
         tracker.run_if_needed { _ =>
           (for {
             ((r, d), a) <- results.zip(deadlines).zip(aliases)
@@ -416,9 +421,15 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
             .track(test_ids_for(st.shows(phase)))
             .map(_.redacted)
         val infos =
-          tracker.track_all(students.map(env.subs.prepare_info(c, p, _, phase)))
+          tracker.track_all(
+            students.map(csid =>
+              Submission(c, p, csid, env).prepare_info(phase)
+            )
+          )
         val aliases =
-          tracker.track_all(students.map(env.grading.alias(c, p, _)))
+          tracker.track_all(
+            students.map(csid => Submission(c, p, csid, env).alias)
+          )
         tracker.run_if_needed { _ =>
           published.toOption.flatten match {
             case None            => true
@@ -503,29 +514,13 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
         val csids = tracker.track(students_with_submission).toSeq
         val passed =
           tracker.track_all(
-            csids.map(env.grading.student_scores(c, p, _, phase, n))
+            csids.map(csid => Submission(c, p, csid, env).scores(phase, n))
           )
         tracker.run_if_needed(_ => csids.zip(passed).to(SortedMap))
       }
     }
 
   // ---- helpers -------------------------------------------------------
-
-  // a file on master, if the repo and the file are there
-  private def text_on(
-      ctx: Context[?],
-      m: Option[Commit],
-      file: String
-  ): Option[String] =
-    m.flatMap(c => ctx.read_text(ctx.commit(c).tree, os.RelPath(file)))
-
-  private def readable[A: upickle.default.Reader](
-      json: Option[String],
-      name: String
-  ): Boolean =
-    json.exists(j =>
-      Try(NoNulls.check(upickle.default.read[A](j), name)).isSuccess
-    )
 
   // a name's base and extension, as os.Path's baseName and ext
   private def split(name: String): (String, String) =
@@ -565,4 +560,22 @@ final case class Project(c: CourseName, p: ProjectName, env: Env)
           follow(ctx, tree, os.RelPath(ss.mkString("/")), hops - 1)
         )
     }
+}
+
+object Project {
+  // a file on master, if the repo and the file are there
+  private[grader] def text_on(
+      ctx: Context[?],
+      m: Option[Commit],
+      file: String
+  ): Option[String] =
+    m.flatMap(c => ctx.read_text(ctx.commit(c).tree, os.RelPath(file)))
+
+  private[grader] def readable[A: upickle.default.Reader](
+      json: Option[String],
+      name: String
+  ): Boolean =
+    json.exists(j =>
+      Try(NoNulls.check(upickle.default.read[A](j), name)).isSuccess
+    )
 }

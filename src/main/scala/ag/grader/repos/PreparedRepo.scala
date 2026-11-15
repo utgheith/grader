@@ -1,11 +1,19 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CSID, CourseName, Create, Phase, ProjectName, Publish}
+import ag.grader.{
+  CSID,
+  CourseName,
+  Create,
+  Phase,
+  ProjectName,
+  Publish,
+  Submission
+}
 import ag.rules.{Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
-// (see Submissions.prepare): a directory for each phase that has a commit to
+// (see Submission.prepare): a directory for each phase that has a commit to
 // grade (latest, phase1, phase2), in their own repo, for them and the staff
 // to read. The runs run on what's here (prepared), so what the student sees
 // is what was tested. Staff can push to it, but it's the grader's: it's
@@ -29,13 +37,15 @@ final case class PreparedRepo(
 
   lazy val latest: Target[WithData[Publish]] = owned { t =>
     val infos = t.track_all(
-      PreparedRepo.phases.map(env.subs.prepare_info(c, p, csid, _))
+      PreparedRepo.phases.map(Submission(c, p, csid, env).prepare_info(_))
     )
     val graded = PreparedRepo.phases.zip(infos).collect {
       case (phase, Some(info)) => (phase, info.sha)
     }
     val trees =
-      t.track_all(graded.map((_, sha) => env.subs.prepare(c, p, csid, sha)))
+      t.track_all(
+        graded.map((_, sha) => Submission(c, p, csid, env).prepare(sha))
+      )
     graded.map(_._1).zip(trees.map(_.data))
   } { (in, producer, dir) =>
     for ((phase, tree) <- in) producer.copy_to(tree, dir / ToRelPath(phase))

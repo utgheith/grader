@@ -16,7 +16,7 @@ final case class ResultsRepo(c: CourseName, p: ProjectName, env: Env)
   override protected def replaces_all: Boolean = false
 
   // graded to `n` tries (0: as far as each student has run; see
-  // TestRuns.run_one)
+  // Submission.run_one)
   lazy val latest: Int => Target[WithData[Publish]] = fun { (n: Int) =>
     owned(_.track(Project(c, p, env).results_files(n))) { (files, _, dir) =>
       for ((name, data) <- files)

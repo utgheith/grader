@@ -58,6 +58,6 @@ final case class CoursesConfig(env: Env) extends ReadOnlyRepo[CoursesConfig]
 
 object CoursesConfig {
   // matches every name: for active_courses, active_projects and
-  // Submissions.enrolled, when all are wanted
+  // Course.enrolled, when all are wanted
   val any: Regex = ".*".r
 }
