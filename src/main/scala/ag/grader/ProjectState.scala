@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.grader.json.{RawMilestone, Iterations}
+
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime

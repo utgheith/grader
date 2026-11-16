@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.grader.json.{RawMilestone, Iterations}
+
 import munit.FunSuite
 
 import java.time.LocalDateTime

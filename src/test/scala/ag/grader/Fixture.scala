@@ -1,5 +1,11 @@
 package ag.grader
 
+import ag.grader.targets.{Course, Project, Submission, SubmissionMilestone}
+
+import ag.grader.name.{CSID, CourseName, ProjectName}
+
+import ag.grader.json.{RawCourseNotSorted, RawProject, RawMilestone, Iterations, NotificationConfig}
+
 import ag.common.given_ReadWriter_SortedMap
 import ag.rules.Source
 
@@ -36,13 +42,14 @@ object Fixture {
     _.copy(milestones = milestones(m1_tests, m2_tests))
 
   // c1's project `p`, and a student's submission in its p1, from `source`
+  def course(source: Source): Course = repos.CoursesConfig(source).course(c1)
   def project(source: Source, p: ProjectName = p1): Project =
-    Project(Course(c1, source), p)
+    course(source).project(p)
   def submission(source: Source, csid: CSID = s1): Submission =
-    Submission(project(source), csid)
+    project(source).submission(csid)
   // and its milestone
   def graded(source: Source, milestone: Milestone, csid: CSID = s1): SubmissionMilestone =
-    SubmissionMilestone(submission(source, csid), milestone)
+    submission(source, csid).milestone(milestone)
 
   // seconds since the epoch of a local time
   def at(t: LocalDateTime): Long = ZonedDateTime.of(t, zone).nn.toEpochSecond

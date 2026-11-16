@@ -1,25 +1,21 @@
 package ag.grader.repos
 
+import ag.grader.targets.Project
+
+import ag.grader.name.{CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{
-  ProjectMilestone,
-  Course,
-  CourseName,
-  Create,
-  Project,
-  ProjectName,
-  Publish
-}
 import ag.rules.{Source, Target, WithData}
 
 // The students' own tests, by alias, for the staff (as
 // Project.publish_submitted_tests)
-final case class SubmittedTestsRepo(
-    c: CourseName,
-    p: ProjectName,
-    source: Source
-) extends OwnedRepo[SubmittedTestsRepo] derives ToRelPath {
-  private def project = Project(Course(c, source), p)
+final case class SubmittedTestsRepo(project: Project)
+    extends OwnedRepo[SubmittedTestsRepo] derives ToRelPath {
+  val source: Source = project.source
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
   def repo_name: String = SubmittedTestsRepo.name_of(c, p)
   def create: Option[Create] =
     Some(Create("empty", Seq(Groups.staff(c)), Seq()))
@@ -28,8 +24,7 @@ final case class SubmittedTestsRepo(
   lazy val latest: Target[WithData[Publish]] =
     owned { t =>
       // as of the milestone the students are working toward
-      val milestone =
-        ProjectMilestone(project, t.track(project.state).current)
+      val milestone = project.milestone(t.track(project.state).current)
       t.track_all(
         (
           tests = milestone.student_tests,

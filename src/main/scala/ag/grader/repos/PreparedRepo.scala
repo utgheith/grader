@@ -1,18 +1,13 @@
 package ag.grader.repos
 
+import ag.grader.targets.{Project, Submission}
+
+import ag.grader.name.{CSID, CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{
-  CSID,
-  Course,
-  CourseName,
-  Create,
-  Milestone,
-  Project,
-  ProjectName,
-  Publish,
-  Submission,
-  SubmissionMilestone
-}
+import ag.grader.Milestone
 import ag.rules.{Source, Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
@@ -21,14 +16,13 @@ import ag.rules.{Source, Target, Tree, WithData}
 // to read. The runs run on what's here (prepared), so what the student sees
 // is what was tested. Staff can push to it, but it's the grader's: it's
 // worked out again over what they push.
-final case class PreparedRepo(
-    c: CourseName,
-    p: ProjectName,
-    csid: CSID,
-    source: Source
-) extends OwnedRepo[PreparedRepo] derives ToRelPath {
-  private def project = Project(Course(c, source), p)
-  private def submission = Submission(project, csid)
+final case class PreparedRepo(submission: Submission)
+    extends OwnedRepo[PreparedRepo] derives ToRelPath {
+  val source: Source = submission.source
+  private def project: Project = submission.project
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
+  private def csid: CSID = submission.csid
   def repo_name: String = PreparedRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(
@@ -43,7 +37,7 @@ final case class PreparedRepo(
   lazy val latest: Target[WithData[Publish]] = owned { t =>
     val all_milestones = t.track(project.state).all_milestones
     val infos = t.track_all(
-      all_milestones.map(SubmissionMilestone(submission, _).prepare_info)
+      all_milestones.map(submission.milestone(_).prepare_info)
     )
     val graded =
       all_milestones.zip(infos).collect { case (milestone, Some(info)) =>
@@ -62,7 +56,7 @@ final case class PreparedRepo(
 
   // What a milestone's runs run on: its directory in what's published; None if
   // the milestone has no commit to grade. The same files as the tree it was
-  // copied from, so the same id (and the same runs, see ag.grader.TestRun).
+  // copied from, so the same id (and the same runs, see ag.grader.targets.TestRun).
   lazy val prepared: Milestone => Target[Option[Tree]] = fun {
     (milestone: Milestone) =>
       target((published = latest)) { (producer, deps) =>

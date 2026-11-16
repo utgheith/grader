@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.grader.gitolite.{Publish, LocalMirror}
+
 import ag.rules.WithData
 
 import scala.util.Try

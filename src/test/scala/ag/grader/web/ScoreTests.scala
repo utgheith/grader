@@ -1,0 +1,215 @@
+package ag.grader.web
+
+import ag.grader.Milestone
+
+import ag.grader.name.{Alias, CourseName, ProjectName}
+
+import ag.grader.json.{RawMilestone, Weight, RedactedStudentResults, RedactedOutcome, OutcomeStatus, RedactedTestId, PrepareInfo, CommitSource, PushGap}
+
+import munit.FunSuite
+
+import java.time.{LocalDateTime, ZoneId, ZonedDateTime}
+import scala.collection.{SortedMap, SortedSet}
+
+class ScoreTests extends FunSuite {
+  private val course = CourseName("cs439t_f26")
+  private val project = ProjectName("p4")
+  private val cutoff_local = LocalDateTime.of(2026, 10, 1, 23, 59)
+  private val cutoff = ZonedDateTime.of(cutoff_local, ZoneId.systemDefault()).nn
+
+  private def results(
+      commit: ZonedDateTime,
+      runs: (String, Seq[OutcomeStatus])*
+  ): RedactedStudentResults = RedactedStudentResults(
+    alias = Some(Alias(1)),
+    has_test = true,
+    prepare_info = PrepareInfo(commit, "abc", true, None, CommitSource.Latest)
+      .redacted(cutoff),
+    outcomes = runs
+      .map((t, ss) =>
+        RedactedTestId(t) -> RedactedOutcome(
+          course,
+          project,
+          RedactedTestId(t),
+          ss.map(_ -> Some(1.0))
+        )
+      )
+      .to(SortedMap)
+  )
+
+  // t0 is m1's (weight 1), t1 and t2 m2's (weights 1 and 3); with the
+  // milestones 1:1, m1 is scaled to match m2's 4: total 8. Live counts both.
+  private def milestones(m1_tests: Seq[String], m2_tests: Seq[String]) = Seq(
+    RawMilestone("m1", cutoff_local.minusDays(7), m1_tests, 1),
+    RawMilestone("m2", cutoff_local, m2_tests, 1)
+  )
+  private val data = ReportData(
+    title = "cs439t_f26_p4",
+    generated = cutoff_local,
+    milestones = milestones(Seq("t0"), Seq("t1", "t2")),
+    enrollments = 1,
+    results = SortedMap(),
+    weights = Seq(Weight("t2", 3), Weight(".*", 1)),
+    bad_tests = SortedSet(),
+    staff_aliases = Set()
+  )
+
+  import OutcomeStatus.{pass, timeout}
+  private val failed = OutcomeStatus.fail
+
+  test("lateness is measured in fractional days") {
+    assertEqualsDouble(PrepareInfo.days_late(cutoff, cutoff), 0.0, 1e-9)
+    assertEqualsDouble(
+      PrepareInfo.days_late(cutoff.minusHours(5), cutoff),
+      0.0,
+      1e-9
+    )
+    assertEqualsDouble(
+      PrepareInfo.days_late(cutoff.plusHours(6), cutoff),
+      0.25,
+      1e-9
+    )
+    assertEqualsDouble(
+      PrepareInfo.days_late(cutoff.plusHours(36), cutoff),
+      1.5,
+      1e-9
+    )
+  }
+
+  test("full marks on time") {
+    val r = results(
+      cutoff.minusDays(1),
+      "t0" -> Seq(pass, pass),
+      "t1" -> Seq(pass),
+      "t2" -> Seq(pass, pass, pass)
+    )
+    val s = HtmlGen.score_of(data, r).get
+    assertEquals((s.earned, s.possible, s.days_late), (8.0, 8, 0.0))
+    assertEqualsDouble(s.correctness, 1.0, 1e-9)
+  }
+
+  test("each test earns the fraction of its tries that passed") {
+    val r = results(
+      cutoff.minusDays(1),
+      "t0" -> Seq(pass, failed), // 4 × 1/2
+      "t1" -> Seq(timeout), //      1 × 0
+      "t2" -> Seq(pass, pass, failed, pass) // 3 × 3/4
+    )
+    val s = HtmlGen.score_of(data, r).get
+    assertEqualsDouble(s.earned, 2.0 + 0.0 + 2.25, 1e-9)
+    assertEqualsDouble(s.correctness, 4.25 / 8, 1e-9)
+  }
+
+  test("a test that never ran earns nothing") {
+    val r = results(cutoff.minusDays(1), "t0" -> Seq(pass))
+    assertEqualsDouble(HtmlGen.score_of(data, r).get.correctness, 0.5, 1e-9)
+  }
+
+  test("10% off per day late, any part of a day counting as a whole one") {
+    val all = Seq("t0" -> Seq(pass), "t1" -> Seq(pass), "t2" -> Seq(pass))
+    def late(hours: Int) =
+      HtmlGen.score_of(data, results(cutoff.plusHours(hours), all*)).get
+    assertEqualsDouble(late(0).correctness, 1.0, 1e-9)
+    assertEqualsDouble(late(6).correctness, 0.9, 1e-9) // part of a day
+    assertEqualsDouble(late(24).correctness, 0.9, 1e-9) // exactly one
+    assertEqualsDouble(late(25).correctness, 0.81, 1e-9)
+    assertEqualsDouble(late(60).correctness, math.pow(0.9, 3), 1e-9)
+    assertEqualsDouble(late(6).days_late, 0.25, 1e-9, "the exact lateness")
+  }
+
+  test("a milestone's score counts only its tests") {
+    // m1's results hold just its test, t0 (scaled to 4)
+    val one = HtmlGen
+      .score_of(
+        data.copy(milestone = Milestone.Named("m1")),
+        results(cutoff.minusDays(1), "t0" -> Seq(pass))
+      )
+      .get
+    assertEquals((one.earned, one.possible), (4.0, 4))
+    assertEqualsDouble(one.correctness, 1.0, 1e-9)
+    // m2's: t1 (1) passes, t2 (3) fails
+    val two = HtmlGen
+      .score_of(
+        data.copy(milestone = Milestone.Named("m2")),
+        results(cutoff.minusDays(1), "t1" -> Seq(pass), "t2" -> Seq(failed))
+      )
+      .get
+    assertEquals((two.earned, two.possible), (1.0, 4))
+  }
+
+  test("no weights, no score") {
+    val none = data.copy(milestones = milestones(Seq(), Seq()))
+    assertEquals(HtmlGen.score_of(none, results(cutoff)), None)
+  }
+
+  test("push and commit times more than 30 minutes apart are flagged") {
+    def info(push: Option[ZonedDateTime]) =
+      PrepareInfo(
+        cutoff,
+        "abc",
+        true,
+        push.map(_.toInstant.nn),
+        CommitSource.Latest
+      )
+    assertEquals(PrepareInfo.push_gap(info(None)), None)
+    assertEquals(PrepareInfo.push_gap(info(Some(cutoff.plusMinutes(29)))), None)
+    assertEquals(
+      PrepareInfo.push_gap(info(Some(cutoff.plusMinutes(31)))).map(_.toMinutes),
+      Some(31L)
+    )
+    assertEquals(
+      PrepareInfo.push_gap(info(Some(cutoff.minusHours(2)))).map(_.toMinutes),
+      Some(-120L),
+      "a push before the commit's own time is flagged too"
+    )
+  }
+
+  test("a push long after the commit is told apart from a commit after the push") {
+    val commit = cutoff.toInstant.nn
+    assertEquals(PushGap.of(commit, None), None)
+    assertEquals(PushGap.of(commit, Some(commit.plusSeconds(29 * 60))), None)
+    assertEquals(
+      PushGap.of(commit, Some(commit.plusSeconds(31 * 60))),
+      Some(PushGap.PushedLater(java.time.Duration.ofMinutes(31)))
+    )
+    assertEquals(
+      PushGap.of(commit, Some(commit.minusSeconds(2 * 3600))),
+      Some(PushGap.CommittedLater(java.time.Duration.ofHours(2)))
+    )
+  }
+
+  test("the page shows the score, sortable, with its arithmetic") {
+    val r = results(
+      cutoff.plusHours(26),
+      "t0" -> Seq(pass),
+      "t1" -> Seq(pass),
+      "t2" -> Seq(pass)
+    )
+    val page = HtmlGen.render(data.copy(results = SortedMap(Alias(1) -> r)))
+    val ratio = math.pow(0.9, 2) // 1 day 2 hours: two days begun
+    assert(page.contains("""data-key="score""""))
+    assert(page.contains(f"""data-score="$ratio%.6f""""))
+    assert(
+      clue(page).contains(
+        f"8.0 of 8 points × 0.9^2 (1 day 2 hours late) = $ratio%.3f"
+      )
+    )
+    assert(page.contains(f">$ratio%.3f</td>"))
+    assert(page.contains("median correctness"))
+  }
+
+
+  test("an ignored chosen test carries no weight") {
+    val ignoring_t2 = data.copy(bad_tests = SortedSet("t2"))
+    val r = results(
+      cutoff.minusDays(1),
+      "t0" -> Seq(pass),
+      "t1" -> Seq(pass),
+      "t2" -> Seq(failed)
+    )
+    val s = HtmlGen.score_of(ignoring_t2, r).get
+    // t0 alone in m1, t1 alone in m2: 1 : 1, no t2 in either
+    assertEquals((s.earned, s.possible), (2.0, 2))
+    assertEqualsDouble(s.correctness, 1.0, 1e-9)
+  }
+}

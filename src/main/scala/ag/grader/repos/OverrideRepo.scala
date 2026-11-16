@@ -1,7 +1,12 @@
 package ag.grader.repos
 
+import ag.grader.targets.Project
+
+import ag.grader.name.{CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, HandedOverRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{Course, CourseName, Create, Project, ProjectName, Publish}
 import ag.rules.{Source, Target, WithData}
 
 // A project's override repo: its tests and Makefiles, which the staff keep
@@ -9,8 +14,11 @@ import ag.rules.{Source, Target, WithData}
 // write it. The grader starts it from the project repo's tests and
 // Makefiles (adding them to what's there, if the staff made it first), and
 // marks it .initialized; then it's theirs.
-final case class OverrideRepo(c: CourseName, p: ProjectName, source: Source)
+final case class OverrideRepo(project: Project)
     extends HandedOverRepo[OverrideRepo] derives ToRelPath {
+  val source: Source = project.source
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
   def repo_name: String = OverrideRepo.name_of(c, p)
   def create: Option[Create] =
     Some(Create("empty", Seq(Groups.everyone), Seq(Groups.staff(c))))
@@ -24,12 +32,12 @@ final case class OverrideRepo(c: CourseName, p: ProjectName, source: Source)
     handed_over(
       _.track_all(
         (
-          project = ProjectRepo(c, p, source).inspect,
-          ext = Project(Course(c, source), p).test_extensions
+          repo = ProjectRepo(project).inspect,
+          ext = project.test_extensions
         )
       )
     ) { (in, producer, dir) =>
-      for (m <- in.project) {
+      for (m <- in.repo) {
         val from = producer.checkout(producer.commit(m).tree)
         // what isn't there yet
         def add(f: os.Path): Unit = {

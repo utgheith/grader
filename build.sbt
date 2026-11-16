@@ -15,7 +15,7 @@ scalacOptions ++= Seq(
   //"-experimental"
 )
 
-Compile / mainClass := Some("Main")
+Compile / mainClass := Some("ag.grader.main.Main")
 nativeImageVersion := "25.0.2"
 nativeImageJvm := "graalvm-community"
 //nativeImageOptions += "-H:-UseServiceLoaderFeature"

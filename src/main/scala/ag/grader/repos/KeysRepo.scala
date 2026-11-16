@@ -1,7 +1,11 @@
 package ag.grader.repos
 
+import ag.grader.targets.Dropbox
+
+import ag.grader.gitolite.{AdditiveRepo, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{Course, Dropbox, Notice, Publish}
+import ag.grader.Notice
 import ag.rules.{Source, Target, WithData}
 
 // The students' keys in gitolite-admin, as they are in the dropbox: added
@@ -17,13 +21,12 @@ final case class KeysRepo(source: Source, dropbox: Dropbox)
 
   lazy val latest: Target[WithData[Publish]] =
     additive { tracker =>
+      val config = CoursesConfig(source)
       val courses =
-        tracker
-          .track(CoursesConfig(source).active_courses(CoursesConfig.any))
-          .toSeq
+        tracker.track(config.active_courses(CoursesConfig.any)).toSeq
       val keys = tracker.track_all(courses.map(dropbox.keys))
       val notifications =
-        tracker.track_all(courses.map(Course(_, source).notifications))
+        tracker.track_all(courses.map(config.course(_).notifications))
       courses.lazyZip(keys).lazyZip(notifications).toSeq
     } { (courses, _, dir) =>
       for {

@@ -87,7 +87,7 @@ final class Source(val root: os.Path) {
 
 object Source {
   // never part of a target's name: it's what targets work from, not which
-  // they are (see ag.grader.repos.Instance)
+  // they are (see DerivedScope)
   given ag.common.ToRelPath[Source] = ag.common.ToRelPath.Omitted()
 
   def is_repo(d: os.Path): Boolean =

@@ -1,27 +1,26 @@
 package ag.grader.repos
 
+import ag.grader.targets.{Project, Submission}
+
+import ag.grader.name.{CSID, CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, CreatedRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{
-  CSID,
-  Course,
-  CourseName,
-  Create,
-  Notice,
-  ProjectName,
-  Publish
-}
+import ag.grader.Notice
 import ag.rules.{Source, Target, WithData}
 
 // A student's repo for a project (as Project.publish_work_repo): forked
 // from the project's repo, then theirs, never touched. The student and the
 // staff read it, the student writes it. When it's made, they're told, with
 // the project's README, as the course says.
-final case class WorkRepo(
-    c: CourseName,
-    p: ProjectName,
-    csid: CSID,
-    source: Source
-) extends CreatedRepo[WorkRepo] derives ToRelPath {
+final case class WorkRepo(submission: Submission) extends CreatedRepo[WorkRepo]
+    derives ToRelPath {
+  val source: Source = submission.source
+  private def project: Project = submission.project
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
+  private def csid: CSID = submission.csid
   def repo_name: String = WorkRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(
@@ -34,7 +33,7 @@ final case class WorkRepo(
   val message = "create"
 
   lazy val latest: Target[WithData[Publish]] =
-    created(_.track(Course(c, source).notifications)) { (n, producer, base) =>
+    created(_.track(project.course.notifications)) { (n, producer, base) =>
       if (!n.repo_create) Seq()
       else {
         val readme = base

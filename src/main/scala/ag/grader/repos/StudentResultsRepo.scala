@@ -1,30 +1,25 @@
 package ag.grader.repos
 
+import ag.grader.targets.{Project, Submission}
+
+import ag.grader.name.{CSID, CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{
-  CSID,
-  Course,
-  CourseName,
-  Create,
-  Project,
-  ProjectName,
-  Publish,
-  Submission,
-  SubmissionMilestone
-}
+
 import ag.rules.{Source, Target, WithData}
 
 // A student's latest results for a project, with each test's output, in
 // their own results repo (as Project.publish_student_results): the
 // student's and the staff's to read.
-final case class StudentResultsRepo(
-    c: CourseName,
-    p: ProjectName,
-    csid: CSID,
-    source: Source
-) extends OwnedRepo[StudentResultsRepo] derives ToRelPath {
-  private def project = Project(Course(c, source), p)
-  private def submission = Submission(project, csid)
+final case class StudentResultsRepo(submission: Submission)
+    extends OwnedRepo[StudentResultsRepo] derives ToRelPath {
+  val source: Source = submission.source
+  private def project: Project = submission.project
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
+  private def csid: CSID = submission.csid
   def repo_name: String = StudentResultsRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(Create("empty", Seq(csid.value, Groups.staff(c)), Seq()))
@@ -34,11 +29,11 @@ final case class StudentResultsRepo(
   // ProjectState.current), graded to `n` tries
   lazy val latest: Int => Target[WithData[Publish]] = fun { (n: Int) =>
     owned { t =>
-      val milestone = t.track(project.state).current
+      val milestone = submission.milestone(t.track(project.state).current)
       t.track_all(
         (
-          results = SubmissionMilestone(submission, milestone).results(n),
-          outcomes = SubmissionMilestone(submission, milestone).outcomes(n)
+          results = milestone.results(n),
+          outcomes = milestone.outcomes(n)
         )
       )
     } { (in, producer, dir) =>

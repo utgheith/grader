@@ -1,5 +1,9 @@
 package ag.grader
 
+import ag.grader.name.{CSID, CourseName}
+
+import ag.grader.json.NotificationConfig
+
 import upickle.default.ReadWriter
 
 // An email to send once the repo it's about is synced (see Outbox.sync):

@@ -1,5 +1,7 @@
 package ag.grader
 
+import ag.grader.cloudflare.CloudflareConfig
+
 import munit.FunSuite
 import upickle.default.read
 

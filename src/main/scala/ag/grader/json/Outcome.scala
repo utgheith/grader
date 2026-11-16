@@ -1,0 +1,75 @@
+package ag.grader.json
+
+import ag.grader.name.{CSID, CourseName, ProjectName}
+
+import upickle.default.ReadWriter
+
+enum OutcomeStatus derives ReadWriter:
+  case pass
+  case fail
+  case timeout
+  case unknown
+
+  def isHappy: Boolean = this == pass
+
+trait OutcomeApi {
+  def course: CourseName
+  def project: ProjectName
+  def csid_opt: Option[CSID]
+  def outcomes: Seq[(OutcomeStatus, Option[Double])]
+  def test_id_opt: TestId | RedactedTestId
+  def commit_id: Option[String]
+
+  lazy val min_max: Option[(Double, Double)] = {
+    val times = outcomes.flatMap(_._2.toSeq)
+    if (times.isEmpty) None
+    else Some((times.min, times.max))
+  }
+
+  lazy val is_happy: Boolean =
+    (!outcomes.isEmpty) && outcomes.forall(_._1.isHappy)
+
+  lazy val last: Option[OutcomeStatus] = outcomes.lastOption.map(_._1)
+
+  // The worst of the tries: a fail in any try is a fail, then a timeout;
+  // a pass only if every try passed. None if it never ran.
+  lazy val worst: Option[OutcomeStatus] = {
+    val all = outcomes.map(_._1)
+    Seq(OutcomeStatus.fail, OutcomeStatus.timeout, OutcomeStatus.unknown)
+      .find(all.contains)
+      .orElse(all.headOption)
+  }
+}
+
+@upickle.implicits.allowUnknownKeys(false)
+case class RedactedOutcome(
+    course: CourseName,
+    project: ProjectName,
+    test_id: RedactedTestId,
+    outcomes: Seq[(OutcomeStatus, Option[Double])]
+) extends OutcomeApi derives ReadWriter {
+  def commit_id: Option[String] = None
+  def test_id_opt: RedactedTestId | TestId = test_id
+  def csid_opt: Option[CSID] = None
+}
+
+@upickle.implicits.allowUnknownKeys(false)
+case class Outcome(
+    course: CourseName,
+    project: ProjectName,
+    csid: CSID,
+    test_id: TestId,
+    outcomes: Seq[(OutcomeStatus, Option[Double])],
+    commit_id: Option[String]
+) extends OutcomeApi derives ReadWriter {
+
+  def csid_opt: Option[CSID] = Some(csid)
+  def test_id_opt: TestId | RedactedTestId = test_id
+
+  lazy val redacted: RedactedOutcome = RedactedOutcome(
+    course = course,
+    project = project,
+    test_id = test_id.redacted,
+    outcomes = outcomes
+  )
+}

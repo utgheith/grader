@@ -1,26 +1,23 @@
 package ag.grader.repos
 
+import ag.grader.targets.Project
+
+import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
+
+import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+
 import ag.common.ToRelPath
-import ag.grader.{
-  ProjectMilestone,
-  Alias,
-  CSID,
-  Course,
-  CourseName,
-  Create,
-  Project,
-  ProjectName,
-  Publish
-}
 import ag.rules.{Producer, Source, Target, WithData}
 
 import scala.collection.SortedMap
 
 // Every test of a project, for everyone to read (as Project.publish_tests):
 // the students' (by alias, at <alias>.<ext>) and the override repo's.
-final case class TestsRepo(c: CourseName, p: ProjectName, source: Source)
-    extends OwnedRepo[TestsRepo] derives ToRelPath {
-  private def project = Project(Course(c, source), p)
+final case class TestsRepo(project: Project) extends OwnedRepo[TestsRepo]
+    derives ToRelPath {
+  val source: Source = project.source
+  private def c: CourseName = project.c
+  private def p: ProjectName = project.p
   def repo_name: String = s"${ProjectRepo.name_of(c, p)}__tests"
   def create: Option[Create] =
     Some(Create("empty", Seq(Groups.everyone), Seq()))
@@ -29,15 +26,14 @@ final case class TestsRepo(c: CourseName, p: ProjectName, source: Source)
   lazy val latest: Target[WithData[Publish]] =
     owned { t =>
       // as of the milestone the students are working toward
-      val milestone =
-        ProjectMilestone(project, t.track(project.state).current)
+      val milestone = project.milestone(t.track(project.state).current)
       t.track_all(
         (
           tests = milestone.student_tests,
           aliases = project.aliases,
           ext = project.test_extensions,
           names = project.override_test_names,
-          ov = OverrideRepo(c, p, source).inspect
+          ov = OverrideRepo(project).inspect
         )
       )
     } { (in, producer, dir) =>
