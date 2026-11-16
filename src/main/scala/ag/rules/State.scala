@@ -52,10 +52,11 @@ class State(
     store_at(tree.at).checkout(ObjectId.fromString(tree.id).nn, checkouts)
   }
 
-  // the store a Tree or Commit is in: the workspace's, or a Source repo,
-  // opened once and only read
-  private val sources = scala.collection.concurrent.TrieMap[String, Store]()
-  private[rules] def store_at(at: Option[String]): Store = at match {
+  // the store a Tree or Commit is in, to read: the workspace's, or a Source
+  // repo, opened once
+  private val sources =
+    scala.collection.concurrent.TrieMap[String, Store.Reads]()
+  private[rules] def store_at(at: Option[String]): Store.Reads = at match {
     case None     => store
     case Some(at) =>
       sources.getOrElseUpdate(at, Store(os.Path(at), create = false))

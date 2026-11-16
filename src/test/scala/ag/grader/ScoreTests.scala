@@ -31,19 +31,18 @@ class ScoreTests extends FunSuite {
       .to(SortedMap)
   )
 
-  // t0 is phase 1 (weight 1), t1 and t2 phase 2 (weights 1 and 3); with
-  // phases 1:1, phase 1 is scaled to match phase 2's 4: total 8.
+  // t0 is m1's (weight 1), t1 and t2 m2's (weights 1 and 3); with the
+  // milestones 1:1, m1 is scaled to match m2's 4: total 8. Live counts both.
+  private def milestones(m1_tests: Seq[String], m2_tests: Seq[String]) = Seq(
+    RawMilestone("m1", cutoff_local.minusDays(7), m1_tests, 1),
+    RawMilestone("m2", cutoff_local, m2_tests, 1)
+  )
   private val data = ReportData(
     title = "cs439t_f26_p4",
     generated = cutoff_local,
-    test_cutoff = cutoff_local.minusDays(7),
-    code_cutoff = cutoff_local,
+    milestones = milestones(Seq("t0"), Seq("t1", "t2")),
     enrollments = 1,
     results = SortedMap(),
-    phase1_tests = SortedSet("t0"),
-    phase1_weight = 1,
-    phase2_tests = SortedSet("t1", "t2"),
-    phase2_weight = 1,
     weights = Seq(Weight("t2", 3), Weight(".*", 1)),
     bad_tests = SortedSet(),
     staff_aliases = Set()
@@ -112,20 +111,20 @@ class ScoreTests extends FunSuite {
     assertEqualsDouble(late(6).days_late, 0.25, 1e-9, "the exact lateness")
   }
 
-  test("a phase's score counts only that phase's tests") {
-    // phase 1's results hold just its test, t0 (scaled to 4)
+  test("a milestone's score counts only its tests") {
+    // m1's results hold just its test, t0 (scaled to 4)
     val one = HtmlGen
       .score_of(
-        data.copy(phase = Phase.One),
+        data.copy(milestone = Milestone.Named("m1")),
         results(cutoff.minusDays(1), "t0" -> Seq(pass))
       )
       .get
     assertEquals((one.earned, one.possible), (4.0, 4))
     assertEqualsDouble(one.correctness, 1.0, 1e-9)
-    // phase 2's: t1 (1) passes, t2 (3) fails
+    // m2's: t1 (1) passes, t2 (3) fails
     val two = HtmlGen
       .score_of(
-        data.copy(phase = Phase.Two),
+        data.copy(milestone = Milestone.Named("m2")),
         results(cutoff.minusDays(1), "t1" -> Seq(pass), "t2" -> Seq(failed))
       )
       .get
@@ -133,7 +132,7 @@ class ScoreTests extends FunSuite {
   }
 
   test("no weights, no score") {
-    val none = data.copy(phase1_tests = SortedSet(), phase2_tests = SortedSet())
+    val none = data.copy(milestones = milestones(Seq(), Seq()))
     assertEquals(HtmlGen.score_of(none, results(cutoff)), None)
   }
 
@@ -203,7 +202,7 @@ class ScoreTests extends FunSuite {
       "t2" -> Seq(failed)
     )
     val s = HtmlGen.score_of(ignoring_t2, r).get
-    // t0 alone in phase 1, t1 alone in phase 2: 1 : 1, no t2 in either
+    // t0 alone in m1, t1 alone in m2: 1 : 1, no t2 in either
     assertEquals((s.earned, s.possible), (2.0, 2))
     assertEqualsDouble(s.correctness, 1.0, 1e-9)
   }

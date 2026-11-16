@@ -1,5 +1,5 @@
 import ag.common.{RunLock, given_ReadWriter_SortedMap}
-import ag.grader.{CSID, Course, Phase, HtmlGen, Project, Submission}
+import ag.grader.{CSID, Course, Milestone, HtmlGen, Project, Submission}
 import ag.grader.repos.CoursesConfig
 import mainargs.{
   Flag,
@@ -48,15 +48,13 @@ given TokensReader.Simple[Regex] with {
   }
 }
 
-given TokensReader.Simple[Phase] with {
-  override def shortName: String = "1|2|latest"
-  override def read(strings: Seq[String]): Either[String, Phase] =
-    strings.headOption match {
-      case Some("1")      => Right(Phase.One)
-      case Some("2")      => Right(Phase.Two)
-      case Some("latest") => Right(Phase.Latest)
-      case s              =>
-        Left(s"Invalid phase '${s.getOrElse("")}'; phases are 1, 2 and latest")
+// a milestone's name, or live
+given TokensReader.Simple[Milestone] with {
+  override def shortName: String = "milestone|live"
+  override def read(strings: Seq[String]): Either[String, Milestone] =
+    strings.headOption.filter(_.nonEmpty) match {
+      case Some(s) => Right(Milestone.of(s))
+      case None    => Left("a milestone is a milestone's name, or live")
     }
 }
 
@@ -133,28 +131,21 @@ object Main {
     in_r3_workspace(commonArgs) { s =>
       val source = source_of(commonArgs.workspace)
       val r = (for {
-        c <- CoursesConfig(source)
-          .active_courses(commonArgs.courses_)
-          .tally(s)
-          .toSeq
-        p <- Course(c, source)
-          .active_projects(commonArgs.projects_)
-          .tally(s)
-          .toSeq
-        csid <- Course(c, source).enrolled(commonArgs.students_).tally(s).toSeq
+        project <- active_projects(s, commonArgs, source)
+        csid <- project.course.enrolled(commonArgs.students_).tally(s).toSeq
+        submission = Submission(project, csid)
         // counted on its own, to tell no results from results without tests
-        _ <- Submission(c, p, csid, source).published_results.tally(s).toSeq
-        (test, outcome) <- Submission(c, p, csid, source)
+        _ <- submission.published_results.tally(s).toSeq
+        (test, outcome) <- submission
           .published_outcomes(commonArgs.tests_)
           .tally(s)
           .toSeq
-      } yield ((c, p, test), !outcome.is_happy)).groupMapReduce(_._1)(_._2)(
-        _ && _
-      )
+      } yield ((project.name, test), !outcome.is_happy))
+        .groupMapReduce(_._1)(_._2)(_ && _)
 
       val bad = r.toSeq.sortBy(_._1).filter(_._2).map(_._1)
-      for ((c, p, t) <- bad)
-        println(s"${c}_$p:${t.external_name}")
+      for ((name, t) <- bad)
+        println(s"$name:${t.external_name}")
       s.tally.report("bad_tests", bad.size, commonArgs.verbose.value)
     }
 
@@ -291,16 +282,7 @@ object Main {
   def projects(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>
       val source = source_of(commonArgs.workspace)
-      val ps = for {
-        c <- CoursesConfig(source)
-          .active_courses(commonArgs.courses_)
-          .tally(s)
-          .toSeq
-        p <- Course(c, source)
-          .active_projects(commonArgs.projects_)
-          .tally(s)
-          .toSeq
-      } yield ag.grader.repos.ProjectRepo.name_of(c, p)
+      val ps = active_projects(s, commonArgs, source).map(_.name)
       ps.foreach(println)
       s.tally.report("projects", ps.size, commonArgs.verbose.value)
     }
@@ -318,13 +300,12 @@ object Main {
           .tally(s)
           .toSeq
       ) {
-        val ps =
-          s.track(Course(c, source).active_projects(commonArgs.projects_)).toSeq
+        val course = Course(c, source)
+        val ps = s.track(course.active_projects(commonArgs.projects_)).toSeq
         val submitted = s.track_all(
-          ps.map(p => Project(c, p, source).students_with_submission)
+          ps.map(p => Project(course, p).students_with_submission)
         )
-        val csids =
-          Course(c, source).enrolled(commonArgs.students_).tally(s).toSeq
+        val csids = course.enrolled(commonArgs.students_).tally(s).toSeq
         println(s"\n$c (${csids.size.toString} students):")
         val width = csids.map(_.value.length).maxOption.getOrElse(0)
         for (csid <- csids) {
@@ -360,19 +341,10 @@ object Main {
       val tests_re = commonArgs.tests_
       val f = s.tally
       var shown = 0
-      for {
-        c <- CoursesConfig(source)
-          .active_courses(commonArgs.courses_)
-          .tally(s)
-          .toSeq
-        p <- Course(c, source)
-          .active_projects(commonArgs.projects_)
-          .tally(s)
-          .toSeq
-      } {
-        val aliases = Project(c, p, source).aliases.tally(s)
-        val published = s.track(Project(c, p, source).published_aliases)
-        val csids = Course(c, source)
+      for (project <- active_projects(s, commonArgs, source)) {
+        val aliases = project.aliases.tally(s)
+        val published = s.track(project.published_aliases)
+        val csids = project.course
           .enrolled(commonArgs.students_)
           .tally(s)
           .toSeq
@@ -391,7 +363,7 @@ object Main {
           case AliasSortMode.Alias =>
             csids.sortBy(aliases.get(_).fold(Int.MaxValue)(_.value))
         }
-        val base_name = s"${c}_$p"
+        val base_name = project.name
         val width =
           sorted
             .map(_.value.length)
@@ -413,36 +385,31 @@ object Main {
       f.report("aliases", shown, commonArgs.verbose.value)
     }
 
-  // What `grade` would run for each picked active project in a phase, as
-  // things stand: the test set and keep-going the state and phase give (and
+  // What `grade` would run for each picked active project in a milestone, as
+  // things stand: the test set and keep-going the state and milestone give (and
   // the set shown, if it's another), and the tests themselves, those -t
   // picks (by external or internal name, as run's -t).
   @main
-  def phase_tests(
+  def milestone_tests(
       commonArgs: CommonArgs,
-      @arg(doc = "1, 2 or latest (default: the latest results)")
-      phase: Phase = Phase.Latest
+      @arg(doc =
+        "a milestone or live (default: the current one, see ProjectState.current)"
+      )
+      milestone: Option[Milestone] = None
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
       val source = source_of(commonArgs.workspace)
       val tests_re = commonArgs.tests_
       val f = s.tally
       var found = 0
-      for {
-        c <- CoursesConfig(source)
-          .active_courses(commonArgs.courses_)
-          .tally(s)
-          .toSeq
-        p <- Course(c, source)
-          .active_projects(commonArgs.projects_)
-          .tally(s)
-          .toSeq
-      } {
-        val state = s.track(Project(c, p, source).state)
-        val tests = state.tests(phase)
-        val shown = state.shows(phase)
-        val ids = Project(c, p, source)
-          .test_ids_for(tests)
+      for (project <- active_projects(s, commonArgs, source)) {
+        val state = s.track(project.state)
+        val chosen = milestone.getOrElse(state.current)
+        val tests = state.tests(chosen)
+        val shown = state.shows(chosen)
+        val ids = ag.grader
+          .ProjectMilestone(project, chosen)
+          .ids_for(tests)
           .tally(s)
           .toSeq
           .filter(id =>
@@ -453,16 +420,17 @@ object Main {
             )
           )
         println(
-          s"\n${c}_$p (${HtmlGen.phase_label(phase)}): ${state.description}; " +
-            (if (state.publishes(phase)) "published" else "not published yet") +
-            s"; ${tests: String} tests (${ids.size})" +
-            (if (shown != tests) s", shown: ${shown: String}" else "") +
-            s", keep-going ${if (state.keeps_going(phase)) "on" else "off"}"
+          s"\n${project.name} (${HtmlGen.milestone_label(chosen)}): ${state.description}; " +
+            (if (state.publishes(chosen)) "published"
+             else "not published yet") +
+            s"; ${tests.description} tests (${ids.size})" +
+            (if (shown != tests) s", shown: ${shown.description}" else "") +
+            s", keep-going ${if (state.keeps_going(chosen)) "on" else "off"}"
         )
         for (id <- ids) println(s"  ${id.external_name}")
         found += ids.size
       }
-      f.report("phase_tests", found, commonArgs.verbose.value)
+      f.report("milestone_tests", found, commonArgs.verbose.value)
     }
 
   @main
@@ -471,23 +439,16 @@ object Main {
       val source = source_of(commonArgs.workspace)
       val ob = outbox_of(commonArgs.workspace)
       var found = 0
-      for {
-        c <- CoursesConfig(source)
-          .active_courses(commonArgs.courses_)
-          .tally(s)
-          .toSeq
-        p <- Course(c, source)
-          .active_projects(commonArgs.projects_)
-          .tally(s)
-          .toSeq
-      } {
+      for (project <- active_projects(s, commonArgs, source)) {
         val csids =
-          Course(c, source).enrolled(commonArgs.students_).tally(s).toSeq
+          project.course.enrolled(commonArgs.students_).tally(s).toSeq
         val made = s.track_all(
-          csids.map(csid => ag.grader.repos.WorkRepo(c, p, csid, source).latest)
+          csids.map(csid =>
+            ag.grader.repos.WorkRepo(project.c, project.p, csid, source).latest
+          )
         )
         val k = made.count(ob.record)
-        println(s"${c}_$p: ${csids.size} students, $k to make")
+        println(s"${project.name}: ${csids.size} students, $k to make")
         found += csids.size
       }
       println(s"${ob.pending.size} pending in all")
@@ -540,8 +501,9 @@ object Main {
       // each enrolled student's repo for each active project
       val work_repos = for {
         c <- courses
-        p <- s.track(Course(c, source).active_projects(project_re)).toSeq
-        csid <- s.track(Course(c, source).enrolled(student_re)).toSeq
+        course = Course(c, source)
+        p <- s.track(course.active_projects(project_re)).toSeq
+        csid <- s.track(course.enrolled(student_re)).toSeq
       } yield ag.grader.repos.WorkRepo(c, p, csid, source).latest
       val wanted = s.track_all(
         (if (has_dropbox)
@@ -573,6 +535,21 @@ object Main {
   private def source_of(workspace: os.Path): ag.rules.Source =
     ag.rules.Source(mirror_root(workspace))
 
+  // the active projects -p picks of the active courses -c picks
+  private def active_projects(
+      s: ag.rules.State,
+      commonArgs: CommonArgs,
+      source: ag.rules.Source
+  ): Seq[Project] =
+    for {
+      c <- CoursesConfig(source)
+        .active_courses(commonArgs.courses_)
+        .tally(s)
+        .toSeq
+      course = Course(c, source)
+      p <- course.active_projects(commonArgs.projects_).tally(s).toSeq
+    } yield Project(course, p)
+
   // the students' keys, as config.json's dropbox_path says
   private def dropbox_of(): ag.grader.Dropbox =
     ag.grader.Dropbox(ag.grader.Config.dropbox_root)
@@ -580,103 +557,97 @@ object Main {
   // Picks the active projects to run, from the local mirror (as
   // publish_results did: with no -p, one with work to do, picked by
   // priority, see Priority; named ones as far as their work goes; --tries:
-  // all of them, to that many), and works out their results: every phase
+  // all of them, to that many), and works out their results: every milestone
   // they publish (its tests and keep-going from the project's state), and
-  // each student's latest. The tries are a limit, not a promise: a test
+  // each student's in the current milestone. The tries are a limit, not a promise: a test
   // runs up to that many times, and stops sooner at a failure unless it
   // keeps going. Publishes nothing. Says how it went; the projects, each
   // with its limit.
   //
   // With `narrow`, only the students -s picks, the tests -t picks, and the
-  // phase `phase` (if given) are run, and only their outcomes worked out.
+  // milestone `milestone` (if given) are run, and only their outcomes worked out.
   private def run_projects(
       s: ag.rules.State,
       commonArgs: CommonArgs,
       tries: Option[Int],
       narrow: Boolean,
-      phase: Option[Phase]
-  ): Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] = {
-    val course_re = commonArgs.courses_
-    val project_re = commonArgs.projects_
+      milestone: Option[Milestone]
+  ): Seq[(Project, Int)] = {
     val source = source_of(commonArgs.workspace)
-    val candidates = for {
-      c <- s.track(CoursesConfig(source).active_courses(course_re)).toSeq
-      p <- s.track(Course(c, source).active_projects(project_re)).toSeq
-    } yield (c, p)
-    def name(c: ag.grader.CourseName, p: ag.grader.ProjectName) = s"${c}_$p"
-    def state(c: ag.grader.CourseName, p: ag.grader.ProjectName) =
-      s.track(Project(c, p, source).state)
-    def phases(c: ag.grader.CourseName, p: ag.grader.ProjectName): Seq[Phase] =
-      Seq(Phase.Latest, Phase.One, Phase.Two).filter(state(c, p).publishes)
-    def work(
-        c: ag.grader.CourseName,
-        p: ag.grader.ProjectName
-    ): Option[(ag.grader.Band, Int)] =
+    val candidates = active_projects(s, commonArgs, source)
+    def state(project: Project) = s.track(project.state)
+    def all_milestones(project: Project): Seq[Milestone] =
+      state(project).all_milestones.filter(state(project).publishes)
+    def work(project: Project): Option[(ag.grader.Band, Int)] = {
+      def has_work(milestone: Milestone)(n: Int) =
+        all_milestones(project).contains(milestone) && s.track(
+          ag.grader.ProjectMilestone(project, milestone).has_work(n)
+        )
+      val (live, milestones) =
+        all_milestones(project).partition(_ == Milestone.Live)
       ag.grader.Priority.band(
-        state(c, p).is_live,
-        s.track(Project(c, p, source).iterations),
-        n =>
-          phases(c, p).exists(ph =>
-            s.track(Project(c, p, source).has_work(ph, n))
-          )
+        state(project).is_live,
+        s.track(project.iterations),
+        n => milestones.exists(has_work(_)(n)),
+        n => live.exists(has_work(_)(n))
       )
-    def report(
-        c: ag.grader.CourseName,
-        p: ag.grader.ProjectName,
-        w: Option[(ag.grader.Band, Int)]
-    ) =
+    }
+    def report(project: Project, w: Option[(ag.grader.Band, Int)]) =
       println(
-        s"${name(c, p)}: ${state(c, p).description}; ${w.fold("up to date")(
+        s"${project.name}: ${state(project).description}; ${w.fold("up to date")(
             (band, n) => s"work to do (${band.description}, up to $n tries)"
           )}"
       )
     val named = commonArgs.projects_.regex != ".*"
-    val projects: Seq[(ag.grader.CourseName, ag.grader.ProjectName, Int)] =
+    val projects: Seq[(Project, Int)] =
       tries match {
-        case Some(n) => candidates.map((c, p) => (c, p, n))
+        case Some(n)                               => candidates.map((_, n))
         case None if named || candidates.size <= 1 =>
-          for ((c, p) <- candidates) yield {
-            val w = work(c, p)
-            report(c, p, w)
-            (c, p, w.fold(s.track(Project(c, p, source).iterations).max)(_._2))
+          for (project <- candidates) yield {
+            val w = work(project)
+            report(project, w)
+            (project, w.fold(s.track(project.iterations).max)(_._2))
           }
         case None =>
           val busy = for {
-            (c, p) <- candidates
-            w = work(c, p)
-            _ = report(c, p, w)
+            project <- candidates
+            w = work(project)
+            _ = report(project, w)
             (band, n) <- w
-          } yield ((c, p, n), p.value, band)
+          } yield ((project, n), project.p.value, band)
           val picked = ag.grader.Priority.pick(busy).toSeq
           if (picked.isEmpty) println("nothing to do")
           picked
       }
-    for ((c, p, n) <- projects) {
-      val run_phases = phase.fold(phases(c, p))(Seq(_))
+    for ((project, n) <- projects) {
+      val st = state(project)
+      val run_milestones = milestone.fold(all_milestones(project))(Seq(_))
       println(
-        s"running ${name(c, p)}, up to $n tries: ${state(c, p).description}; " +
-          run_phases
-            .map(ph =>
-              s"${HtmlGen.phase_label(ph)}: ${state(c, p).tests(ph): String}" +
-                (if (state(c, p).keeps_going(ph)) ", keep-going" else "")
+        s"running ${project.name}, up to $n tries: ${st.description}; " +
+          run_milestones
+            .map(milestone =>
+              s"${HtmlGen.milestone_label(milestone)}: ${st.tests(milestone).description}" +
+                (if (st.keeps_going(milestone)) ", keep-going" else "")
             )
             .mkString("; ")
       )
       val started = ag.grader.runs_started()
       if (narrow) {
         val f = s.tally
-        val st = state(c, p)
         val outs = s.track_all(
           for {
-            ph <- run_phases
-            csid <- Project(c, p, source).students_with_submission
-              .tally(s)
-              .toSeq
+            milestone <- run_milestones
+            csid <- project.students_with_submission.tally(s).toSeq
             if f.keep("matching -s", commonArgs.students_.matches(csid.value))
-            // a commit to grade for the phase
-            _ <- Submission(c, p, csid, source).prepare_info(ph).tally(s).toSeq
-            id <- Project(c, p, source)
-              .test_ids_for(st.tests(ph))
+            graded = ag.grader.SubmissionMilestone(
+              Submission(project, csid),
+              milestone
+            )
+            // a commit to grade for the milestone
+            _ <- graded.prepare_info.tally(s).toSeq
+            id <- ag.grader
+              .ProjectMilestone(project, milestone)
+              .ids_for(st.tests(milestone))
               .tally(s)
               .toSeq
             if f.keep(
@@ -684,28 +655,28 @@ object Main {
               commonArgs.tests_.matches(id.external_name) ||
                 commonArgs.tests_.matches(id.internal_name)
             )
-          } yield Submission(c, p, csid, source)
-            .run_one(st.keeps_going(ph), n)(ph, id)
+          } yield graded.run_one(st.keeps_going(milestone), n)(id)
         )
         val results = outs.map(_.value)
         println(
-          s"${name(c, p)}: ${(ag.grader.runs_started() - started).toString} runs; " +
+          s"${project.name}: ${(ag.grader.runs_started() - started).toString} runs; " +
             s"${results.count(_.is_happy)} of ${results.size} test results passed"
         )
         f.report("run", results.size, commonArgs.verbose.value)
       } else {
-        val students =
-          s.track(Project(c, p, source).students_with_submission).toSeq
-        val files = s.track(Project(c, p, source).results_files(n))
-        val latest = s.track_all(
+        val students = s.track(project.students_with_submission).toSeq
+        val files = s.track(project.results_files(n))
+        val current = s.track_all(
           students.map(csid =>
-            Submission(c, p, csid, source).results(Phase.Latest, n)
+            ag.grader
+              .SubmissionMilestone(Submission(project, csid), st.current)
+              .results(n)
           )
         )
-        val outcomes = latest.flatten.flatMap(_.outcomes.values)
+        val outcomes = current.flatten.flatMap(_.outcomes.values)
         println(
-          s"${name(c, p)}: ${(ag.grader.runs_started() - started).toString} runs; " +
-            s"${files.keys.mkString(", ")} for ${students.size} students; latest: " +
+          s"${project.name}: ${(ag.grader.runs_started() - started).toString} runs; " +
+            s"${files.keys.mkString(", ")} for ${students.size} students; ${HtmlGen.milestone_label(st.current)}: " +
             s"${outcomes.count(_.is_happy)} of ${outcomes.size} test results passed"
         )
       }
@@ -715,7 +686,7 @@ object Main {
 
   // Runs the picked projects' tests, here, up to their limit (see
   // run_projects): nothing is published (grade publishes it). -s, -t and
-  // --phase run just those students, tests and phase.
+  // --milestone run just those students, tests and milestone.
   @main
   def run(
       commonArgs: CommonArgs,
@@ -724,14 +695,14 @@ object Main {
       )
       tries: Option[Int] = None,
       @arg(doc =
-        "run just this phase: 1, 2 or latest (default: every phase the project publishes)"
+        "run just this milestone: a milestone or live (default: every milestone the project publishes)"
       )
-      phase: Option[Phase] = None
+      milestone: Option[Milestone] = None
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val narrow = phase.isDefined ||
+      val narrow = milestone.isDefined ||
         commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
-      val _ = run_projects(s, commonArgs, tries, narrow, phase)
+      val _ = run_projects(s, commonArgs, tries, narrow, milestone)
     }
 
   // Runs the picked projects (as run does), then records their results, as
@@ -755,9 +726,9 @@ object Main {
       val picking =
         commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
       val projects = run_projects(s, commonArgs, tries, picking, None)
-      val wanted = s.track_all(projects.flatMap { (c, p, n) =>
-        val students =
-          s.track(Project(c, p, source).students_with_submission).toSeq
+      val wanted = s.track_all(projects.flatMap { (project, n) =>
+        val (c, p) = (project.c, project.p)
+        val students = s.track(project.students_with_submission).toSeq
         if (picking)
           ag.grader.repos.Grade.so_far(
             c,
@@ -775,38 +746,44 @@ object Main {
       )
     }
 
-  // Each student's score for `phase`: the weights of the phase 2 tests they
-  // passed at least once in `tries` tries, halved if late (as
-  // r2's compute_scores, for one round), from the local mirror
+  // Each student's score for `milestone`: the weights of the milestone's tests (Live:
+  // every milestone's) they passed at least once in `tries` tries, halved if
+  // late (as r2's compute_scores, for one round), from the local mirror
   @main
   def scores(
       commonArgs: CommonArgs,
       @arg(short = 'n', doc = "how many tries")
       tries: Int = 1,
-      @arg(doc = "1 or 2 (default: the latest)")
-      phase: Phase = Phase.Latest
+      @arg(doc =
+        "a milestone or live (default: the current one, see ProjectState.current)"
+      )
+      milestone: Option[Milestone] = None
   ): Unit =
     in_r3_workspace(commonArgs) { s =>
-      val course_re = commonArgs.courses_
-      val project_re = commonArgs.projects_
       val source = source_of(commonArgs.workspace)
-      for {
-        c <- s.track(CoursesConfig(source).active_courses(course_re)).toSeq
-        p <- s.track(Course(c, source).active_projects(project_re)).toSeq
-      } {
-        val weights = s.track(Project(c, p, source).test_weights)
+      for (project <- active_projects(s, commonArgs, source)) {
+        val chosen = milestone.getOrElse(s.track(project.state).current)
+        val weights = s.track(project.test_weights)
         val weight = (for {
-          t <- s.track(Project(c, p, source).test_ids).toSeq
+          t <- s
+            .track(ag.grader.ProjectMilestone(project, chosen).test_ids)
+            .toSeq
           w <- weights
           if Regex(w.pattern).matches(t.external_name)
         } yield (t, w.weight)).to(SortedMap)
         val total = weight.values.sum
-        println(s"${c}_$p after 1 runs, total $total:")
+        println(s"${project.name} after 1 runs, total $total:")
         for (
-          (csid, passed) <- s.track(Project(c, p, source).scores(phase, tries))
+          (csid, passed) <- s.track(
+            ag.grader.ProjectMilestone(project, chosen).scores(tries)
+          )
         ) {
           val raw = passed.toSeq.map(weight).sum
-          val late = s.track(Submission(c, p, csid, source).is_late(phase))
+          val late = s.track(
+            ag.grader
+              .SubmissionMilestone(Submission(project, csid), chosen)
+              .is_late
+          )
           val score = if (late) raw.toDouble / 2.0 else raw.toDouble
           println(
             f"    ${csid.toString} ${score.toString} ${100.0 * (score / total.toDouble)}%.2f ${

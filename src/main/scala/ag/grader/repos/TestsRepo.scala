@@ -2,8 +2,10 @@ package ag.grader.repos
 
 import ag.common.ToRelPath
 import ag.grader.{
+  ProjectMilestone,
   Alias,
   CSID,
+  Course,
   CourseName,
   Create,
   Project,
@@ -18,23 +20,27 @@ import scala.collection.SortedMap
 // the students' (by alias, at <alias>.<ext>) and the override repo's.
 final case class TestsRepo(c: CourseName, p: ProjectName, source: Source)
     extends OwnedRepo[TestsRepo] derives ToRelPath {
+  private def project = Project(Course(c, source), p)
   def repo_name: String = s"${ProjectRepo.name_of(c, p)}__tests"
   def create: Option[Create] =
     Some(Create("empty", Seq(Groups.everyone), Seq()))
   val message = "tests"
 
   lazy val latest: Target[WithData[Publish]] =
-    owned(
-      _.track_all(
+    owned { t =>
+      // as of the milestone the students are working toward
+      val milestone =
+        ProjectMilestone(project, t.track(project.state).current)
+      t.track_all(
         (
-          tests = Project(c, p, source).student_tests_by_csid,
-          aliases = Project(c, p, source).aliases,
-          ext = Project(c, p, source).test_extensions,
-          names = Project(c, p, source).override_test_names,
+          tests = milestone.student_tests,
+          aliases = project.aliases,
+          ext = project.test_extensions,
+          names = project.override_test_names,
           ov = OverrideRepo(c, p, source).inspect
         )
       )
-    ) { (in, producer, dir) =>
+    } { (in, producer, dir) =>
       TestsRepo.copy_student_tests(producer, in.tests, in.aliases, in.ext, dir)
       for {
         o <- in.ov.toSeq

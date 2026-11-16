@@ -5,70 +5,69 @@ import munit.FunSuite
 import java.time.LocalDateTime
 
 class ProjectStateTests extends FunSuite {
-  private val first = LocalDateTime.of(2026, 10, 1, 23, 59)
-  private val second = LocalDateTime.of(2026, 10, 8, 23, 59)
-  private def at(t: LocalDateTime) = ProjectState.at(t, first, second)
+  private val first = LocalDateTime.of(2026, 10, 1, 23, 59).nn
+  private val second = LocalDateTime.of(2026, 10, 8, 23, 59).nn
+  private val third = LocalDateTime.of(2026, 10, 15, 23, 59).nn
+  private def milestones(a: LocalDateTime, b: LocalDateTime, c: LocalDateTime) =
+    Seq(
+      RawMilestone("a", a, Seq("t0"), 1),
+      RawMilestone("b", b, Seq("t1"), 1),
+      RawMilestone("c", c, Seq("t1", "t2"), 1)
+    )
+  private def at(t: LocalDateTime) =
+    ProjectState.at(t, milestones(first, second, third))
+  private val (a, b, c) =
+    (Milestone.Named("a"), Milestone.Named("b"), Milestone.Named("c"))
+  // the states: before every deadline, after one, after two, after all
+  private val states = (0 to 3).map(ProjectState(Seq("a", "b", "c"), _))
 
-  test(
-    "the state follows the two deadlines, each taking effect at its instant"
-  ) {
-    assertEquals(at(first.minusMinutes(1)), ProjectState.BeforeFirstDeadline)
-    assertEquals(at(first), ProjectState.BetweenDeadlines)
-    assertEquals(at(second.minusMinutes(1)), ProjectState.BetweenDeadlines)
-    assertEquals(at(second), ProjectState.AfterSecondDeadline)
+  test("the state counts the deadlines passed, each taking effect at its instant") {
+    assertEquals(at(first.minusMinutes(1)).passed, 0)
+    assertEquals(at(first).passed, 1)
+    assertEquals(at(second.minusMinutes(1)).passed, 1)
+    assertEquals(at(second).passed, 2)
+    assertEquals(at(third).passed, 3)
+    assertEquals(states.map(_.all_milestones).distinct, Seq(Seq(a, b, c, Milestone.Live)))
   }
 
-  test("each state's liveness, keep-going default and tests") {
-    import ProjectState.*
+  test("live until the final deadline; the current milestone is the first open milestone, then Live") {
+    assertEquals(states.map(_.is_live), Seq(true, true, true, false))
+    assertEquals(states.map(_.current), Seq(a, b, c, Milestone.Live))
     assertEquals(
-      ProjectState.values.toList.map(s =>
-        (s, s.is_live, s.latest_keeps_going, s.latest_tests)
-      ),
-      List(
-        (BeforeFirstDeadline, true, false, "all"),
-        (BetweenDeadlines, true, false, "good"),
-        (AfterSecondDeadline, false, true, "chosen")
+      states.map(_.description),
+      Seq(
+        "before a's deadline",
+        "after a's deadline, before b's",
+        "after b's deadline, before c's",
+        "after the final deadline"
       )
     )
-    for (s <- ProjectState.values) {
-      assert(s.keeps_going(Phase.One) && s.keeps_going(Phase.Two))
-      assertEquals(s.keeps_going(Phase.Latest), s.latest_keeps_going)
-      assert(s.tests(Phase.One) == "phase1")
-      assert(s.tests(Phase.Two) == "phase2")
-      assert(s.tests(Phase.Latest) == s.latest_tests)
+  }
+
+  test("an open milestone is feedback: the good tests, stopping at a failure; a closed one runs its own to the end") {
+    val s = states(1) // a closed; b and c open
+    assertEquals((s.tests(a), s.shows(a), s.keeps_going(a)), (TestSet.Of("a"), TestSet.Of("a"), true))
+    for (open <- Seq(b, c))
+      assertEquals((s.tests(open), s.shows(open), s.keeps_going(open)), (TestSet.Good, TestSet.Good, false))
+  }
+
+  test("Live runs the chosen tests to the end and shows every good one, once the final deadline has passed") {
+    for (s <- states) {
+      assertEquals((s.tests(Milestone.Live), s.shows(Milestone.Live)), (TestSet.Chosen, TestSet.Good))
+      assert(s.keeps_going(Milestone.Live))
+      // every milestone is published, Live only at the end
+      assert(Seq(a, b, c).forall(s.publishes))
+      assertEquals(s.publishes(Milestone.Live), !s.is_live)
     }
-  }
-
-  test("the latest results show every good test after the second deadline, but run only the chosen") {
-    import ProjectState.*
-    assertEquals(
-      ProjectState.values.toList.map(s => (s, s.tests(Phase.Latest), s.shows(Phase.Latest))),
-      List(
-        (BeforeFirstDeadline, "all", "all"),
-        (BetweenDeadlines, "good", "good"),
-        (AfterSecondDeadline, "chosen", "good")
-      )
-    )
-    // a phase's results show just what they run
-    for (s <- ProjectState.values; phase <- Seq(Phase.One, Phase.Two))
-      assertEquals(s.shows(phase), s.tests(phase))
   }
 
   test("moving a deadline moves the state") {
     val now = first.plusDays(2)
-    assertEquals(at(now), ProjectState.BetweenDeadlines)
-    assertEquals(
-      ProjectState.at(
-        now,
-        first,
-        now.minusHours(1)
-      ), // second deadline moved earlier
-      ProjectState.AfterSecondDeadline
-    )
-    assertEquals(
-      ProjectState.at(now, now.plusDays(1), second), // first deadline extended
-      ProjectState.BeforeFirstDeadline
-    )
+    assertEquals(at(now).passed, 1)
+    // the last two moved earlier
+    assertEquals(ProjectState.at(now, milestones(first, now.minusHours(2), now.minusHours(1))).passed, 3)
+    // the first extended
+    assertEquals(ProjectState.at(now, milestones(now.plusDays(1), second, third)).passed, 0)
   }
 
   test("the most urgent band goes first, then the lowest numbered") {
@@ -83,6 +82,8 @@ class ProjectStateTests extends FunSuite {
     assertEquals(pick("p4" -> LiveRest, "p3" -> LiveRest), Some("p3"))
     assertEquals(pick("p2" -> Other, "p1" -> Other), Some("p1"))
     assertEquals(pick("p10" -> Other, "p9" -> Other), Some("p9"))
+    // and work pushed after a final deadline waits for all of it
+    assertEquals(pick("p1" -> Late, "p3" -> LiveRest), Some("p3"))
     assertEquals(pick(), None)
   }
 
@@ -90,11 +91,15 @@ class ProjectStateTests extends FunSuite {
     val its = Iterations(min = 10, max = 100)
     // has work below `tries`
     def below(tries: Int)(n: Int) = n > tries
-    assertEquals(Priority.band(true, its, below(3)), Some((Band.LiveFirst, 10)))
-    assertEquals(Priority.band(true, its, below(10)), Some((Band.LiveRest, 100)))
-    assertEquals(Priority.band(true, its, below(100)), None)
-    assertEquals(Priority.band(false, its, below(3)), Some((Band.Other, 100)))
-    assertEquals(Priority.band(false, its, below(100)), None)
+    val none = (_: Int) => false
+    assertEquals(Priority.band(true, its, below(3), none), Some((Band.LiveFirst, 10)))
+    assertEquals(Priority.band(true, its, below(10), none), Some((Band.LiveRest, 100)))
+    assertEquals(Priority.band(true, its, below(100), none), None)
+    assertEquals(Priority.band(false, its, below(3), none), Some((Band.Other, 100)))
+    assertEquals(Priority.band(false, its, below(100), none), None)
+    // Live's work alone is late; with milestones' work it waits its turn
+    assertEquals(Priority.band(false, its, none, below(3)), Some((Band.Late, 100)))
+    assertEquals(Priority.band(false, its, below(3), below(3)), Some((Band.Other, 100)))
   }
 
   test("iterations need both min and max, with 1 <= min <= max") {
@@ -108,10 +113,7 @@ class ProjectStateTests extends FunSuite {
   }
 
   test("a state survives the cache") {
-    for (s <- ProjectState.values)
-      assertEquals(
-        upickle.default.read[ProjectState](upickle.default.write(s)),
-        s
-      )
+    for (s <- states)
+      assertEquals(upickle.default.read[ProjectState](upickle.default.write(s)), s)
   }
 }

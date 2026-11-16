@@ -402,7 +402,7 @@
       const v = version_of(doc);
       // (a tab switch may have happened while this was in flight)
       const same = doc.body && doc.body.dataset.assignment === document.body.dataset.assignment &&
-        doc.body.dataset.phase === document.body.dataset.phase;
+        doc.body.dataset.milestone === document.body.dataset.milestone;
       if (same && v && v !== version_of(document)) swap_in(doc);
     } catch (e) {
       // offline or briefly unavailable: try again next time
@@ -446,7 +446,7 @@
     loaded_path = location.pathname;
     document.title = doc.title;
     document.body.dataset.assignment = doc.body.dataset.assignment;
-    document.body.dataset.phase = doc.body.dataset.phase;
+    document.body.dataset.milestone = doc.body.dataset.milestone;
     document.querySelector('meta[name="report-version"]').content = version_of(doc);
     document.querySelector("header.top").replaceWith(document.adoptNode(header));
     document.querySelector("main").replaceWith(document.adoptNode(main));
@@ -456,7 +456,7 @@
   }
 
   document.addEventListener("click", (e) => {
-    const link = e.target.closest("nav.tabs a, nav.phases a");
+    const link = e.target.closest("nav.tabs a, nav.milestones a");
     // let new-tab / new-window clicks, and pages opened from disk, behave normally
     if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     if (location.protocol === "file:") return;

@@ -3,17 +3,20 @@ package ag.grader.repos
 import ag.common.ToRelPath
 import ag.grader.{
   CSID,
+  Course,
   CourseName,
   Create,
-  Phase,
+  Milestone,
+  Project,
   ProjectName,
   Publish,
-  Submission
+  Submission,
+  SubmissionMilestone
 }
 import ag.rules.{Source, Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
-// (see Submission.prepare): a directory for each phase that has a commit to
+// (see Submission.prepare): a directory for each milestone that has a commit to
 // grade (latest, phase1, phase2), in their own repo, for them and the staff
 // to read. The runs run on what's here (prepared), so what the student sees
 // is what was tested. Staff can push to it, but it's the grader's: it's
@@ -24,6 +27,8 @@ final case class PreparedRepo(
     csid: CSID,
     source: Source
 ) extends OwnedRepo[PreparedRepo] derives ToRelPath {
+  private def project = Project(Course(c, source), p)
+  private def submission = Submission(project, csid)
   def repo_name: String = PreparedRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(
@@ -36,36 +41,38 @@ final case class PreparedRepo(
   val message = "updated prepared code"
 
   lazy val latest: Target[WithData[Publish]] = owned { t =>
+    val all_milestones = t.track(project.state).all_milestones
     val infos = t.track_all(
-      PreparedRepo.phases.map(Submission(c, p, csid, source).prepare_info(_))
+      all_milestones.map(SubmissionMilestone(submission, _).prepare_info)
     )
-    val graded = PreparedRepo.phases.zip(infos).collect {
-      case (phase, Some(info)) => (phase, info.sha)
-    }
+    val graded =
+      all_milestones.zip(infos).collect { case (milestone, Some(info)) =>
+        (milestone, info.sha)
+      }
     val trees =
       t.track_all(
-        graded.map((_, sha) => Submission(c, p, csid, source).prepare(sha))
+        graded.map((_, sha) => submission.prepare(sha))
       )
     graded.map(_._1).zip(trees.map(_.data))
   } { (in, producer, dir) =>
-    for ((phase, tree) <- in) producer.copy_to(tree, dir / ToRelPath(phase))
+    for ((milestone, tree) <- in)
+      producer.copy_to(tree, dir / ToRelPath(milestone))
     Seq()
   }
 
-  // What a phase's runs run on: its directory in what's published; None if
-  // the phase has no commit to grade. The same files as the tree it was
+  // What a milestone's runs run on: its directory in what's published; None if
+  // the milestone has no commit to grade. The same files as the tree it was
   // copied from, so the same id (and the same runs, see ag.grader.TestRun).
-  lazy val prepared: Phase => Target[Option[Tree]] = fun { (phase: Phase) =>
-    target((published = latest)) { (producer, deps) =>
-      val data = deps.published.data
-      producer.id_at(data, ToRelPath(phase)).map(Tree(_, data.at))
-    }
+  lazy val prepared: Milestone => Target[Option[Tree]] = fun {
+    (milestone: Milestone) =>
+      target((published = latest)) { (producer, deps) =>
+        val data = deps.published.data
+        producer.id_at(data, ToRelPath(milestone)).map(Tree(_, data.at))
+      }
   }
 }
 
 object PreparedRepo {
   def name_of(c: CourseName, p: ProjectName, csid: CSID): String =
     s"${c.value}_${p.value}_${csid.value}__prepared"
-
-  val phases: Seq[Phase] = Seq(Phase.Latest, Phase.One, Phase.Two)
 }

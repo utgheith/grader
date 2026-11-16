@@ -7,7 +7,7 @@ import ag.common.{given_ReadWriter_Instant, given_ReadWriter_ZonedDateTime}
 
 // How `graded_commit` chose the commit it graded.
 enum CommitSource derives ReadWriter:
-  // From master: the last commit before the phase's deadline, or master
+  // From master: the last commit before the milestone's deadline, or master
   // itself. Also used when a commit id file names no commit.
   case Latest
   // Named in the submission's commit id file; `sha` is the file's contents.

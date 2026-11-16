@@ -1,10 +1,6 @@
 package ag.grader
 
-import ag.common.{
-  given_ReadWriter_LocalDateTime,
-  given_ReadWriter_SortedMap,
-  given_ReadWriter_SortedSet
-}
+import ag.common.{given_ReadWriter_SortedMap, given_ReadWriter_SortedSet}
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -15,27 +11,25 @@ import scala.collection.{SortedMap, SortedSet}
 final case class ReportData(
     title: String,
     generated: LocalDateTime,
-    test_cutoff: LocalDateTime,
-    code_cutoff: LocalDateTime,
+    // the project's milestones, in deadline order
+    milestones: Seq[RawMilestone],
     enrollments: Int,
     results: SortedMap[Alias, RedactedStudentResults],
-    phase1_tests: SortedSet[String],
-    phase1_weight: Int,
-    phase2_tests: SortedSet[String],
-    phase2_weight: Int,
     weights: Seq[Weight],
     bad_tests: SortedSet[String],
     // highlighted rows: aliases that belong to staff
     staff_aliases: Set[Alias],
     // the course's projects, as (tab label, page title), in tab order; each
-    // tab links to that project's page for this page's phase
+    // tab links to that project's main page
     tabs: Seq[(String, String)] = Nil,
     // the page's heading; the title if empty
     project_name: String = "",
     // shown instead of the summary when the results can't be shown
     notice: Option[String] = None,
-    // which results these are: the latest, or a phase's
-    phase: Phase = Phase.Latest
+    // which results these are
+    milestone: Milestone = Milestone.Live,
+    // the milestone the project's main page shows (see ProjectState.current)
+    current: Milestone = Milestone.Live
 )
 
 // What a project's report pages show, but the time they're made: the
@@ -45,22 +39,19 @@ final case class ReportInputs(
     // <course>_<project>
     title: String,
     project_name: String,
-    test_cutoff: LocalDateTime,
-    code_cutoff: LocalDateTime,
+    milestones: Seq[RawMilestone],
+    // the milestone the main page shows (see ProjectState.current)
+    current: Milestone,
     enrollments: Int,
-    // each phase's published results (see Project.results), and whether
+    // each milestone's published results (see Project.results), and whether
     // they're published yet
     results: Seq[
       (
-          Phase,
+          Milestone,
           Either[String, Option[SortedMap[Alias, RedactedStudentResults]]],
           Boolean
       )
     ],
-    phase1_tests: SortedSet[String],
-    phase1_weight: Int,
-    phase2_tests: SortedSet[String],
-    phase2_weight: Int,
     weights: Seq[Weight],
     bad_tests: SortedSet[String],
     staff_aliases: SortedSet[Alias],
@@ -89,20 +80,18 @@ object HtmlGen {
       .sortBy(n => (n.length, n))
       .map(n => n -> s"${course_name}_$n")
 
-  // A project's pages, one per phase, made at `generated`; `log` hears why
+  // A project's pages, one per milestone, made at `generated`; `log` hears why
   // results that should be shown can't be
   def reports(
       i: ReportInputs,
       generated: LocalDateTime,
       log: String => Unit
   ): Seq[ReportData] =
-    for ((phase, r, published) <- i.results) yield {
-      val deadline = phase.deadline(i.test_cutoff, i.code_cutoff)
+    for ((milestone, r, published) <- i.results) yield {
       ReportData(
         title = i.title,
         generated = generated,
-        test_cutoff = i.test_cutoff,
-        code_cutoff = i.code_cutoff,
+        milestones = i.milestones,
         enrollments = i.enrollments,
         results =
           if (published) r.toOption.flatten.getOrElse(SortedMap())
@@ -110,26 +99,23 @@ object HtmlGen {
         notice =
           if (!published)
             Some(
-              s"${phase_label(phase).capitalize} results will be published after its deadline" +
-                deadline.fold("")(d => s", ${display_format.format(d)}") + "."
+              s"${milestone_label(milestone).capitalize} results will be published after the final deadline, " +
+                s"${display_format.format(i.milestones.last.deadline)}."
             )
           else
             r.left.toOption.map { why =>
               log(
-                s"can't show ${i.title}'s ${phase_label(phase)} results: $why"
+                s"can't show ${i.title}'s ${milestone_label(milestone)} results: $why"
               )
               "The results for this project are being updated; they'll be back shortly."
             },
-        phase1_tests = i.phase1_tests,
-        phase1_weight = i.phase1_weight,
-        phase2_tests = i.phase2_tests,
-        phase2_weight = i.phase2_weight,
         weights = i.weights,
         bad_tests = i.bad_tests,
         staff_aliases = i.staff_aliases.toSet,
         tabs = i.tabs,
         project_name = i.project_name,
-        phase = phase
+        milestone = milestone,
+        current = i.current
       )
     }
 
@@ -137,7 +123,7 @@ object HtmlGen {
   // (the same version; see render): a page's bytes change only when what it
   // shows does. Its file name.
   def write_page(dir: os.Path, data: ReportData): String = {
-    val f = dir / page_file(data.title, data.phase)
+    val f = dir / page_file(data.title, data.milestone, data.current)
     val v = version(data)
     if (!(os.isFile(f) && version_of(os.read(f)).contains(v)))
       os.write.over(f, render_with(data, v))
@@ -148,20 +134,22 @@ object HtmlGen {
   import scalatags.Text.all.*
   import scalatags.Text.tags2
 
-  // a project's page for `phase`, by the project's title (<course>_<project>)
-  def page_file(title: String, phase: Phase): String = phase match
-    case Phase.Latest => s"$title.html"
-    case Phase.One    => s"${title}_phase1.html"
-    case Phase.Two    => s"${title}_phase2.html"
+  // a project's page for `milestone`, by the project's title (<course>_<project>):
+  // its main page, <title>.html, if `milestone` is the one it shows (`current`),
+  // or else <title>--<milestone>.html
+  def page_file(
+      title: String,
+      milestone: Milestone,
+      current: Milestone
+  ): String =
+    if (milestone == current) s"$title.html"
+    else s"$title--${milestone.slug}.html"
 
-  // Whether `file` is a phase's page (the index lists only the latest ones).
-  def is_phase_page(file: String): Boolean =
-    file.endsWith("_phase1.html") || file.endsWith("_phase2.html")
+  // Whether `file` is a page for a milestone other than the current one (the
+  // index lists only the main pages)
+  def is_milestone_page(file: String): Boolean = file.contains("--")
 
-  def phase_label(phase: Phase): String = phase match
-    case Phase.Latest => "latest"
-    case Phase.One    => "phase 1"
-    case Phase.Two    => "phase 2"
+  def milestone_label(milestone: Milestone): String = milestone.slug
 
   val display_format: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)").nn
@@ -181,13 +169,13 @@ object HtmlGen {
   // ---- Correctness score
   //
   // Each chosen test is worth its weight from `test_weights`, scaled per
-  // phase as in the "Selected test weights" table, and earns that weight
+  // milestone as in the "Selected test weights" table, and earns that weight
   // times the fraction of its tries that passed. The score is the earned
   // share of all the weight, times 0.9 per day the commit is late, counting
-  // any part of a day as a whole one (1 day 2 hours late: 0.9^2). A phase's
-  // results count only that phase's weight, and are late from that phase's
-  // cutoff; the latest results count both, and are late from the phase 2
-  // (code) cutoff.
+  // any part of a day as a whole one (1 day 2 hours late: 0.9^2). A
+  // milestone's results count only its weight, and are late from its
+  // deadline; Live's count every milestone's, and are late from the final
+  // deadline.
 
   final case class Score(
       earned: Double, // weighted, before the late penalty
@@ -216,21 +204,23 @@ object HtmlGen {
   }
 
   def score_of(d: ReportData, r: RedactedStudentResults): Option[Score] =
-    score_with(compute_weights(d), d.phase, r)
+    score_with(compute_weights(d), d.milestone, r)
 
   private def score_with(
       weights: Weights,
-      phase: Phase,
+      milestone: Milestone,
       r: RedactedStudentResults
   ): Option[Score] = {
-    def counted(row: WeightRow): Int = phase match
-      case Phase.Latest => row.phase1 + row.phase2
-      case Phase.One    => row.phase1
-      case Phase.Two    => row.phase2
-    val possible = phase match
-      case Phase.Latest => weights.phase1_total + weights.phase2_total
-      case Phase.One    => weights.phase1_total
-      case Phase.Two    => weights.phase2_total
+    // (Live counts every milestone)
+    val counts: Int => Boolean = milestone match
+      case Milestone.Named(name) => i => weights.names(i) == name
+      case Milestone.Live        => _ => true
+    def counted(row: WeightRow): Int =
+      row.per_milestone.zipWithIndex.collect {
+        case (w, i) if counts(i) => w
+      }.sum
+    val possible =
+      weights.totals.zipWithIndex.collect { case (t, i) if counts(i) => t }.sum
     Option.when(possible > 0) {
       val earned = weights.rows.map { row =>
         val runs = r.outcomes
@@ -264,26 +254,28 @@ object HtmlGen {
       ("unknown", "?", "didn't run", 0)
   }
 
+  // a test's weight in each milestone, scaled (0 if it isn't one of the
+  // milestone's tests)
   private final case class WeightRow(
       test: String,
       weight: Option[Int],
-      phase1: Int,
-      phase2: Int
+      per_milestone: Seq[Int]
   )
 
+  // per milestone, in order: its name, the factor its tests' weights are
+  // scaled by, and their total
   private final case class Weights(
       rows: Seq[WeightRow],
-      phase1_factor: Int,
-      phase2_factor: Int,
-      phase1_total: Int,
-      phase2_total: Int
+      names: Seq[String],
+      factors: Seq[Int],
+      totals: Seq[Int]
   )
 
-  // Scales the two phases' raw weights so they keep the configured
-  // phase1:phase2 ratio, using the lcm of the raw sums.
+  // Scales each milestone's raw weights (its tests', from test_weights) so
+  // the milestones keep their configured ratio, using the lcm of the raw sums.
   private def compute_weights(d: ReportData): Weights = {
-    // chosen = (phase 1 + phase 2) - ignored, as in Project.chosen_test_ids
-    val selected = (d.phase1_tests ++ d.phase2_tests).toList
+    // the chosen tests: some milestone's, less the ignored ones
+    val selected = chosen_of(d).toList
       .filterNot(d.bad_tests.contains)
       .sortBy(c => (c.length, c))
     def weight_of(c: String): Option[Int] =
@@ -291,34 +283,34 @@ object HtmlGen {
         .find(w => scala.util.matching.Regex(w.pattern).matches(c))
         .map(_.weight)
 
-    val phase1_raw =
-      selected.filter(d.phase1_tests.contains).flatMap(weight_of).sum
-    val phase2_raw =
-      selected.filter(d.phase2_tests.contains).flatMap(weight_of).sum
-    val factor =
-      if (phase1_raw == 0) phase2_raw
-      else if (phase2_raw == 0) phase1_raw
-      else (phase1_raw / BigInt(phase1_raw).gcd(phase2_raw).toInt) * phase2_raw
-    val phase1_total = d.phase1_weight * factor
-    val phase2_total = d.phase2_weight * factor
-    val phase1_factor = if (phase1_raw != 0) phase1_total / phase1_raw else 0
-    val phase2_factor = if (phase2_raw != 0) phase2_total / phase2_raw else 0
+    val raws = d.milestones.map(m =>
+      selected.filter(m.tests.contains).flatMap(weight_of).sum
+    )
+    val factor = raws
+      .filter(_ != 0)
+      .map(BigInt(_))
+      .reduceOption((a, b) => a / a.gcd(b) * b)
+      .fold(0)(_.toInt)
+    val totals = d.milestones.map(_.weight * factor)
+    val factors =
+      raws.zip(totals).map((raw, total) => if (raw != 0) total / raw else 0)
 
     val rows = selected.map { c =>
       val w = weight_of(c)
       WeightRow(
         test = c,
         weight = w,
-        phase1 =
-          if (d.phase1_tests.contains(c)) w.getOrElse(0) * phase1_factor
-          else 0,
-        phase2 =
-          if (d.phase2_tests.contains(c)) w.getOrElse(0) * phase2_factor
-          else 0
+        per_milestone = d.milestones
+          .zip(factors)
+          .map((m, f) => if (m.tests.contains(c)) w.getOrElse(0) * f else 0)
       )
     }
-    Weights(rows, phase1_factor, phase2_factor, phase1_total, phase2_total)
+    Weights(rows, d.milestones.map(_.name), factors, totals)
   }
+
+  // the tests some milestone counts
+  private def chosen_of(d: ReportData): Set[String] =
+    d.milestones.flatMap(_.tests).toSet
 
   // A page's version: a hash of everything it shows except the time it was
   // generated, so regenerating unchanged results doesn't look like a change.
@@ -339,7 +331,7 @@ object HtmlGen {
       .map(_.group(1).nn)
 
   private def render_with(d: ReportData, version: String): String = {
-    val chosen: Set[String] = (d.phase1_tests ++ d.phase2_tests).toSet
+    val chosen: Set[String] = chosen_of(d)
 
     // chosen tests first, then by name length, then by name
     val tests: Seq[String] = d.results.values.toSeq
@@ -371,7 +363,9 @@ object HtmlGen {
     val weights = compute_weights(d)
     val scores: Map[Alias, Score] =
       rows
-        .flatMap((alias, r) => score_with(weights, d.phase, r).map(alias -> _))
+        .flatMap((alias, r) =>
+          score_with(weights, d.milestone, r).map(alias -> _)
+        )
         .toMap
 
     // Per submission, per test (in `tests` order): [result rank, passing
@@ -623,8 +617,8 @@ object HtmlGen {
             tr(
               th("test"),
               th(cls := "num")("weight"),
-              th(cls := "num")(s"phase 1 (×${weights.phase1_factor})"),
-              th(cls := "num")(s"phase 2 (×${weights.phase2_factor})")
+              for ((name, f) <- weights.names.zip(weights.factors))
+                yield th(cls := "num")(s"$name (×$f)")
             )
           ),
           tbody(
@@ -632,35 +626,32 @@ object HtmlGen {
               yield tr(
                 td(w.test),
                 td(cls := "num")(w.weight.fold("?")(_.toString)),
-                td(cls := "num")(w.phase1.toString),
-                td(cls := "num")(w.phase2.toString)
+                for (x <- w.per_milestone) yield td(cls := "num")(x.toString)
               )
           ),
           tfoot(
             tr(
               td("total"),
               td(""),
-              td(cls := "num")(weights.phase1_total.toString),
-              td(cls := "num")(weights.phase2_total.toString)
+              for (t <- weights.totals) yield td(cls := "num")(t.toString)
             )
           )
         ),
         div(cls := "note")(
-          s"Overall: ${weights.phase1_total} + ${weights.phase2_total} = " +
-            s"${weights.phase1_total + weights.phase2_total}; " +
-            s"phase 1 : phase 2 = ${d.phase1_weight} : ${d.phase2_weight}"
+          s"Overall: ${weights.totals.mkString(" + ")} = ${weights.totals.sum}; " +
+            s"${weights.names.mkString(" : ")} = ${d.milestones.map(_.weight).mkString(" : ")}"
         ),
         div(cls := "note")(
           span(cls := "exp")("experimental"),
           " Correctness (0 to 1) may change. Each test earns its weight times the fraction " +
             "of its tries that passed; correctness is the share of " +
-            (d.phase match
-              case Phase.Latest => "all the weight"
-              case Phase.One    => "phase 1's weight"
-              case Phase.Two    => "phase 2's weight") +
-            " earned, times 0.9 for each day (or part of a day) the commit is past the " +
-            (if (d.phase == Phase.One) "phase 1" else "phase 2") +
-            " cutoff."
+            (d.milestone match
+              case Milestone.Named(name) => s"$name's weight"
+              case Milestone.Live        => "all the weight") +
+            " earned, times 0.9 for each day (or part of a day) the commit is past " +
+            (d.milestone match
+              case Milestone.Named(name) => s"$name's deadline."
+              case Milestone.Live        => "the final deadline.")
         )
       )
 
@@ -684,7 +675,7 @@ object HtmlGen {
       ),
       body(
         data("assignment") := d.title,
-        data("phase") := phase_label(d.phase)
+        data("milestone") := milestone_label(d.milestone)
       )(
         header(cls := "top")(
           h1(if (d.project_name.nonEmpty) d.project_name else d.title),
@@ -694,32 +685,33 @@ object HtmlGen {
                 val here = title == d.title
                 a(
                   Option.when(here)(cls := "active"),
-                  href := page_file(title, d.phase),
+                  href := s"$title.html",
                   Option.when(here)(attr("aria-current") := "page")
                 )(tab)
               }
             )
           ),
-          tags2.nav(cls := "phases", aria.label := "results")(
-            for (phase <- Seq(Phase.Latest, Phase.One, Phase.Two)) yield {
-              val here = phase == d.phase
-              a(
-                Option.when(here)(cls := "active"),
-                href := page_file(d.title, phase),
-                Option.when(here)(attr("aria-current") := "page")
-              )(phase_label(phase))
-            }
+          tags2.nav(cls := "milestones", aria.label := "results")(
+            for (
+                milestone <- d.milestones
+                  .map(m => Milestone.Named(m.name)) :+ Milestone.Live
+              )
+              yield {
+                val here = milestone == d.milestone
+                a(
+                  Option.when(here)(cls := "active"),
+                  href := page_file(d.title, milestone, d.current),
+                  Option.when(here)(attr("aria-current") := "page")
+                )(milestone_label(milestone))
+              }
           ),
           dl(cls := "dates")(
             div(dt("generated"), dd(display_format.format(d.generated).nn)),
-            div(
-              dt("phase 1 cutoff"),
-              dd(display_format.format(d.test_cutoff).nn)
-            ),
-            div(
-              dt("phase 2 cutoff"),
-              dd(display_format.format(d.code_cutoff).nn)
-            )
+            for (m <- d.milestones)
+              yield div(
+                dt(s"${m.name} deadline"),
+                dd(display_format.format(m.deadline).nn)
+              )
           )
         ),
         tags2.main(
@@ -801,7 +793,7 @@ object HtmlGen {
     "<!DOCTYPE html>\n" + html(lang := "en")(content*).render
 
   // A course site's front page: a link to each project's page. Visitors go
-  // straight on to the latest project's live (latest results) page; the
+  // straight on to the newest project's main page (its current milestone); the
   // list is for index.html?all, and for browsers without JavaScript.
   def render_index(course_name: String, pages: Seq[String]): String = {
     val sorted = pages.sortBy(f => (f.length, f))

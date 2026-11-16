@@ -197,7 +197,7 @@ class CoursePublishersTests extends FunSuite {
     assertEquals(ob.pending, Seq())
   }
 
-  test("site: a page per phase and the front page; old pages stay, unchanged pages aren't rewritten") {
+  test("site: a page per milestone and the front page; old pages stay, unchanged pages aren't rewritten") {
     val root = TempDirs.dir()
     val (r, source, _, ob) = setup(root)
     val _ = r.commit("c1__site", test_cutoff, "c1_p0.html" -> "an old project's page")()
@@ -206,7 +206,7 @@ class CoursePublishersTests extends FunSuite {
     val dir = s.checkout(p.data)
     assertEquals(
       files(dir),
-      Seq("c1_p0.html", "c1_p1.html", "c1_p1_phase1.html", "c1_p1_phase2.html", "index.html")
+      Seq("c1_p0.html", "c1_p1--m1.html", "c1_p1--m2.html", "c1_p1.html", "index.html")
     )
     val index = os.read(dir / "index.html")
     assert(index.contains("c1_p0.html") && index.contains("c1_p1.html"))
@@ -232,7 +232,7 @@ class CoursePublishersTests extends FunSuite {
     def deployment = repos.SiteDeployment(c1, host, source)
     assertEquals(State(root / "ws").track(deployment.deployed), "https://c1.example")
     // the pages, without the repo's dot files
-    assertEquals(served.toSeq, Seq(Seq("c1_p1.html", "c1_p1_phase1.html", "c1_p1_phase2.html", "index.html")))
+    assertEquals(served.toSeq, Seq(Seq("c1_p1--m1.html", "c1_p1--m2.html", "c1_p1.html", "index.html")))
     // nothing changed: not served again
     val _ = State(root / "ws").track(deployment.deployed)
     assertEquals(served.size, 1)

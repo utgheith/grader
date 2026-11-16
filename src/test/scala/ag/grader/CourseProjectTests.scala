@@ -36,14 +36,15 @@ class CourseProjectTests extends FunSuite {
   private val cutoff = LocalDateTime.of(2026, 10, 1, 23, 59).nn
   private val s1 = CSID("s1")
 
+  private val (one, two) = (Milestone.Named("one"), Milestone.Named("two"))
   private def raw(active: Boolean) = RawProject(
-    active = active, cores = 2,
-    code_cutoff = cutoff, test_cutoff = cutoff.minusDays(7).nn,
-    ignore_tests = false, phase1_tests = Seq("b", "a"), phase1_weight = 30,
-    phase2_tests = Seq(), phase2_weight = 70, test_weights = Seq(),
-    bad_tests = Seq(), docker_file = Some("Dockerfile"), test_extensions = Seq("ok"),
-    staff = Seq(CSID("ta")), extensions = Extensions(Map(s1 -> 2), Map(s1 -> 3)),
-    iterations = Iterations(2, 4)
+    active = active, cores = 2, ignore_tests = false,
+    milestones = Seq(
+      RawMilestone("one", cutoff.minusDays(7).nn, Seq("b", "a"), 30, Map(s1 -> 2)),
+      RawMilestone("two", cutoff, Seq(), 70, Map(s1 -> 3))
+    ),
+    test_weights = Seq(), bad_tests = Seq(), docker_file = Some("Dockerfile"),
+    test_extensions = Seq("ok"), staff = Seq(CSID("ta")), iterations = Iterations(2, 4)
   )
 
   private def courses(mirror: os.Path, p1_active: Boolean = true): Unit = {
@@ -68,34 +69,38 @@ class CourseProjectTests extends FunSuite {
     assertEquals(s.track(Course(c1, source).staff), SortedSet(CSID("prof")))
     assertEquals(s.track(Course(c1, source).project_names), SortedSet(p1, p2))
     // p2 has no repo
-    assertEquals(s.track(Project(c1, p1, source).active), true)
-    assertEquals(s.track(Project(c1, p2, source).active), false)
+    assertEquals(s.track(Fixture.project(source).active), true)
+    assertEquals(s.track(Fixture.project(source, p2).active), false)
     assertEquals(s.track(Course(c1, source).active_projects(CoursesConfig.any)), SortedSet(p1))
     // picked by a regex on the name
     assertEquals(s.track(CoursesConfig(source).active_courses("c[2-9]".r)), SortedSet[CourseName]())
     assertEquals(s.track(Course(c1, source).active_projects("p[1-2]".r)), SortedSet(p1))
     assertEquals(s.track(Course(c1, source).active_projects("p2".r)), SortedSet[ProjectName]())
-    assertEquals(s.track(Project(c1, p1, source).phase1_tests), SortedSet("a", "b"))
-    assertEquals(s.track(Project(c1, p1, source).docker_file), Some("Dockerfile"))
-    assertEquals(s.track(Project(c1, p1, source).staff), SortedSet(CSID("ta")))
-    assertEquals(s.track(Project(c1, ProjectName("nope"), source).find), None)
+    assertEquals(s.track(ProjectMilestone(Fixture.project(source), one).test_names), SortedSet("a", "b"))
+    // Live: every milestone together
+    assertEquals(s.track(ProjectMilestone(Fixture.project(source), Milestone.Live).test_names), SortedSet("a", "b"))
+    assertEquals(s.track(ProjectMilestone(Fixture.project(source), one).weight), 30)
+    assertEquals(s.track(ProjectMilestone(Fixture.project(source), Milestone.Live).weight), 100)
+    assertEquals(s.track(Fixture.project(source).docker_file), Some("Dockerfile"))
+    assertEquals(s.track(Fixture.project(source).staff), SortedSet(CSID("ta")))
+    assertEquals(s.track(Fixture.project(source, ProjectName("nope")).find), None)
     assertEquals(s.track(Course(CourseName("nope"), source).find), None)
   }
 
-  test("deadlines: phase 1 at the test cutoff, phase 2 and the latest at the code cutoff, plus extensions") {
+  test("deadlines: each milestone's own, Live's the final one's, plus extensions") {
     val root = TempDirs.dir()
     val mirror = root / "mirror"
     courses(mirror)
     val source = Source(mirror)
     val s = State(root / "ws")
-    def deadline(csid: CSID, phase: Phase) = s.track(Project(c1, p1, source).deadline(csid, phase))
+    def deadline(csid: CSID, milestone: Milestone) = s.track(SubmissionMilestone(Submission(Fixture.project(source), csid), milestone).deadline)
     val other = CSID("s2")
-    assertEquals(deadline(other, Phase.One), cutoff.minusDays(7).nn)
-    assertEquals(deadline(other, Phase.Two), cutoff)
-    assertEquals(deadline(other, Phase.Latest), cutoff)
-    assertEquals(deadline(s1, Phase.One), cutoff.minusDays(5).nn)
-    assertEquals(deadline(s1, Phase.Two), cutoff.plusDays(3).nn)
-    assertEquals(deadline(s1, Phase.Latest), cutoff.plusDays(3).nn)
+    assertEquals(deadline(other, one), cutoff.minusDays(7).nn)
+    assertEquals(deadline(other, two), cutoff)
+    assertEquals(deadline(other, Milestone.Live), cutoff)
+    assertEquals(deadline(s1, one), cutoff.minusDays(5).nn)
+    assertEquals(deadline(s1, two), cutoff.plusDays(3).nn)
+    assertEquals(deadline(s1, Milestone.Live), cutoff.plusDays(3).nn)
   }
 
   test("a new State sees a change to courses_config, and to whether a project repo is there") {
@@ -116,7 +121,7 @@ class CourseProjectTests extends FunSuite {
     val mirror = root / "mirror"
     courses(mirror)
     val source = Source(mirror)
-    val e = intercept[Throwable](State(root / "ws").track(Project(c1, ProjectName("nope"), source).cores))
+    val e = intercept[Throwable](State(root / "ws").track(Fixture.project(source, ProjectName("nope")).cores))
     assert(clue(Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")).contains("c1/nope"))
   }
 }

@@ -5,7 +5,9 @@ import ag.common.given_ReadWriter_SortedMap
 import scala.collection.{SortedMap, SortedSet}
 
 // A directory of bare git repos (e.g. a local mirror of a git server) that
-// r3 reads and never writes: something else keeps it up to date. Targets see
+// no target writes: something outside any State keeps it up to date
+// (possibly while a run reads it), and State only hands out its repos to
+// read (Store.Reads). What targets publish comes back to it that way. Targets see
 // it through snapshots of its refs (repos, refs, ref), which are read again
 // on every run, and read its contents only at the commits a snapshot names
 // (see Context: commit, history, note, and read/list/checkout of a commit's

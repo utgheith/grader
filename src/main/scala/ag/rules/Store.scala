@@ -35,8 +35,10 @@ import scala.util.Using
 // and whose parent is the target's previous commit: its history. A run that
 // changes neither the result nor the dependencies makes no commit.
 //
-// With `create = false` it's a repo r3 only reads: one in a Source.
-final class Store(val dir: os.Path, create: Boolean = true) {
+// With `create = false` it's a repo r3 only reads: one in a Source, which
+// State hands out only as Store.Reads.
+final class Store(val dir: os.Path, create: Boolean = true)
+    extends Store.Reads {
   import Store.*
 
   val repo: Repository = {
@@ -407,6 +409,28 @@ final class Store(val dir: os.Path, create: Boolean = true) {
 }
 
 object Store {
+  // what can be done with a repo without changing it: all State offers for a
+  // Source's repos (and for reading the workspace's own by Tree or Commit)
+  trait Reads {
+    def refs(): SortedMap[String, String]
+    def commit_info(id: ObjectId): CommitInfo
+    def history(
+        id: ObjectId,
+        first_parent: Boolean,
+        limit: Int
+    ): Seq[CommitInfo]
+    def note(notes: ObjectId, of: ObjectId): Option[Array[Byte]]
+    def resolve(spec: String): Option[String]
+    def ancestry_path(from: ObjectId, to: ObjectId): Seq[String]
+    def id_at(tree: ObjectId, path: os.RelPath): Option[String]
+    def read(tree: ObjectId, path: os.RelPath): Option[Array[Byte]]
+    def link_target(tree: ObjectId, path: os.RelPath): Option[String]
+    def copy_file(tree: ObjectId, path: os.RelPath, dest: os.Path): Boolean
+    def list(tree: ObjectId, path: os.RelPath): Option[Seq[String]]
+    def checkout_to(tree: ObjectId, dest: os.Path, writable: Boolean): Unit
+    def checkout(tree: ObjectId, root: os.Path): os.Path
+  }
+
   // as git's %cI
   val git_time: java.time.format.DateTimeFormatter =
     java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ssxxx").nn

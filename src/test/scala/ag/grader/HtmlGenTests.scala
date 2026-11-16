@@ -48,21 +48,23 @@ class HtmlGenTests extends FunSuite {
   import OutcomeStatus.{pass, timeout, unknown}
   private val failed = OutcomeStatus.fail
 
+  // m1, a week before m2
+  private def milestones(m1_tests: Seq[String], m2_tests: Seq[String]) = Seq(
+    RawMilestone("m1", cutoff.minusDays(7), m1_tests, 1),
+    RawMilestone("m2", cutoff, m2_tests, 1)
+  )
+  private val m1 = Milestone.Named("m1")
+
   private val data = ReportData(
     title = "cs439t_f26_p4",
     generated = cutoff,
-    test_cutoff = cutoff.minusDays(7),
-    code_cutoff = cutoff,
+    milestones = milestones(Seq("t0"), Seq("t1")),
     enrollments = 4,
     results = SortedMap(
       student(1, false, false, "t0" -> pass, "t1" -> pass, "<b>'x" -> failed),
       student(2, true, false, "t0" -> failed, "t1" -> timeout, "<b>'x" -> pass),
       student(3, false, true, "t0" -> pass, "t1" -> unknown, "bad" -> pass)
     ),
-    phase1_tests = SortedSet("t0"),
-    phase1_weight = 1,
-    phase2_tests = SortedSet("t1"),
-    phase2_weight = 1,
     weights = Seq(Weight(".*", 1)),
     bad_tests = SortedSet("bad"),
     staff_aliases = Set(Alias(3))
@@ -144,8 +146,7 @@ class HtmlGenTests extends FunSuite {
           alias -> with_times(r, math.exp(rnd.nextGaussian() * 0.4))
         }
         .to(SortedMap),
-      phase1_tests = SortedSet("t0", "t1", "t2", "t3"),
-      phase2_tests = SortedSet("t4", "t5", "t6"),
+      milestones = milestones(Seq("t0", "t1", "t2", "t3"), Seq("t4", "t5", "t6")),
       bad_tests = SortedSet("t9"),
       staff_aliases = Set(Alias(7))
     )
@@ -324,60 +325,53 @@ class HtmlGenTests extends FunSuite {
     )
   }
 
-  test("switching projects keeps the phase") {
+  test("switching projects goes to the other project's main page") {
     val p5 = HtmlGen.render(
-      data.copy(title = "cs439t_f26_p5", tabs = tabs, phase = Phase.One)
+      data.copy(title = "cs439t_f26_p5", tabs = tabs, milestone = m1)
     )
-    assert(p5.contains("""<a href="cs439t_f26_p4_phase1.html">p4</a>"""), p5)
+    assert(p5.contains("""<a href="cs439t_f26_p4.html">p4</a>"""), p5)
     assert(
       p5.contains(
-        """<a class="active" href="cs439t_f26_p5_phase1.html" aria-current="page">p5</a>"""
+        """<a class="active" href="cs439t_f26_p5.html" aria-current="page">p5</a>"""
       ),
       p5
     )
   }
 
-  test("every page has a tab per phase, latest by default, its own marked") {
+  test("every page has a tab per milestone, its own marked; the current one is the main page") {
+    // Live, the current milestone
     assert(
       page.contains(
-        """<a class="active" href="cs439t_f26_p4.html" aria-current="page">latest</a>"""
+        """<a class="active" href="cs439t_f26_p4.html" aria-current="page">live</a>"""
       )
     )
-    assert(page.contains("""<a href="cs439t_f26_p4_phase1.html">phase 1</a>"""))
-    assert(page.contains("""<a href="cs439t_f26_p4_phase2.html">phase 2</a>"""))
-    assert(page.contains("""data-phase="latest""""))
+    assert(page.contains("""<a href="cs439t_f26_p4--m1.html">m1</a>"""))
+    assert(page.contains("""<a href="cs439t_f26_p4--m2.html">m2</a>"""))
+    assert(page.contains("""data-milestone="live""""))
 
-    val one = HtmlGen.render(data.copy(phase = Phase.One))
+    val one = HtmlGen.render(data.copy(milestone = m1))
     assert(
       one.contains(
-        """<a class="active" href="cs439t_f26_p4_phase1.html" aria-current="page">phase 1</a>"""
+        """<a class="active" href="cs439t_f26_p4--m1.html" aria-current="page">m1</a>"""
       )
     )
-    assert(one.contains("""<a href="cs439t_f26_p4.html">latest</a>"""))
-    assert(one.contains("""data-phase="phase 1""""))
+    assert(one.contains("""<a href="cs439t_f26_p4.html">live</a>"""))
+    assert(one.contains("""data-milestone="m1""""))
+
+    // while m1 is the current milestone, it's the main page
+    val current = HtmlGen.render(data.copy(milestone = m1, current = m1))
+    assert(current.contains("""<a class="active" href="cs439t_f26_p4.html" aria-current="page">m1</a>"""))
+    assert(current.contains("""<a href="cs439t_f26_p4--live.html">live</a>"""))
   }
 
-  test("phase pages are named after the project, and kept off the index") {
-    assertEquals(HtmlGen.page_file("c_p4", Phase.Latest), "c_p4.html")
-    assertEquals(HtmlGen.page_file("c_p4", Phase.One), "c_p4_phase1.html")
-    assertEquals(HtmlGen.page_file("c_p4", Phase.Two), "c_p4_phase2.html")
-    assert(!HtmlGen.is_phase_page("c_p4.html"))
-    assert(HtmlGen.is_phase_page("c_p4_phase1.html"))
-    assert(HtmlGen.is_phase_page("c_p4_phase2.html"))
-  }
-
-  test("a phase's results are published once its deadline has passed") {
-    import ProjectState.*
-    assertEquals(
-      Seq(BeforeFirstDeadline, BetweenDeadlines, AfterSecondDeadline).map(s =>
-        Seq(Phase.Latest, Phase.One, Phase.Two).map(s.publishes)
-      ),
-      Seq(
-        Seq(true, false, false),
-        Seq(true, true, false),
-        Seq(true, true, true)
-      )
-    )
+  test("milestone pages are named after the project, and only the main page is on the index") {
+    assertEquals(HtmlGen.page_file("c_p4", Milestone.Live, Milestone.Live), "c_p4.html")
+    assertEquals(HtmlGen.page_file("c_p4", m1, Milestone.Live), "c_p4--m1.html")
+    assertEquals(HtmlGen.page_file("c_p4", m1, m1), "c_p4.html")
+    assertEquals(HtmlGen.page_file("c_p4", Milestone.Live, m1), "c_p4--live.html")
+    assert(!HtmlGen.is_milestone_page("c_p4.html"))
+    assert(HtmlGen.is_milestone_page("c_p4--m1.html"))
+    assert(HtmlGen.is_milestone_page("c_p4--live.html"))
   }
 
   test("the heading is the project's name; the title stays the full name") {

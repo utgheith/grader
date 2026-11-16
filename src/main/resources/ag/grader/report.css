@@ -57,14 +57,14 @@ nav.tabs a {
 nav.tabs a:hover { color: var(--accent); }
 nav.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 nav.tabs a.active { color: var(--text); background: var(--surface); border-color: var(--border); }
-nav.phases { order: 4; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.35rem; }
-nav.phases a {
+nav.milestones { order: 4; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+nav.milestones a {
   padding: 0.2rem 0.8rem; border: 1px solid var(--border); border-radius: 999px;
   color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.85rem;
 }
-nav.phases a:hover { color: var(--accent); }
-nav.phases a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-nav.phases a.active { color: var(--text); background: var(--surface); border-color: var(--accent); }
+nav.milestones a:hover { color: var(--accent); }
+nav.milestones a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+nav.milestones a.active { color: var(--text); background: var(--surface); border-color: var(--accent); }
 .dates div { display: flex; gap: 0.4rem; }
 .dates dt::after { content: ":"; }
 .dates dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }

@@ -28,21 +28,32 @@ object ToRelPath {
     def apply(a: A): os.RelPath = os.rel
   }
 
+  // What `derives ToRelPath` gives: always as many components as the case
+  // class has fields that aren't Omitted, so one nested in another's field
+  // can be spliced in whole without running into the fields around it.
+  final class Derived[A](f: A => os.RelPath) extends ToRelPath[A] {
+    def apply(a: A): os.RelPath = f(a)
+  }
+
   // `derives ToRelPath` for a case class: a component for each of its
   // fields, in order, but those whose type is Omitted (each field's type
-  // needs a ToRelPath)
+  // needs a ToRelPath); a field that's itself derived gives its components
+  // (so Submission(Project(Course(c1), p1), s1) is c1/p1/s1)
   inline def derived[A <: Product](using
       m: Mirror.ProductOf[A]
   ): ToRelPath[A] = {
     val fields = summonAll[Tuple.Map[m.MirroredElemTypes, ToRelPath]].toList
       .asInstanceOf[List[ToRelPath[Any]]]
-    (a: A) =>
+    Derived((a: A) =>
       a.productIterator
         .zip(fields)
-        .collect {
-          case (v, t) if !t.isInstanceOf[Omitted[?]] => component(t(v))
+        .flatMap {
+          case (_, _: Omitted[?]) => Seq()
+          case (v, t: Derived[?]) => t(v).segments
+          case (v, t)             => Seq(component(t(v)))
         }
         .foldLeft(os.rel)(_ / _)
+    )
   }
 
   inline def opt[A](a: A): os.RelPath = summonFrom {

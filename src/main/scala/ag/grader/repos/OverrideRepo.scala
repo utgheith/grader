@@ -1,7 +1,7 @@
 package ag.grader.repos
 
 import ag.common.ToRelPath
-import ag.grader.{CourseName, Create, Project, ProjectName, Publish}
+import ag.grader.{Course, CourseName, Create, Project, ProjectName, Publish}
 import ag.rules.{Source, Target, WithData}
 
 // A project's override repo: its tests and Makefiles, which the staff keep
@@ -25,7 +25,7 @@ final case class OverrideRepo(c: CourseName, p: ProjectName, source: Source)
       _.track_all(
         (
           project = ProjectRepo(c, p, source).inspect,
-          ext = Project(c, p, source).test_extensions
+          ext = Project(Course(c, source), p).test_extensions
         )
       )
     ) { (in, producer, dir) =>

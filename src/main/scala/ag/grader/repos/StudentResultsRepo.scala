@@ -3,12 +3,14 @@ package ag.grader.repos
 import ag.common.ToRelPath
 import ag.grader.{
   CSID,
+  Course,
   CourseName,
   Create,
-  Phase,
+  Project,
   ProjectName,
   Publish,
-  Submission
+  Submission,
+  SubmissionMilestone
 }
 import ag.rules.{Source, Target, WithData}
 
@@ -21,21 +23,25 @@ final case class StudentResultsRepo(
     csid: CSID,
     source: Source
 ) extends OwnedRepo[StudentResultsRepo] derives ToRelPath {
+  private def project = Project(Course(c, source), p)
+  private def submission = Submission(project, csid)
   def repo_name: String = StudentResultsRepo.name_of(c, p, csid)
   def create: Option[Create] =
     Some(Create("empty", Seq(csid.value, Groups.staff(c)), Seq()))
   val message = "updated results"
 
-  // graded to `n` tries
+  // for the milestone the students are working toward (see
+  // ProjectState.current), graded to `n` tries
   lazy val latest: Int => Target[WithData[Publish]] = fun { (n: Int) =>
-    owned(
-      _.track_all(
+    owned { t =>
+      val milestone = t.track(project.state).current
+      t.track_all(
         (
-          results = Submission(c, p, csid, source).results(Phase.Latest, n),
-          outcomes = Submission(c, p, csid, source).outcomes(Phase.Latest, n)
+          results = SubmissionMilestone(submission, milestone).results(n),
+          outcomes = SubmissionMilestone(submission, milestone).outcomes(n)
         )
       )
-    ) { (in, producer, dir) =>
+    } { (in, producer, dir) =>
       for {
         o <- in.outcomes
         ext <- StudentResultsRepo.result_files

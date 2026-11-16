@@ -42,36 +42,38 @@ final class StatusData(val source: Source) extends Scope("status") {
   def courses: Target[SortedMap[CourseName, RawCourse]] =
     repos.CoursesConfig(source).courses
   def project(c: CourseName, p: ProjectName): Target[Option[RawProject]] =
-    Project(c, p, source).find
+    Project(Course(c, source), p).find
 
-  // a phase's published results, by alias, and when they were committed
-  lazy val phase_results
-      : (CourseName, ProjectName, Phase) => Target[PhaseResults] =
-    fun { (c: CourseName, p: ProjectName, phase: Phase) =>
+  // a milestone's published results, by alias, and when they were committed
+  lazy val milestone_results
+      : (CourseName, ProjectName, Milestone) => Target[MilestoneResults] =
+    fun { (c: CourseName, p: ProjectName, milestone: Milestone) =>
       target((m = master(s"${project_repo(c, p)}__results"))) {
         (producer, deps) =>
           (for {
             m <- deps.m
-            json <- text(producer, m, phase.results_file)
+            json <- text(producer, m, milestone.results_file)
           } yield Try(
             upickle.default.read[SortedMap[Alias, RedactedStudentResults]](json)
           ).toEither match {
             case Left(e) =>
-              PhaseResults(
+              MilestoneResults(
                 None,
                 None,
-                Some(s"${phase.results_file} can't be read: ${e.getMessage}")
+                Some(
+                  s"${milestone.results_file} can't be read: ${e.getMessage}"
+                )
               )
             case Right(r) =>
-              PhaseResults(
+              MilestoneResults(
                 Some(r),
                 producer
                   .history(m, first_parent = false)
-                  .find(changed(producer, _, Seq(phase.results_file)))
+                  .find(changed(producer, _, Seq(milestone.results_file)))
                   .map(_.committed),
                 None
               )
-          }).getOrElse(PhaseResults(None, None, None))
+          }).getOrElse(MilestoneResults(None, None, None))
       }
     }
 
@@ -90,7 +92,7 @@ final class StatusData(val source: Source) extends Scope("status") {
       }
   }
 
-  // a student's own results (the latest), and the files beside them: its
+  // a student's own results (the current milestone's), and the files beside them: its
   // tests' output
   lazy val own_results: (CourseName, ProjectName, CSID) => Target[
     Option[(StudentResults, Tree)]
@@ -121,11 +123,12 @@ final class StatusData(val source: Source) extends Scope("status") {
       }
     }
 
-  // `csid`'s test's commit, from their submission repo (see TestCommit);
-  // None if they have no test
-  lazy val test_commit
-      : (CourseName, ProjectName, CSID) => Target[Option[TestCommit]] =
-    fun { (c: CourseName, p: ProjectName, csid: CSID) =>
+  // `csid`'s test's commit for `milestone`, from their submission repo (see
+  // TestCommit); None if they have no test
+  lazy val test_commit: (CourseName, ProjectName, CSID, Milestone) => Target[
+    Option[TestCommit]
+  ] =
+    fun { (c: CourseName, p: ProjectName, csid: CSID, milestone: Milestone) =>
       val repo = work_repo(c, p, csid)
       target(
         (
@@ -143,20 +146,21 @@ final class StatusData(val source: Source) extends Scope("status") {
             m,
             Seq(deps.push_times, deps.commits).flatten,
             rp,
-            csid
+            csid,
+            milestone
           )
         } yield tc
       }
     }
 
-  // When `phase`'s commit id file changed, and what it named; for the latest
+  // When `milestone`'s commit id file changed, and what it named; for Live
   // results, master's last commits. None if there's no submission repo.
-  lazy val commit_history: (CourseName, ProjectName, CSID, Phase) => Target[
+  lazy val commit_history: (CourseName, ProjectName, CSID, Milestone) => Target[
     Option[Seq[CommitRow]]
-  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, phase: Phase) =>
+  ] = fun { (c: CourseName, p: ProjectName, csid: CSID, milestone: Milestone) =>
     target((m = master(work_repo(c, p, csid)))) { (producer, deps) =>
       deps.m.map { m =>
-        phase.commit_id_file match {
+        milestone.commit_id_file match {
           case Some(file) =>
             for {
               ci <- producer.history(m, first_parent = false)
@@ -183,16 +187,17 @@ final class StatusData(val source: Source) extends Scope("status") {
 
 object StatusData {
   @upickle.implicits.allowUnknownKeys(false)
-  case class PhaseResults(
+  case class MilestoneResults(
       results: Option[SortedMap[Alias, RedactedStudentResults]],
       // when the results file was last committed
       committed: Option[String],
       error: Option[String]
   ) derives ReadWriter
 
-  // A test's commit, from its author's submission repo: what student_test
-  // takes (the last commit on master before test_cutoff), and the commit that
-  // last changed the test's files by then
+  // A test's commit for a milestone, from its author's submission repo: what
+  // SubmissionMilestone.test takes (the last commit on master before the
+  // milestone's deadline), and the commit that last changed the test's
+  // files by then
   @upickle.implicits.allowUnknownKeys(false)
   case class TestCommit(
       rev: String,
@@ -236,10 +241,15 @@ object StatusData {
       master: Commit,
       notes: Seq[Commit],
       rp: RawProject,
-      csid: CSID
+      csid: CSID,
+      milestone: Milestone
   ): Option[TestCommit] = {
     val until =
-      ZonedDateTime.of(rp.test_cutoff, ZoneId.systemDefault).nn.toInstant.nn
+      ZonedDateTime
+        .of(rp.deadline(milestone), ZoneId.systemDefault)
+        .nn
+        .toInstant
+        .nn
     def time(ci: CommitInfo): Instant =
       OffsetDateTime.parse(ci.committed).nn.toInstant.nn
     val files = rp.test_extensions.map(e => s"${csid.value}.$e")

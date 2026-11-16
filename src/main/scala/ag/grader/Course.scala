@@ -40,7 +40,7 @@ final case class Course(c: CourseName, source: Source) extends Instance[Course]
     complex_target[SortedSet[ProjectName]] { tracker =>
       val names = tracker.track(project_names).toSeq
       val flags =
-        tracker.track_all(names.map(p => Project(c, p, source).active))
+        tracker.track_all(names.map(p => Project(this, p).active))
       tracker.run_if_needed(_ =>
         names.zip(flags).collect { case (n, true) => n }.to(SortedSet)
       )
@@ -92,7 +92,7 @@ final case class Course(c: CourseName, source: Source) extends Instance[Course]
         tracker.track(active_projects(CoursesConfig.any)).toSeq
       val inputs =
         tracker.track_all(
-          projects.map(p => Project(c, p, source).report_inputs)
+          projects.map(p => Project(this, p).report_inputs)
         )
       tracker.run_if_needed(_ => inputs)
     }

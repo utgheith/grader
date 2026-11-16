@@ -4,6 +4,7 @@ import ag.common.{ToRelPath, given_ReadWriter_SortedMap}
 import ag.grader.{
   Alias,
   CSID,
+  Course,
   CourseName,
   Create,
   Project,
@@ -26,19 +27,20 @@ final case class AliasesRepo(c: CourseName, p: ProjectName, source: Source)
   val message = "more aliases"
 
   lazy val latest: Target[WithData[Publish]] =
-    additive(_.track(Project(c, p, source).aliases)) { (aliases, _, dir) =>
-      val f = dir / "aliases.json"
-      val before =
-        if (os.isFile(f))
-          upickle.default.read[SortedMap[CSID, Alias]](os.read(f))
-        else SortedMap[CSID, Alias]()
-      val changed = before.filter((csid, a) => !aliases.get(csid).contains(a))
-      if (changed.nonEmpty)
-        throw IllegalStateException(
-          s"$repo_name: ${changed.size.toString} published aliases would change or go"
-        )
-      os.write.over(f, upickle.default.write(aliases, indent = 2))
-      Seq()
+    additive(_.track(Project(Course(c, source), p).aliases)) {
+      (aliases, _, dir) =>
+        val f = dir / "aliases.json"
+        val before =
+          if (os.isFile(f))
+            upickle.default.read[SortedMap[CSID, Alias]](os.read(f))
+          else SortedMap[CSID, Alias]()
+        val changed = before.filter((csid, a) => !aliases.get(csid).contains(a))
+        if (changed.nonEmpty)
+          throw IllegalStateException(
+            s"$repo_name: ${changed.size.toString} published aliases would change or go"
+          )
+        os.write.over(f, upickle.default.write(aliases, indent = 2))
+        Seq()
     }
 }
 

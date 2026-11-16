@@ -18,6 +18,32 @@ object Fixture {
   val p1: ProjectName = ProjectName("p1")
   val p2: ProjectName = ProjectName("p2")
 
+  // p1's milestones: m1, at the test cutoff, then m2, at the code cutoff
+  val m1: Milestone = Milestone.Named("m1")
+  val m2: Milestone = Milestone.Named("m2")
+  def milestones(
+      m1_tests: Seq[String] = Seq(),
+      m2_tests: Seq[String] = Seq()
+  ): Seq[RawMilestone] = Seq(
+    RawMilestone("m1", test_cutoff, m1_tests, 1),
+    RawMilestone("m2", code_cutoff, m2_tests, 1)
+  )
+  // p1 with those tests in its milestones
+  def with_tests(
+      m1_tests: Seq[String] = Seq(),
+      m2_tests: Seq[String] = Seq()
+  ): RawProject => RawProject =
+    _.copy(milestones = milestones(m1_tests, m2_tests))
+
+  // c1's project `p`, and a student's submission in its p1, from `source`
+  def project(source: Source, p: ProjectName = p1): Project =
+    Project(Course(c1, source), p)
+  def submission(source: Source, csid: CSID = s1): Submission =
+    Submission(project(source), csid)
+  // and its milestone
+  def graded(source: Source, milestone: Milestone, csid: CSID = s1): SubmissionMilestone =
+    SubmissionMilestone(submission(source, csid), milestone)
+
   // seconds since the epoch of a local time
   def at(t: LocalDateTime): Long = ZonedDateTime.of(t, zone).nn.toEpochSecond
 
@@ -73,11 +99,10 @@ object Fixture {
   ): (Repos, Source) = {
     val r = Repos(root)
     val raw = RawProject(
-      active = true, cores = 1, code_cutoff = code_cutoff, test_cutoff = test_cutoff,
-      ignore_tests = false, phase1_tests = Seq(), phase1_weight = 1,
-      phase2_tests = Seq(), phase2_weight = 1, test_weights = Seq(), bad_tests = Seq(),
+      active = true, cores = 1, ignore_tests = false, milestones = milestones(),
+      test_weights = Seq(), bad_tests = Seq(),
       docker_file = None, test_extensions = Seq("cc", "ok"), staff = Seq(),
-      extensions = Extensions(Map(), Map()), iterations = Iterations(1, 1)
+      iterations = Iterations(1, 1)
     )
     val rc = RawCourseNotSorted(
       active = true,

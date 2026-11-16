@@ -30,7 +30,8 @@ final case class SiteRepo(c: CourseName, source: Source)
         .list(dir)
         .map(_.last)
         .filter(f =>
-          f.endsWith(".html") && f != "index.html" && !HtmlGen.is_phase_page(f)
+          f.endsWith(".html") && f != "index.html" && !HtmlGen
+            .is_milestone_page(f)
         )
       os.write.over(dir / "index.html", HtmlGen.render_index(c.value, pages))
       Seq()

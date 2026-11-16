@@ -90,7 +90,11 @@ class RepoTests extends FunSuite {
     val t = StudentResultsRepo(c1, p1, s1, e).latest(3)
     assertEquals(t.path, os.RelPath("ag/grader/repos/StudentResultsRepo/latest/c1/p1/s1/3"))
     assertEquals(StudentResultsRepo(c1, p1, s1, e).repo_name, "c1_p1_s1_results")
-    assertEquals(ag.grader.Project(c1, p1, e).deadline(s1, ag.grader.Phase.One).path,
-      os.RelPath("ag/grader/Project/deadline/c1/p1/s1/phase1"))
+    def deadline(m: ag.grader.Milestone) =
+      ag.grader.SubmissionMilestone(ag.grader.Submission(ag.grader.Project(ag.grader.Course(c1, e), p1), s1), m).deadline
+    assertEquals(deadline(ag.grader.Milestone.Named("m1")).path,
+      os.RelPath("ag/grader/SubmissionMilestone/deadline/c1/p1/s1/m1"))
+    assertEquals(deadline(ag.grader.Milestone.Live).path,
+      os.RelPath("ag/grader/SubmissionMilestone/deadline/c1/p1/s1/live"))
   }
 }

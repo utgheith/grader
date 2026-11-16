@@ -5,17 +5,19 @@ import upickle.default.ReadWriter
 import java.time.LocalDateTime
 
 // How urgent a project's grading work is, most urgent first:
-//   LiveFirst: a live project's (second deadline not passed) first tries,
+//   LiveFirst: a live project's (final deadline not passed) first tries,
 //              up to its iterations.min: quick feedback
 //   Other:     a project that isn't live, up to its iterations.max
 //   LiveRest:  a live project's remaining tries, up to its iterations.max
+//   Late:      only Live's (work pushed after the final deadline)
 enum Band {
-  case LiveFirst, Other, LiveRest
+  case LiveFirst, Other, LiveRest, Late
 
   def description: String = this match {
     case LiveFirst => "live, first tries"
     case Other     => "not live"
     case LiveRest  => "live, remaining tries"
+    case Late      => "pushed after the final deadline"
   }
 }
 
@@ -30,103 +32,100 @@ object Priority {
       .map(_._1)
 
   // A project's band, and the tries to run its tests to, if it has work to
-  // do: `has_work(n)` says whether it has tests with fewer than n tries.
+  // do: `has_work(n)` says whether its milestones have tests with fewer than
+  // n tries, `late_work(n)` whether Live has.
   def band(
       live: Boolean,
       iterations: Iterations,
-      has_work: Int => Boolean
+      has_work: Int => Boolean,
+      late_work: Int => Boolean
   ): Option[(Band, Int)] =
     if (live) {
       if (has_work(iterations.min)) Some((Band.LiveFirst, iterations.min))
       else if (has_work(iterations.max)) Some((Band.LiveRest, iterations.max))
       else None
-    } else Option.when(has_work(iterations.max))((Band.Other, iterations.max))
+    } else if (has_work(iterations.max)) Some((Band.Other, iterations.max))
+    else Option.when(late_work(iterations.max))((Band.Late, iterations.max))
 }
 
 // Which of a project's tests a grading run covers:
-//   all     every test
-//   good    all but those marked ignored (`bad_tests`)
-//   chosen  the ones the correctness score counts: (phase 1 + phase 2) - ignored
-//   phase1  phase 1's chosen tests - ignored (what phase 1's score counts)
-//   phase2  phase 2's chosen tests - ignored (what phase 2's score counts)
-type TestSet = "all" | "good" | "chosen" | "phase1" | "phase2"
+//   All     every test
+//   Good    all but those marked ignored (`bad_tests`)
+//   Chosen  the ones some milestone counts, less the ignored ones
+//   Of(m)   milestone m's tests, less the ignored ones (what its score counts)
+enum TestSet derives ReadWriter:
+  case All, Good, Chosen
+  case Of(milestone: String)
 
-// Where a project is relative to its two deadlines (test_cutoff, then
-// code_cutoff), and what that means for grading it. Worked out from the
-// clock on every run, so moving a deadline takes effect right away.
-enum ProjectState(
-    val description: String,
-    // for the latest results: keep running a test after it fails?
-    val latest_keeps_going: Boolean,
-    // for the latest results: which tests are run
-    val latest_tests: TestSet,
-    // for the latest results: which tests are shown (those run, and others
-    // with runs already)
-    val latest_shown: TestSet
-):
-  case BeforeFirstDeadline
-      extends ProjectState(
-        "before the first deadline",
-        false,
-        "all",
-        "all"
-      )
-  case BetweenDeadlines
-      extends ProjectState(
-        "between the deadlines",
-        false,
-        "good",
-        "good"
-      )
-  case AfterSecondDeadline
-      extends ProjectState(
-        "after the second deadline",
-        true,
-        "chosen",
-        "good"
-      )
+  def description: String = this match
+    case All      => "all"
+    case Good     => "good"
+    case Chosen   => "chosen"
+    case Of(name) => s"$name's"
 
-  // Whether the project is still taking submissions for its second deadline
-  def is_live: Boolean = this != AfterSecondDeadline
+// Where a project is relative to its milestones' deadlines (their `names`,
+// in deadline order, the first `passed` of them past), and what that means
+// for grading it. Worked out from the clock on every run, so moving a
+// deadline takes effect right away.
+//
+// A milestone is open until its deadline: its commit is the head of master,
+// and grading it is the students' feedback, so it runs and shows the good
+// tests and stops a test at its first failure. Once closed, it runs its own
+// tests to the end. Every milestone's results are published. Live (pushes
+// after the final deadline) is published once the final deadline has
+// passed, and runs the chosen tests to the end, showing the good ones.
+final case class ProjectState(names: Seq[String], passed: Int)
+    derives ReadWriter {
+  require(0 <= passed && passed <= names.size)
 
-  // Whether to keep running a test after it fails when grading `phase`: a
-  // phase's commits are fixed (its results come after its deadline), so it
-  // always gets its full runs; the latest results follow the state.
-  def keeps_going(phase: Phase): Boolean =
-    phase != Phase.Latest || latest_keeps_going
+  def all_milestones: Seq[Milestone] =
+    names.map(Milestone.Named(_)) :+ Milestone.Live
 
-  // Which tests grading `phase` runs: a phase's results are for its score,
-  // so just that phase's chosen tests; the latest results follow the state.
-  def tests(phase: Phase): TestSet = phase match
-    case Phase.Latest => latest_tests
-    case Phase.One    => "phase1"
-    case Phase.Two    => "phase2"
+  // Whether the project is still taking submissions for its final deadline
+  def is_live: Boolean = passed < names.size
 
-  // Which tests `phase`'s results show: those it runs (see tests), and, for
-  // the latest results, the other good tests too, with whatever runs they
-  // have already (none are run for them)
-  def shows(phase: Phase): TestSet = phase match
-    case Phase.Latest => latest_shown
-    case _            => tests(phase)
+  private def is_open(name: String): Boolean =
+    names.indexOf(name) >= passed
 
-  // Whether `phase`'s results are published: once its deadline has passed
-  // (the latest results always are).
-  def publishes(phase: Phase): Boolean = phase match
-    case Phase.Latest => true
-    case Phase.One    => this != BeforeFirstDeadline
-    case Phase.Two    => this == AfterSecondDeadline
+  // what the students are working toward now: the first open milestone, or
+  // Live once they're all closed
+  def current: Milestone =
+    names.lift(passed).fold(Milestone.Live)(Milestone.Named(_))
+
+  def description: String =
+    if (!is_live) "after the final deadline"
+    else if (passed == 0) s"before ${names.head}'s deadline"
+    else
+      s"after ${names(passed - 1)}'s deadline, before ${names(passed)}'s"
+
+  // Whether to keep running a test after it fails when grading `milestone`
+  def keeps_going(milestone: Milestone): Boolean = milestone match
+    case Milestone.Named(name) => !is_open(name)
+    case Milestone.Live        => true
+
+  // Which tests grading `milestone` runs
+  def tests(milestone: Milestone): TestSet = milestone match
+    case Milestone.Named(name) =>
+      if (is_open(name)) TestSet.Good else TestSet.Of(name)
+    case Milestone.Live => TestSet.Chosen
+
+  // Which tests `milestone`'s results show: those it runs (see tests), and, for
+  // Live, the other good tests too, with whatever runs they have already
+  // (none are run for them)
+  def shows(milestone: Milestone): TestSet = milestone match
+    case Milestone.Live => TestSet.Good
+    case _              => tests(milestone)
+
+  // Whether `milestone`'s results are published
+  def publishes(milestone: Milestone): Boolean = milestone match
+    case Milestone.Named(_) => true
+    case Milestone.Live     => !is_live
+}
 
 object ProjectState {
-  given ReadWriter[ProjectState] = upickle.default
-    .readwriter[String]
-    .bimap(_.toString, ProjectState.valueOf)
-
-  def at(
-      now: LocalDateTime,
-      test_cutoff: LocalDateTime,
-      code_cutoff: LocalDateTime
-  ): ProjectState =
-    if (now.isBefore(test_cutoff)) BeforeFirstDeadline
-    else if (now.isBefore(code_cutoff)) BetweenDeadlines
-    else AfterSecondDeadline
+  def at(now: LocalDateTime, milestones: Seq[RawMilestone]): ProjectState =
+    ProjectState(
+      milestones.map(_.name),
+      milestones.count(m => !now.isBefore(m.deadline))
+    )
 }

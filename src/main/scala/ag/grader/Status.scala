@@ -13,7 +13,7 @@ import scala.util.control.NonFatal
 
 // The grading status, from what the grader has committed (results, aliases,
 // submissions), never by running anything: courses, then a course's projects
-// and each phase's progress, then a phase's students, a student's tests, a
+// and each milestone's progress, then a milestone's students, a student's tests, a
 // test's runs, and a run. Served at /status/ (see WebServer). Its data are
 // `data`'s targets, looked up in `state()`: a read-only State, refreshed now
 // and then (see ReadOnlyStates).
@@ -34,15 +34,15 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def project_repo(c: CourseName, p: ProjectName) =
     data.project_repo(c, p)
 
-  // a phase's published results, by alias, and when they were committed
+  // a milestone's published results, by alias, and when they were committed
   private def results(
       c: CourseName,
       p: ProjectName,
-      phase: Phase
+      milestone: Milestone
   ): Either[String, Option[
     (SortedMap[Alias, RedactedStudentResults], Option[String])
   ]] = {
-    val r = look(data.phase_results(c, p, phase))
+    val r = look(data.milestone_results(c, p, milestone))
     r.error.toLeft(r.results.map(_ -> r.committed))
   }
 
@@ -51,7 +51,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       data.aliases(c, p)
     )
 
-  // a student's own results (the latest), and the files beside them: its
+  // a student's own results (the current milestone's), and the files beside them: its
   // tests' output
   private def own_results(
       c: CourseName,
@@ -63,28 +63,18 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def test_commit(
       c: CourseName,
       p: ProjectName,
-      csid: CSID
+      csid: CSID,
+      milestone: Milestone
   ): Option[TestCommit] =
-    look(data.test_commit(c, p, csid))
+    look(data.test_commit(c, p, csid, milestone))
 
   ///////////// working it out /////////////
 
   private def project_state(rp: RawProject): ProjectState =
-    ProjectState.at(LocalDateTime.now().nn, rp.test_cutoff, rp.code_cutoff)
-
-  private def deadline(
-      rp: RawProject,
-      csid: CSID,
-      phase: Phase
-  ): LocalDateTime =
-    phase
-      .deadline(rp.test_cutoff, rp.code_cutoff)
-      .getOrElse(rp.code_cutoff)
-      .plusDays(rp.extensions.days(csid, phase))
-      .nn
+    ProjectState.at(LocalDateTime.now().nn, rp.milestones)
 
   // runs a test still has to go, as run_one decides: up to the most tries
-  // (iterations.max), unless it failed and the phase doesn't keep going
+  // (iterations.max), unless it failed and the milestone doesn't keep going
   private def remaining(o: OutcomeApi, keep_going: Boolean, max: Int): Int =
     if (
       o.outcomes.size < max && (keep_going || o.outcomes.forall(
@@ -141,26 +131,37 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             project_students_page(CourseName(c), ProjectName(p))
           case Seq(c, p, "by-test") =>
             project_tests_page(CourseName(c), ProjectName(p))
-          case Seq(c, p, ph) =>
-            phase_of(ph).flatMap(phase_page(CourseName(c), ProjectName(p), _))
-          case Seq(c, p, ph, "by-test") =>
-            phase_of(ph).flatMap(tests_page(CourseName(c), ProjectName(p), _))
-          case Seq(c, p, ph, "by-test", t) =>
-            phase_of(ph).flatMap(
+          case Seq(c, p, milestone) =>
+            milestone_of(c, p, milestone).flatMap(
+              milestone_page(CourseName(c), ProjectName(p), _)
+            )
+          case Seq(c, p, milestone, "by-test") =>
+            milestone_of(c, p, milestone).flatMap(
+              tests_page(CourseName(c), ProjectName(p), _)
+            )
+          case Seq(c, p, milestone, "by-test", t) =>
+            milestone_of(c, p, milestone).flatMap(
               one_test_page(CourseName(c), ProjectName(p), _, t)
             )
-          case Seq(c, p, ph, s) =>
-            phase_of(ph).flatMap(
+          case Seq(c, p, milestone, s) =>
+            milestone_of(c, p, milestone).flatMap(
               student_page(CourseName(c), ProjectName(p), _, CSID(s))
             )
-          case Seq(c, p, ph, s, t) =>
-            phase_of(ph).flatMap(
+          case Seq(c, p, milestone, s, t) =>
+            milestone_of(c, p, milestone).flatMap(
               test_page(CourseName(c), ProjectName(p), _, CSID(s), t)
             )
-          case Seq(c, p, ph, s, t, n) =>
-            phase_of(ph).flatMap(ph =>
+          case Seq(c, p, milestone, s, t, n) =>
+            milestone_of(c, p, milestone).flatMap(milestone =>
               n.toIntOption.flatMap(
-                run_page(CourseName(c), ProjectName(p), ph, CSID(s), t, _)
+                run_page(
+                  CourseName(c),
+                  ProjectName(p),
+                  milestone,
+                  CSID(s),
+                  t,
+                  _
+                )
               )
             )
           case _ => None
@@ -180,22 +181,13 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     html.map(WebPage("text/html", _))
   }
 
-  private def phase_of(s: String): Option[Phase] = s match {
-    case "latest" => Some(Phase.Latest)
-    case "phase1" => Some(Phase.One)
-    case "phase2" => Some(Phase.Two)
-    case _        => None
-  }
-  private def slug(phase: Phase): String = phase match {
-    case Phase.Latest => "latest"
-    case Phase.One    => "phase1"
-    case Phase.Two    => "phase2"
-  }
-  private def phase_name(phase: Phase): String = phase match {
-    case Phase.Latest => "latest"
-    case Phase.One    => "phase 1"
-    case Phase.Two    => "phase 2"
-  }
+  // one of the project's milestones, by its slug
+  private def milestone_of(c: String, p: String, s: String): Option[Milestone] =
+    project_of(CourseName(c), ProjectName(p)).flatMap(
+      _.all_milestones.find(_.slug == s)
+    )
+  private def slug(milestone: Milestone): String = milestone.slug
+  private def milestone_name(milestone: Milestone): String = milestone.slug
 
   private def courses_page(): String = {
     val cs = courses
@@ -221,8 +213,6 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     )
   }
 
-  private val all_phases = Seq(Phase.Latest, Phase.One, Phase.Two)
-
   // the views of one thing, as tabs; `on` is the one shown
   private def tabs(on: String, vs: (String, String)*): String =
     vs.map((name, link) =>
@@ -234,52 +224,53 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def look_course(c: CourseName, rc: RawCourse): Unit = {
     val ps = rc.projects.keys.toSeq.map(ProjectName(_))
     val _ = Try(look_all(for {
-      p <- ps; phase <- all_phases
-    } yield data.phase_results(c, p, phase)))
+      p <- ps
+      rp <- rc.projects.get(p.value).toSeq
+      milestone <- rp.all_milestones
+    } yield data.milestone_results(c, p, milestone)))
     val _ = Try(look_all(ps.map(data.aliases(c, _))))
   }
 
   private def project_line(rp: RawProject): String = {
     val st = project_state(rp)
-    s"""<p class=muted>${h(st.description)} · tests due ${h(
-        fmt(rp.test_cutoff)
-      )} · code due ${h(
-        fmt(rp.code_cutoff)
+    val due = rp.milestones.map(m => s"${h(m.name)} due ${h(fmt(m.deadline))}")
+    s"""<p class=muted>${h(st.description)} · ${due.mkString(
+        " · "
       )} · ${rp.iterations.min}–${rp.iterations.max} runs per test</p>"""
   }
 
-  // a project's phases and their progress; links are relative to `base`,
+  // a project's milestones and their progress; links are relative to `base`,
   // the project's page
-  private def phases_table(
+  private def milestones_table(
       c: CourseName,
       p: ProjectName,
       rp: RawProject,
       base: String
   ): String = {
     val st = project_state(rp)
-    val rows = all_phases.map { phase =>
-      val link = s"$base${slug(phase)}/"
-      results(c, p, phase) match {
+    val rows = rp.all_milestones.map { milestone =>
+      val link = s"$base${slug(milestone)}/"
+      results(c, p, milestone) match {
         case Left(why) =>
-          s"""<tr><td><a href="$link">${phase_name(
-              phase
+          s"""<tr><td><a href="$link">${milestone_name(
+              milestone
             )}</a></td><td colspan=8 class=bad>${h(why)}</td></tr>"""
         case Right(None) =>
           val why =
-            if (!st.publishes(phase))
-              s"not yet: published after ${h(fmt(phase.deadline(rp.test_cutoff, rp.code_cutoff).get))}"
+            if (!st.publishes(milestone))
+              s"not yet: published after ${h(fmt(rp.deadline(milestone)))}"
             else "nothing published"
-          s"""<tr><td><a href="$link">${phase_name(
-              phase
+          s"""<tr><td><a href="$link">${milestone_name(
+              milestone
             )}</a></td><td colspan=8 class=muted>$why</td></tr>"""
         case Right(Some((rs, when))) =>
           val pr = progress(
             rs.values.map(_.outcomes.values),
-            st.keeps_going(phase),
+            st.keeps_going(milestone),
             rp.iterations.max
           )
-          s"""<tr><td><a href="$link">${phase_name(
-              phase
+          s"""<tr><td><a href="$link">${milestone_name(
+              milestone
             )}</a> <a class=muted href="${link}by-test/">by test</a></td>
              |<td class=num>${pr.students}</td><td class=num>${pr.tests}</td>
              |<td class=num>${pr.runs}</td><td class=num>${pr.to_go}</td>
@@ -291,7 +282,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
               .getOrElse("")}</td></tr>""".stripMargin
       }
     }
-    s"""<table><thead><tr><th>phase</th><th class=num>students</th><th class=num>tests</th><th class=num>runs done</th><th class=num>to go</th><th>progress</th><th class=num>runs passed</th><th class=num>tests passing</th><th>committed</th></tr></thead>
+    s"""<table><thead><tr><th>milestone</th><th class=num>students</th><th class=num>tests</th><th class=num>runs done</th><th class=num>to go</th><th>progress</th><th class=num>runs passed</th><th class=num>tests passing</th><th>committed</th></tr></thead>
        |<tbody>${rows.mkString}</tbody></table>""".stripMargin
   }
 
@@ -308,7 +299,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             if (rp.active) "" else "<span class=muted>(inactive)</span>"
           }</h2>
            |${project_line(rp)}
-           |${phases_table(
+           |${milestones_table(
             c,
             p,
             rp,
@@ -324,35 +315,35 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     }
 
-  // a student's results in a phase, if any: their alias's
+  // a student's results in a milestone, if any: their alias's
   private def results_of(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID
   ): Option[RedactedStudentResults] =
     for {
       alias <- aliases(c, p).get(csid)
-      (rs, _) <- results(c, p, phase).toOption.flatten
+      (rs, _) <- results(c, p, milestone).toOption.flatten
       r <- rs.get(alias)
     } yield r
 
-  // a student's standing in a phase, in one cell: tests passing all runs,
+  // a student's standing in a milestone, in one cell: tests passing all runs,
   // and the share of runs passed; links to their page for it
   private def standing(
       c: CourseName,
       p: ProjectName,
       rp: RawProject,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID,
       link: String
   ): String =
-    results_of(c, p, phase, csid) match {
+    results_of(c, p, milestone, csid) match {
       case None    => "<td class=muted></td>"
       case Some(r) =>
         val pr = progress(
           Seq(r.outcomes.values),
-          project_state(rp).keeps_going(phase),
+          project_state(rp).keeps_going(milestone),
           rp.iterations.max
         )
         val late = Option.when(r.prepare_info.days_late > 0)(
@@ -376,9 +367,9 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             c,
             p,
             rp,
-            Phase.Latest,
+            project_state(rp).current,
             csid,
-            s"../${enc(p.value)}/latest/${enc(csid.value)}/"
+            s"../${enc(p.value)}/${slug(project_state(rp).current)}/${enc(csid.value)}/"
           )
         )
         s"""<tr><td><a href="${enc(csid.value)}/">${h(
@@ -389,7 +380,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         s"$c / students",
         Seq("Courses" -> "../../", c.value -> "../"),
         s"""${course_views("by student", "../")}
-           |<p>${csids.size} students · each project's latest results: tests passing every run, and the share of runs passed</p>
+           |<p>${csids.size} students · each project's current results: tests passing every run, and the share of runs passed</p>
            |<table class=sortable><thead><tr><th>student</th>${ps
             .map((p, _) => s"<th class=num>${h(p.value)}</th>")
             .mkString}</tr></thead>
@@ -397,27 +388,27 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     }
 
-  // one student, across the course's projects and their phases
+  // one student, across the course's projects and their milestones
   private def course_student_page(c: CourseName, csid: CSID): Option[String] =
     courses.get(c).map { rc =>
       look_course(c, rc)
       val blocks =
         projects_of(rc).sortBy((p, rp) => (!rp.active, p)).map { (p, rp) =>
           val alias = aliases(c, p).get(csid)
-          val rows = all_phases.map { phase =>
+          val rows = rp.all_milestones.map { milestone =>
             val link =
-              s"../../${enc(p.value)}/${slug(phase)}/${enc(csid.value)}/"
-            results_of(c, p, phase, csid) match {
+              s"../../${enc(p.value)}/${slug(milestone)}/${enc(csid.value)}/"
+            results_of(c, p, milestone, csid) match {
               case None =>
-                s"""<tr><td><a href="$link">${phase_name(
-                    phase
+                s"""<tr><td><a href="$link">${milestone_name(
+                    milestone
                   )}</a></td><td colspan=9 class=muted>not in the published results</td></tr>"""
               case Some(r) =>
-                s"""<tr><td><a href="$link">${phase_name(
-                    phase
+                s"""<tr><td><a href="$link">${milestone_name(
+                    milestone
                   )}</a></td>${student_cells(
                     r,
-                    project_state(rp).keeps_going(phase),
+                    project_state(rp).keeps_going(milestone),
                     rp.iterations.max
                   )}</tr>"""
             }
@@ -428,7 +419,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
               .map(a => s"alias ${h(a.toString)}")
               .getOrElse("no alias")}</span></h2>
            |${project_line(rp)}
-           |<table><thead><tr><th>phase</th>$student_heads</tr></thead><tbody>${rows.mkString}</tbody></table></section>""".stripMargin
+           |<table><thead><tr><th>milestone</th>$student_heads</tr></thead><tbody>${rows.mkString}</tbody></table></section>""".stripMargin
         }
       shell(
         s"$c / ${csid.value}",
@@ -437,7 +428,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     }
 
-  // a student's results in a phase, as cells after their name and alias
+  // a student's results in a milestone, as cells after their name and alias
   private def student_cells(
       r: RedactedStudentResults,
       keep_going: Boolean,
@@ -463,40 +454,42 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def project_views(on: String, up: String): String =
     tabs(
       on,
-      "phases" -> up,
+      "milestones" -> up,
       "by student" -> s"${up}by-student/",
       "by test" -> s"${up}by-test/"
     )
 
   private def project_page(c: CourseName, p: ProjectName): Option[String] =
     project_of(c, p).map { rp =>
-      val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
+      val _ =
+        Try(look_all(rp.all_milestones.map(data.milestone_results(c, p, _))))
       shell(
         s"$c / $p",
         Seq("Courses" -> "../../", c.value -> "../"),
-        s"""${project_views("phases", "./")}
+        s"""${project_views("milestones", "./")}
            |${project_line(rp)}
-           |${phases_table(c, p, rp, "")}""".stripMargin
+           |${milestones_table(c, p, rp, "")}""".stripMargin
       )
     }
 
-  // a project's students, with their standing in each phase
+  // a project's students, with their standing in each milestone
   private def project_students_page(
       c: CourseName,
       p: ProjectName
   ): Option[String] =
     project_of(c, p).map { rp =>
-      val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
+      val _ =
+        Try(look_all(rp.all_milestones.map(data.milestone_results(c, p, _))))
       val as = aliases(c, p)
       val rows = as.toSeq.map { (csid, alias) =>
-        val cells = all_phases.map(phase =>
+        val cells = rp.all_milestones.map(milestone =>
           standing(
             c,
             p,
             rp,
-            phase,
+            milestone,
             csid,
-            s"../${slug(phase)}/${enc(csid.value)}/"
+            s"../${slug(milestone)}/${enc(csid.value)}/"
           )
         )
         s"""<tr><td><a href="../../by-student/${enc(csid.value)}/">${h(
@@ -509,32 +502,35 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         s"$c / $p / students",
         Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../"),
         s"""${project_views("by student", "../")}
-           |<p>${as.size} students · in each phase: tests passing every run, and the share of runs passed</p>
-           |<table class=sortable><thead><tr><th>student</th><th class=num>alias</th>${all_phases
-            .map(ph => s"<th class=num>${phase_name(ph)}</th>")
+           |<p>${as.size} students · in each milestone: tests passing every run, and the share of runs passed</p>
+           |<table class=sortable><thead><tr><th>student</th><th class=num>alias</th>${rp.all_milestones
+            .map(milestone =>
+              s"<th class=num>${milestone_name(milestone)}</th>"
+            )
             .mkString}</tr></thead>
            |<tbody>${rows.mkString}</tbody></table>""".stripMargin
       )
     }
 
-  // a project's tests, with how each phase's students do on them
+  // a project's tests, with how each milestone's students do on them
   private def project_tests_page(
       c: CourseName,
       p: ProjectName
   ): Option[String] =
     project_of(c, p).map { rp =>
-      val _ = Try(look_all(all_phases.map(data.phase_results(c, p, _))))
-      val per_phase = all_phases.map { phase =>
-        phase -> results(c, p, phase).toOption.flatten
+      val _ =
+        Try(look_all(rp.all_milestones.map(data.milestone_results(c, p, _))))
+      val per_milestone = rp.all_milestones.map { milestone =>
+        milestone -> results(c, p, milestone).toOption.flatten
           .map(_._1)
           .map(rs =>
-            test_views(c, p, rp, phase, rs).map(t => t.name -> t).toMap
+            test_views(c, p, rp, milestone, rs).map(t => t.name -> t).toMap
           )
       }
-      val names = (look(data.published_tests(c, p)) ++ per_phase.flatMap(
+      val names = (look(data.published_tests(c, p)) ++ per_milestone.flatMap(
         _._2.toSeq.flatMap(_.keys)
       )).distinct.sorted
-      val first = per_phase
+      val first = per_milestone
         .flatMap(_._2)
         .flatMap(_.values)
         .groupBy(_.name)
@@ -551,19 +547,22 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         val tags = t.toSeq
           .flatMap(t =>
             Seq(
-              Option.when(t.phase1)("<span class=tag>phase 1</span>"),
-              Option.when(t.phase2)("<span class=tag>phase 2</span>"),
+              Option.when(t.milestones.nonEmpty)(
+                t.milestones
+                  .map(m => s"<span class=tag>${h(m)}</span>")
+                  .mkString
+              ),
               Option.when(t.bad)(
                 """<span class="tag warn" title="in bad_tests: ignored">bad</span>"""
               )
             ).flatten
           )
           .mkString(" ")
-        val cells = per_phase.map { (phase, views) =>
+        val cells = per_milestone.map { (milestone, views) =>
           views.flatMap(_.get(name)).filter(_.ran > 0) match {
             case None    => "<td class=muted></td>"
             case Some(v) =>
-              s"""<td class=num><a href="../${slug(phase)}/by-test/${enc(
+              s"""<td class=num><a href="../${slug(milestone)}/by-test/${enc(
                   name
                 )}/">${v.passing}/${v.ran}</a> <span class=muted>${percent(
                   v.runs_passed,
@@ -582,15 +581,17 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         s"$c / $p / tests",
         Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../"),
         s"""${project_views("by test", "../")}
-           |<p>${names.size} tests · in each phase: students passing every run, of those it ran on, and the share of runs passed</p>
-           |<table class=sortable><thead><tr><th>test</th><th>author</th><th>chosen</th>${all_phases
-            .map(ph => s"<th class=num>${phase_name(ph)}</th>")
+           |<p>${names.size} tests · in each milestone: students passing every run, of those it ran on, and the share of runs passed</p>
+           |<table class=sortable><thead><tr><th>test</th><th>author</th><th>chosen</th>${rp.all_milestones
+            .map(milestone =>
+              s"<th class=num>${milestone_name(milestone)}</th>"
+            )
             .mkString}</tr></thead>
            |<tbody>${rows.mkString}</tbody></table>""".stripMargin
       )
     }
 
-  // Reads what the course and phase pages show (the courses, and each
+  // Reads what the course and milestone pages show (the courses, and each
   // project's results and aliases) from the local mirror, all at once,
   // telling `log` how it goes. It doesn't update the mirror: `grader mirror`
   // does.
@@ -632,27 +633,27 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def project_of(c: CourseName, p: ProjectName): Option[RawProject] =
     look(data.project(c, p))
 
-  private def phase_page(
+  private def milestone_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase
+      milestone: Milestone
   ): Option[String] =
     project_of(c, p).map { rp =>
       val st = project_state(rp)
       val by_alias = aliases(c, p).map(_.swap)
       val crumbs =
         Seq("Courses" -> "../../../", c.value -> "../../", p.value -> "../")
-      val title = s"$c / $p / ${phase_name(phase)}"
-      results(c, p, phase) match {
+      val title = s"$c / $p / ${milestone_name(milestone)}"
+      results(c, p, milestone) match {
         case Left(why)   => shell(title, crumbs, s"<p class=bad>${h(why)}</p>")
         case Right(None) =>
           shell(
             title,
             crumbs,
-            s"<p class=muted>Nothing published for ${phase_name(phase)} yet.</p>"
+            s"<p class=muted>Nothing published for ${milestone_name(milestone)} yet.</p>"
           )
         case Right(Some((rs, when))) =>
-          val keep_going = st.keeps_going(phase)
+          val keep_going = st.keeps_going(milestone)
           val max = rp.iterations.max
           val graded = rs.toSeq.map { (alias, r) =>
             val csid = by_alias.get(alias)
@@ -708,7 +709,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       Option.when(pi.has_report)("""<span class=tag>report</span>""")
     ).flatten.mkString(" ")
 
-  // the student's published results for the phase, and what goes with them
+  // the student's published results for the milestone, and what goes with them
   private case class StudentView(
       rp: RawProject,
       alias: Option[Alias],
@@ -719,38 +720,42 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def student_view(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID
   ): Option[StudentView] =
     project_of(c, p).map { rp =>
       val alias = aliases(c, p).get(csid)
-      val rs = results(c, p, phase).toOption.flatten.map(_._1)
+      val rs = results(c, p, milestone).toOption.flatten.map(_._1)
       val mine = alias.flatMap(a => rs.flatMap(_.get(a)))
-      // the student's own repo has the latest results only
-      val own = if (phase == Phase.Latest) own_results(c, p, csid) else None
+      // the student's own repo has the current milestone's results only
+      // (a student's own results repo has the current milestone's)
+      val own =
+        if (milestone == project_state(rp).current) own_results(c, p, csid)
+        else None
       StudentView(rp, alias, mine, own)
     }
 
   private def student_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID
   ): Option[String] =
-    student_view(c, p, phase, csid).map { v =>
+    student_view(c, p, milestone, csid).map { v =>
       val crumbs = Seq(
         "Courses" -> "../../../../",
         c.value -> "../../../",
         p.value -> "../../",
-        phase_name(phase) -> "../"
+        milestone_name(milestone) -> "../"
       )
-      val title = s"$c / $p / ${phase_name(phase)} / ${csid.value}"
+      val title = s"$c / $p / ${milestone_name(milestone)} / ${csid.value}"
       val st = project_state(v.rp)
-      val keep_going = st.keeps_going(phase)
-      val due = deadline(v.rp, csid, phase)
-      val ext = v.rp.extensions.days(csid, phase)
+      val keep_going = st.keeps_going(milestone)
+      val due = v.rp.deadline(csid, milestone)
+      val ext = v.rp.extension_days(csid, milestone)
       val commit = v.results match {
-        case None => "<p class=muted>Not in this phase's published results.</p>"
+        case None =>
+          "<p class=muted>Not in this milestone's published results.</p>"
         case Some(r) =>
           val pi = r.prepare_info
           val source = v.own
@@ -758,11 +763,11 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             .filter(_ => v.own.exists(_._1.prepare_info.sha == pi.sha)) match {
             case Some(CommitSource.FromFile(file, named)) =>
               s"named in <code>${h(file)}</code> (${h(named)})"
-            case Some(CommitSource.Latest) => latest_source(phase)
+            case Some(CommitSource.Latest) => latest_source(milestone)
             case None                      =>
               if (pi.from_commit_file)
-                s"named in <code>${h(phase.commit_id_file.getOrElse("its commit id file"))}</code>"
-              else latest_source(phase)
+                s"named in <code>${h(milestone.commit_id_file.getOrElse("its commit id file"))}</code>"
+              else latest_source(milestone)
           }
           s"""<dl>
              |<dt>graded commit</dt><dd class=mono>${h(pi.sha)}</dd>
@@ -785,7 +790,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
              |</dl>""".stripMargin
       }
       val history =
-        commit_history(c, p, csid, phase, v.results.map(_.prepare_info.sha))
+        commit_history(c, p, csid, milestone, v.results.map(_.prepare_info.sha))
       val tests = v.results.toSeq.flatMap(_.outcomes.toSeq).map { (t, o) =>
         val counts =
           OutcomeStatus.values.toSeq.map(s => o.outcomes.count(_._1 == s))
@@ -810,7 +815,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             .getOrElse("<span class=muted>no alias</span>")}</p>
            |<h2>Commit</h2>$commit
            |<h2>${h(
-            phase.commit_id_file
+            milestone.commit_id_file
               .map(f => s"$f history")
               .getOrElse("Recent commits on master")
           )}</h2>$history
@@ -828,15 +833,15 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
 
   ///////////// tests /////////////
 
-  // What there is to know about a test in a phase
+  // What there is to know about a test in a milestone
   private case class TestView(
       name: String,
       // None: one of the course's own (an override)
       author: Option[CSID],
-      phase1: Boolean,
-      phase2: Boolean,
+      // the milestones it's one of the tests of
+      milestones: Seq[String],
       bad: Boolean,
-      // whether grading the phase runs it
+      // whether grading the milestone runs it
       runs_here: Boolean,
       // each student's outcome for it, by alias
       outcomes: SortedMap[Alias, RedactedOutcome]
@@ -854,37 +859,35 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       outcomes.values.map(_.outcomes.count(_._1.isHappy)).sum
   }
 
-  // the phase's tests: those published in the tests repo, and any its
+  // the milestone's tests: those published in the tests repo, and any its
   // results ran
   private def test_views(
       c: CourseName,
       p: ProjectName,
       rp: RawProject,
-      phase: Phase,
+      milestone: Milestone,
       rs: SortedMap[Alias, RedactedStudentResults]
   ): Seq[TestView] = {
     val by_alias = aliases(c, p).map((csid, a) => a.toString -> csid)
     val published = look(data.published_tests(c, p))
     val ran = rs.values.flatMap(_.outcomes.keys.map(_.external_name))
-    val set = project_state(rp).tests(phase)
+    val set = project_state(rp).tests(milestone)
     (published ++ ran).distinct.sorted.map { name =>
       val author = by_alias.get(name)
       def in(names: Seq[String]) =
         names.contains(name) || author.exists(a => names.contains(a.value))
-      val (p1, p2, bad) =
-        (in(rp.phase1_tests), in(rp.phase2_tests), in(rp.bad_tests))
+      val milestones = rp.milestones.filter(m => in(m.tests)).map(_.name)
+      val bad = in(rp.bad_tests)
       TestView(
         name = name,
         author = author,
-        phase1 = p1,
-        phase2 = p2,
+        milestones = milestones,
         bad = bad,
         runs_here = set match {
-          case "all"    => true
-          case "good"   => !bad
-          case "chosen" => (p1 || p2) && !bad
-          case "phase1" => p1 && !bad
-          case "phase2" => p2 && !bad
+          case TestSet.All      => true
+          case TestSet.Good     => !bad
+          case TestSet.Chosen   => milestones.nonEmpty && !bad
+          case TestSet.Of(name) => milestones.contains(name) && !bad
         },
         outcomes =
           rs.flatMap((a, r) => r.outcomes.get(RedactedTestId(name)).map(a -> _))
@@ -894,13 +897,14 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
 
   private def test_tags(t: TestView, own: Option[RedactedOutcome]): String =
     Seq(
-      Option.when(t.phase1)("<span class=tag>phase 1</span>"),
-      Option.when(t.phase2)("<span class=tag>phase 2</span>"),
+      Option.when(t.milestones.nonEmpty)(
+        t.milestones.map(m => s"<span class=tag>${h(m)}</span>").mkString
+      ),
       Option.when(t.bad)(
         """<span class="tag warn" title="in bad_tests: ignored">bad</span>"""
       ),
       Option.when(!t.runs_here)(
-        """<span class="tag" title="grading this phase doesn't run it">not run here</span>"""
+        """<span class="tag" title="grading this milestone doesn't run it">not run here</span>"""
       ),
       Option.when(t.flaky > 0)(
         s"""<span class="tag warn" title="passed some runs, not others, for ${t.flaky} students">flaky</span>"""
@@ -913,9 +917,18 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     ).flatten.mkString(" ")
 
-  private def pushed(tc: TestCommit, rp: RawProject): String = {
+  // when the test was pushed, marked if after `milestone`'s deadline
+  private def pushed(
+      tc: TestCommit,
+      rp: RawProject,
+      milestone: Milestone
+  ): String = {
     val cutoff =
-      ZonedDateTime.of(rp.test_cutoff, ZoneId.systemDefault).nn.toInstant.nn
+      ZonedDateTime
+        .of(rp.deadline(milestone), ZoneId.systemDefault)
+        .nn
+        .toInstant
+        .nn
     tc.push_time match {
       case None    => "<span class=muted>unknown</span>"
       case Some(t) =>
@@ -933,31 +946,33 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def tests_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase
+      milestone: Milestone
   ): Option[String] =
     project_of(c, p).map { rp =>
       val crumbs = Seq(
         "Courses" -> "../../../../",
         c.value -> "../../../",
         p.value -> "../../",
-        phase_name(phase) -> "../"
+        milestone_name(milestone) -> "../"
       )
-      val title = s"$c / $p / ${phase_name(phase)} / tests"
-      results(c, p, phase) match {
+      val title = s"$c / $p / ${milestone_name(milestone)} / tests"
+      results(c, p, milestone) match {
         case Left(why)   => shell(title, crumbs, s"<p class=bad>${h(why)}</p>")
         case Right(None) =>
           shell(
             title,
             crumbs,
-            s"<p class=muted>Nothing published for ${phase_name(phase)} yet.</p>"
+            s"<p class=muted>Nothing published for ${milestone_name(milestone)} yet.</p>"
           )
         case Right(Some((rs, _))) =>
-          val views = test_views(c, p, rp, phase, rs)
+          val views = test_views(c, p, rp, milestone, rs)
           val _ = Try(
-            look_all(views.flatMap(_.author).map(data.test_commit(c, p, _)))
+            look_all(
+              views.flatMap(_.author).map(data.test_commit(c, p, _, milestone))
+            )
           )
           val rows = views.map { t =>
-            val tc = t.author.flatMap(test_commit(c, p, _))
+            val tc = t.author.flatMap(test_commit(c, p, _, milestone))
             val own = t.author
               .flatMap(a => aliases(c, p).get(a))
               .flatMap(a => t.outcomes.get(a))
@@ -973,7 +988,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
                 .map(x => h(x.sha.take(10)))
                 .getOrElse("")}</td>
                |<td>${tc.map(x => h(fmt_iso(x.commit_time))).getOrElse("")}</td>
-               |<td>${tc.map(pushed(_, rp)).getOrElse("")}</td>
+               |<td>${tc.map(pushed(_, rp, milestone)).getOrElse("")}</td>
                |<td class=num>${t.passing}/${t.ran}</td><td class=num>${t.failing}</td><td class=num>${t.flaky}</td>
                |<td class=num>${percent(t.runs_passed, t.runs)}</td>
                |<td>${test_tags(t, own)}${tc
@@ -983,16 +998,16 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
                 )
                 .getOrElse("")}</td></tr>""".stripMargin
           }
-          val chosen = views.count(t => (t.phase1 || t.phase2) && !t.bad)
+          val chosen = views.count(t => t.milestones.nonEmpty && !t.bad)
           shell(
             title,
             crumbs,
             s"""${tabs("by test", "by student" -> "../", "by test" -> "./")}
                |<p>${views.size} tests · $chosen chosen · ${views.count(
                 _.bad
-              )} bad · ${views.count(_.runs_here)} run in ${phase_name(
-                phase
-              )} · tests due ${h(fmt(rp.test_cutoff))}</p>
+              )} bad · ${views.count(_.runs_here)} run in ${milestone_name(
+                milestone
+              )} · tests as of ${h(fmt(rp.deadline(milestone)))}</p>
                |<table class=sortable><thead><tr><th>test</th><th>author</th><th>commit</th><th>committed</th><th>pushed</th>
                |<th class=num title="students who passed all its runs, of those it ran on">passing</th><th class=num title="students who failed all its runs">failing</th><th class=num title="students who passed some runs, not others">flaky</th>
                |<th class=num>runs passed</th><th>notes</th></tr></thead>
@@ -1004,23 +1019,23 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def one_test_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       name: String
   ): Option[String] =
     for {
       rp <- project_of(c, p)
-      (rs, _) <- results(c, p, phase).toOption.flatten
-      t <- test_views(c, p, rp, phase, rs).find(_.name == name)
+      (rs, _) <- results(c, p, milestone).toOption.flatten
+      t <- test_views(c, p, rp, milestone, rs).find(_.name == name)
     } yield {
       val crumbs = Seq(
         "Courses" -> "../../../../../",
         c.value -> "../../../../",
         p.value -> "../../../",
-        phase_name(phase) -> "../../",
+        milestone_name(milestone) -> "../../",
         "tests" -> "../"
       )
       val by_alias = aliases(c, p).map(_.swap)
-      val tc = t.author.flatMap(test_commit(c, p, _))
+      val tc = t.author.flatMap(test_commit(c, p, _, milestone))
       val own = t.author
         .flatMap(a => aliases(c, p).get(a))
         .flatMap(a => t.outcomes.get(a))
@@ -1037,11 +1052,11 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             )}</a></dd>
              |<dt>test last changed in</dt><dd class=mono>${h(x.sha)}</dd>
              |<dt>committed</dt><dd>${h(fmt_iso(x.commit_time))}</dd>
-             |<dt>pushed</dt><dd>${pushed(x, rp)}</dd>
+             |<dt>pushed</dt><dd>${pushed(x, rp, milestone)}</dd>
              |<dt>taken from</dt><dd><span class=mono>${h(
               x.rev
             )}</span> <span class=muted>(the last commit on master before ${h(
-              fmt(rp.test_cutoff)
+              fmt(rp.deadline(milestone))
             )})</span></dd>
              |<dt>changed later</dt><dd>${
               if (x.later_changes == 0) "no"
@@ -1052,14 +1067,11 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       val chosen =
         if (t.bad) "no: it's in bad_tests"
         else
-          Seq(
-            Option.when(t.phase1)("phase 1"),
-            Option.when(t.phase2)("phase 2")
-          ).flatten match {
+          t.milestones match {
             case Seq() => "no"
             case ps    => s"for ${ps.mkString(" and ")}"
           }
-      val keep_going = st.keeps_going(phase)
+      val keep_going = st.keeps_going(milestone)
       val rows = t.outcomes.toSeq.map { (alias, o) =>
         val who = by_alias.get(alias) match {
           case Some(s) =>
@@ -1089,11 +1101,11 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             .getOrElse("")}</td></tr>""".stripMargin
       }
       shell(
-        s"$c / $p / ${phase_name(phase)} / tests / $name",
+        s"$c / $p / ${milestone_name(milestone)} / tests / $name",
         crumbs,
         s"""<dl>$commit
            |<dt>chosen</dt><dd>$chosen</dd>
-           |<dt>run in ${phase_name(phase)}</dt><dd>${
+           |<dt>run in ${milestone_name(milestone)}</dt><dd>${
             if (t.runs_here) "yes" else "no"
           }</dd>
            |<dt>passing</dt><dd>${t.passing} of ${t.ran} students · ${t.failing} fail every run · ${t.flaky} flaky · ${percent(
@@ -1109,28 +1121,28 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       )
     }
 
-  private def latest_source(phase: Phase): String = phase match {
-    case Phase.Latest => "the head of master"
-    case _            =>
-      s"the last commit on master before the deadline${phase.commit_id_file
+  private def latest_source(milestone: Milestone): String = milestone match {
+    case Milestone.Live => "the head of master"
+    case _              =>
+      s"the last commit on master before the deadline${milestone.commit_id_file
           .fold("")(f => s" (<code>${h(f)}</code> names none)")}"
   }
 
-  // When the commit id file changed, and what it named (or, for the latest
+  // When the commit id file changed, and what it named (or, for Live
   // results, master's last commits), from the submission repo
   private def commit_history(
       c: CourseName,
       p: ProjectName,
       csid: CSID,
-      phase: Phase,
+      milestone: Milestone,
       graded: Option[String]
   ): String =
-    look(data.commit_history(c, p, csid, phase)) match {
+    look(data.commit_history(c, p, csid, milestone)) match {
       case None       => "<p class=muted>The submission repo can't be read.</p>"
       case Some(rows) =>
         def mark(sha: String) =
           if (graded.contains(sha)) " <span class=tag>graded</span>" else ""
-        phase.commit_id_file match {
+        milestone.commit_id_file match {
           case Some(file) =>
             if (rows.isEmpty)
               s"<p class=muted><code>${h(file)}</code> was never committed: the last commit before the deadline is graded.</p>"
@@ -1167,17 +1179,17 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def test_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID,
       test: String
   ): Option[String] =
-    student_view(c, p, phase, csid).flatMap { v =>
+    student_view(c, p, milestone, csid).flatMap { v =>
       outcome_of(v, test).map { o =>
         val crumbs = Seq(
           "Courses" -> "../../../../../",
           c.value -> "../../../../",
           p.value -> "../../../",
-          phase_name(phase) -> "../../",
+          milestone_name(milestone) -> "../../",
           csid.value -> "../"
         )
         val rows = o.outcomes.zipWithIndex.map { case ((status, time), i) =>
@@ -1189,11 +1201,11 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         }
         val to_go = remaining(
           o,
-          project_state(v.rp).keeps_going(phase),
+          project_state(v.rp).keeps_going(milestone),
           v.rp.iterations.max
         )
         shell(
-          s"$c / $p / ${phase_name(phase)} / ${csid.value} / $test",
+          s"$c / $p / ${milestone_name(milestone)} / ${csid.value} / $test",
           crumbs,
           s"""<p>${o.outcomes.size} runs, ${o.outcomes.count(
               _._1 == OutcomeStatus.pass
@@ -1208,12 +1220,12 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   private def run_page(
       c: CourseName,
       p: ProjectName,
-      phase: Phase,
+      milestone: Milestone,
       csid: CSID,
       test: String,
       n: Int
   ): Option[String] =
-    student_view(c, p, phase, csid).flatMap { v =>
+    student_view(c, p, milestone, csid).flatMap { v =>
       outcome_of(v, test).filter(o => n >= 1 && n <= o.outcomes.size).map { o =>
         val (status, time) = o.outcomes(n - 1)
         // at .../<test>/<n>: "./" is the test's page
@@ -1221,7 +1233,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
           "Courses" -> "../../../../../",
           c.value -> "../../../../",
           p.value -> "../../../",
-          phase_name(phase) -> "../../",
+          milestone_name(milestone) -> "../../",
           csid.value -> "../",
           test -> "./"
         )
@@ -1263,12 +1275,14 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
               }.mkString
           }
           .getOrElse(
-            if (phase == Phase.Latest && n == o.outcomes.size)
+            if (
+              milestone == project_state(v.rp).current && n == o.outcomes.size
+            )
               "<p class=muted>Its output isn't in the student's results repo (it holds the last published run).</p>"
-            else "<p class=muted>Only the last run's output is kept, for the latest results.</p>"
+            else "<p class=muted>Only the last run's output is kept, for the current milestone's results.</p>"
           )
         shell(
-          s"$c / $p / ${phase_name(phase)} / ${csid.value} / $test / run $n",
+          s"$c / $p / ${milestone_name(milestone)} / ${csid.value} / $test / run $n",
           crumbs,
           s"""<dl><dt>outcome</dt><dd>${status_badge(status)}</dd>
              |<dt>time</dt><dd>${time

@@ -61,4 +61,19 @@ class ToRelPathTests extends FunSuite {
     assertEquals(paths.distinct.size, keys.size)
     intercept[IllegalArgumentException](ToRelPath(K("..", None, 1, env)))
   }
+
+  test("derived: a derived field is spliced in, still never running into the fields around it") {
+    final case class Inner(a: String, b: String) derives ToRelPath
+    final case class Outer(i: Inner, c: String) derives ToRelPath
+    assertEquals(ToRelPath(Outer(Inner("x", "y"), "z")), os.RelPath("x/y/z"))
+    val keys = Seq(
+      Outer(Inner("x", "y/z"), "w"),
+      Outer(Inner("x/y", "z"), "w"),
+      Outer(Inner("x", "y"), "z/w"),
+      Outer(Inner("", "x"), "y")
+    )
+    val paths = keys.map(ToRelPath(_))
+    for (p <- paths) assertEquals(clue(p).segments.size, 3)
+    assertEquals(paths.distinct.size, keys.size)
+  }
 }
