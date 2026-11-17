@@ -10,6 +10,7 @@ import ag.grader.json.{
   OutcomeStatus,
   TestId,
   PrepareInfo,
+  PublishedRuns,
   CommitSource,
   GradedCommit
 }
@@ -183,7 +184,7 @@ final case class SubmissionMilestone(
       val wanted = for {
         _ <- tracker.track(prepare_info).toSeq
         (id, tries) <- run.toSeq.map((_, n)) ++ others.toSeq.map((_, 0))
-      } yield run_one(keep_going, tries)(id)
+      } yield run_one(keep_going, tries, id)
       val done = tracker.track_all(wanted)
       tracker.run_if_needed(_ => done.filter(_.value.outcomes.nonEmpty))
     }
@@ -224,7 +225,7 @@ final case class SubmissionMilestone(
       val wanted = for {
         _ <- tracker.track(prepare_info).toSeq
         id <- tracker.track(project_milestone.counted_test_ids).toSeq
-      } yield run_one(true, n)(id)
+      } yield run_one(true, n, id)
       val outs = tracker.track_all(wanted)
       tracker.run_if_needed { _ =>
         (for {
@@ -237,6 +238,27 @@ final case class SubmissionMilestone(
 
   // ---- running the tests -----------------------------------------------
 
+  // The student's runs as published for the milestone, by test (external
+  // name), if they were of the commit graded now: what seeds a test's runs
+  // when it has none saved (see TestRun.runs). None for a test the
+  // published results don't have.
+  lazy val seed
+      : Target[SortedMap[String, Seq[(OutcomeStatus, Option[Double])]]] =
+    target(
+      (
+        published = project_milestone.published_runs,
+        alias = submission.alias,
+        info = prepare_info
+      )
+    ) { (_, deps) =>
+      (for {
+        a <- deps.alias
+        info <- deps.info
+        r: PublishedRuns <- deps.published.get(a)
+        if r.sha == info.sha
+      } yield r.runs).getOrElse(SortedMap())
+    }
+
   // A test's runs on the student's prepared submission (as
   // Project.run_one): what their prepared repo has for the milestone (see
   // ag.grader.repos.PreparedRepo.prepared), so they run on what the student sees. The
@@ -246,11 +268,10 @@ final case class SubmissionMilestone(
   // commit share them; it runs again while it has fewer than `n` runs, but
   // stops at a failure unless `keep_going`. With n = 0, never runs: just the
   // runs it has, none if it has none. Fails if there's no commit to grade.
-  def run_one(
-      keep_going: Boolean,
-      n: Int
-  ): TestId => Target[WithData[Outcome]] =
-    fun { (id: TestId) =>
+  // (keep_going and n are in its name: asked with others, it's another
+  // target, not whichever was asked first)
+  lazy val run_one: (Boolean, Int, TestId) => Target[WithData[Outcome]] =
+    fun { (keep_going: Boolean, n: Int, id: TestId) =>
       complex_target[WithData[Outcome]] { tracker =>
         val deps = tracker.track_all(
           (
@@ -260,7 +281,8 @@ final case class SubmissionMilestone(
               ag.grader.repos.PreparedRepo(submission).prepared(milestone),
             cores = project.cores,
             docker_file = project.docker_file,
-            image = project.docker_image
+            image = project.docker_image,
+            seed = seed
           )
         )
         val (sha, prepared) = (deps.info, deps.prepared) match {
@@ -279,7 +301,13 @@ final case class SubmissionMilestone(
             docker_file = deps.docker_file,
             image = deps.image
           )
-            .runs(id, s"${c}_${p}_${csid.value}", keep_going, n)
+            .runs(
+              id,
+              s"${c}_${p}_${csid.value} (${milestone.slug})",
+              keep_going,
+              n,
+              deps.seed.getOrElse(id.external_name, Seq())
+            )
         )
         tracker.run_if_needed { _ =>
           WithData(

@@ -17,7 +17,10 @@ class StoreTests extends FunSuite {
       .trim
 
   test("ref names: readable, valid, and a and a/b can both have one") {
-    assertEquals(Store.ref_name(os.RelPath("ag/r3/x/10")), "refs/r3/ag/r3/x/10/@")
+    assertEquals(
+      Store.ref_name(os.RelPath("ag/r3/x/10")),
+      "refs/r3/ag/r3/x/10/@"
+    )
     assertEquals(Store.encode("a b"), "a%20b")
     assertEquals(Store.encode(".hidden"), "%2Ehidden")
     assertEquals(Store.encode("a..b"), "a.%2Eb")
@@ -33,19 +36,27 @@ class StoreTests extends FunSuite {
     val dir = ws()
     val s = Scope("nest")
     val a: Target[Int] = s.target(EmptyTuple)((_, _) => 1)
-    val f: Int => Target[Int] = s.fun((i: Int) => s.target(EmptyTuple)((_, _) => i))
+    val f: Int => Target[Int] =
+      s.fun((i: Int) => s.target(EmptyTuple)((_, _) => i))
     // f(2)'s path is a's with "2" appended: both refs must fit
     assertEquals(State(dir).track(a) + State(dir).track(f(2)), 3)
   }
 
-  test("history: a commit per change, with the reason, none when nothing changed") {
+  test(
+    "history: a commit per change, with the reason, none when nothing changed"
+  ) {
     val dir = ws()
     var input = 1
     val s = Scope("history")
     val in: Target[Int] = s.target(EmptyTuple)((_, _) => input)
     val out: Target[Int] = s.target((i = in))((_, deps) => deps.i * 10)
     def log() =
-      git(dir, "log", "--format=%s", Store.ref_name(out.path)).linesIterator.toSeq
+      git(
+        dir,
+        "log",
+        "--format=%s",
+        Store.ref_name(out.path)
+      ).linesIterator.toSeq
     assertEquals(State(dir).track(out), 10)
     assertEquals(State(dir).track(out), 10)
     assertEquals(log(), Seq("it has no saved result"))
@@ -53,7 +64,10 @@ class StoreTests extends FunSuite {
     assertEquals(State(dir).track(out), 20)
     assertEquals(
       log(),
-      Seq(s"dependencies changed: ${in.path.toString}", "it has no saved result")
+      Seq(
+        s"dependencies changed: ${in.path.toString}",
+        "it has no saved result"
+      )
     )
     // `in` reruns every time (no dependencies) but only commits on change
     assertEquals(
@@ -64,6 +78,23 @@ class StoreTests extends FunSuite {
       git(dir, "show", s"${Store.ref_name(out.path)}:result/value.json"),
       "20"
     )
+  }
+
+  test(
+    "a lock left by a stopped save fails the target's saves, until remove_locks"
+  ) {
+    val dir = ws()
+    val t = Scope("locks").target(EmptyTuple)((_, _) => 1)
+    val store = dir / "r3.git"
+    val _ = State(dir).store // made
+    val lock = store / os.RelPath(s"${Store.ref_name(t.path)}.lock")
+    os.write(lock, "", createFolders = true)
+    val err = intercept[Exception](State(dir).track(t))
+    assert(clue(err.getMessage).contains("LOCK_FAILURE"))
+    assert(clue(err.getMessage).contains(lock.toString))
+    assertEquals(Store.remove_locks(store), 1)
+    assertEquals(State(dir).track(t), 1)
+    assertEquals(Store.remove_locks(store), 0)
   }
 
   test("a failed run leaves the saved result, and runs again next time") {
@@ -107,8 +138,15 @@ class StoreTests extends FunSuite {
     val reader: Target[(Option[String], Option[Seq[String]], String)] =
       s.target((m = made)) { (producer, deps) =>
         val co = producer.checkout(deps.m.data)
-        assert(!os.perms(co / "sub" / "a.txt").contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE))
-        assert(os.perms(co / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+        assert(
+          !os
+            .perms(co / "sub" / "a.txt")
+            .contains(java.nio.file.attribute.PosixFilePermission.OWNER_WRITE)
+        )
+        assert(
+          os.perms(co / "run.sh")
+            .contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE)
+        )
         assert(os.isDir(co / "empty"))
         (
           producer.read_text(deps.m.data, os.rel / "sub" / "a.txt"),
@@ -156,13 +194,16 @@ class StoreTests extends FunSuite {
     }
     val bare: Target[WithData[Unit]] = s.target(EmptyTuple) { (producer, _) =>
       create_data(producer) { d =>
-        val _ = os.proc("git", "init", "-q", "--bare", (d / "y.git").toString).call()
+        val _ =
+          os.proc("git", "init", "-q", "--bare", (d / "y.git").toString).call()
       }
     }
     for (t <- Seq(nested, bare)) {
       val e = intercept[Exception](State(dir).track(t))
       assert(
-        Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null)
+        Iterator
+          .iterate[Throwable](e)(_.getCause)
+          .takeWhile(_ != null)
           .exists(x => String.valueOf(x.getMessage).contains("a git repo")),
         e
       )
@@ -194,30 +235,42 @@ class StoreCheckoutTests extends FunSuite {
     os.write(d / "dir" / "big", "x" * (3 << 20), createFolders = true)
     val _ = git(d, "add", "-A")
     // a submodule: a gitlink, with no commit behind it here
-    val _ = git(d, "update-index", "--add", "--cacheinfo", s"160000,${"1" * 40},sub")
+    val _ =
+      git(d, "update-index", "--add", "--cacheinfo", s"160000,${"1" * 40},sub")
     val _ = git(d, "commit", "-q", "-m", "c")
     (d, git(d, "rev-parse", "HEAD^{tree}"))
   }
 
-  test("checkout_to writes over what's there, merges directories, and makes a submodule an empty directory") {
+  test(
+    "checkout_to writes over what's there, merges directories, and makes a submodule an empty directory"
+  ) {
     val (d, tree) = repo()
     val store = Store(d / ".git", create = false)
     val dest = TempDirs.dir()
     os.write(dest / "a.txt", "old")
     os.write(dest / "link", "a file where the link goes")
     os.write(dest / "dir" / "kept", "mine", createFolders = true)
-    store.checkout_to(org.eclipse.jgit.lib.ObjectId.fromString(tree).nn, dest, writable = true)
+    store.checkout_to(
+      org.eclipse.jgit.lib.ObjectId.fromString(tree).nn,
+      dest,
+      writable = true
+    )
     assertEquals(os.read(dest / "a.txt"), "new")
     assert(os.isLink(dest / "link"))
     assertEquals(os.readLink(dest / "slash").toString, "dir/")
     assertEquals(os.read(dest / "dir" / "kept"), "mine")
     assertEquals(os.size(dest / "dir" / "big"), 3L << 20)
-    assert(os.perms(dest / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+    assert(
+      os.perms(dest / "run.sh")
+        .contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE)
+    )
     assert(os.isDir(dest / "sub"))
     assertEquals(os.list(dest / "sub"), IndexedSeq())
   }
 
-  test("copy_file: a file (streamed), a link, nothing for a directory or a missing path") {
+  test(
+    "copy_file: a file (streamed), a link, nothing for a directory or a missing path"
+  ) {
     val (d, tree) = repo()
     val store = Store(d / ".git", create = false)
     val id = org.eclipse.jgit.lib.ObjectId.fromString(tree).nn
@@ -227,7 +280,10 @@ class StoreCheckoutTests extends FunSuite {
     assert(store.copy_file(id, os.rel / "link", out / "link"))
     assertEquals(os.readLink(out / "link"), os.rel / "a.txt")
     assert(store.copy_file(id, os.rel / "run.sh", out / "run.sh"))
-    assert(os.perms(out / "run.sh").contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE))
+    assert(
+      os.perms(out / "run.sh")
+        .contains(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE)
+    )
     assert(!store.copy_file(id, os.rel / "dir", out / "dir"))
     assert(!store.copy_file(id, os.rel / "sub", out / "sub"))
     assert(!store.copy_file(id, os.rel / "nope", out / "nope"))

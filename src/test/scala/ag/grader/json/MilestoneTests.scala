@@ -48,13 +48,17 @@ class MilestoneTests extends FunSuite {
     assertEquals(rp.weight(Milestone.Live), 100)
     assertEquals(rp.deadline(ada, Milestone.Live), last.plusDays(3).nn)
     // it reads back as it was written
-    assertEquals(upickle.default.read[RawProject](upickle.default.write(rp)), rp)
+    assertEquals(
+      upickle.default.read[RawProject](upickle.default.write(rp)),
+      rp
+    )
   }
 
   test("what courses_config can't have") {
     // none, two by one name, out of order, named live
     assert(project("").isFailure)
-    val final_ = """{"name": "final", "deadline": "2026:10:10:23:59:00", "tests": [], "weight": 1}"""
+    val final_ =
+      """{"name": "final", "deadline": "2026:10:10:23:59:00", "tests": [], "weight": 1}"""
     assert(project(s"$final_, $final_").isFailure)
     assert(project(two.replace("2026:10:03", "2026:10:11")).isFailure)
     assert(project(final_.replace("final", "live")).isFailure)

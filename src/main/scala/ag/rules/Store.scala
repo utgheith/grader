@@ -215,8 +215,13 @@ final class Store(val dir: os.Path, create: Boolean = true)
       Using.resource(new RevWalk(repo))(ru.update(_)) match {
         case RefUpdate.Result.NEW | RefUpdate.Result.FAST_FORWARD => ()
         case other                                                =>
+          val lock = dir / os.RelPath(s"${ref_name(path)}.lock")
+          val why =
+            if (os.exists(lock))
+              s" (${lock.toString} is there: left by a run that was stopped? see Store.remove_locks)"
+            else ""
           throw IllegalStateException(
-            s"can't save ${path.toString}: ${String.valueOf(other)}"
+            s"can't save ${path.toString}: ${String.valueOf(other)}$why"
           )
       }
     } else ins.flush()
@@ -409,6 +414,23 @@ final class Store(val dir: os.Path, create: Boolean = true)
 }
 
 object Store {
+  // Removes the lock files git leaves in store `dir` (refs/…/@.lock,
+  // packed-refs.lock, …) when a run is stopped while it saves (^C), each of
+  // which would make every later save of its ref fail. Only for the store's
+  // one user, before it starts (the workspace's RunLock says it is): any
+  // lock it finds then is left over. Says how many.
+  def remove_locks(dir: os.Path): Int =
+    if (!os.isDir(dir)) 0
+    else {
+      val locks = os
+        .walk(dir, skip = p => p == dir / "objects")
+        .filter(p =>
+          p.last.endsWith(".lock") && os.isFile(p, followLinks = false)
+        )
+      locks.foreach(os.remove)
+      locks.size
+    }
+
   // what can be done with a repo without changing it: all State offers for a
   // Source's repos (and for reading the workspace's own by Tree or Commit)
   trait Reads {

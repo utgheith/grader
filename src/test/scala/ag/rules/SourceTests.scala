@@ -8,7 +8,11 @@ import scala.collection.SortedSet
 
 // Sources: bare repos that something else updates, which r3 only reads
 class SourceTests extends FunSuite {
-  private def git(cwd: os.Path, env: Map[String, String], args: String*): String =
+  private def git(
+      cwd: os.Path,
+      env: Map[String, String],
+      args: String*
+  ): String =
     os.proc(Seq("git", "-c", "user.name=t", "-c", "user.email=t@t") ++ args)
       .call(cwd = cwd, env = env, stderr = os.Pipe)
       .out
@@ -34,7 +38,11 @@ class SourceTests extends FunSuite {
     }
 
     // commits `content` as f, pushes, and returns the commit
-    def push(work: os.Path, content: String, env: Map[String, String] = Map()): String = {
+    def push(
+        work: os.Path,
+        content: String,
+        env: Map[String, String] = Map()
+    ): String = {
       os.write.over(work / "f", content)
       val _ = git(work, "add", "f")
       val _ = git(work, env, "commit", "-q", "-m", s"set $content")
@@ -43,7 +51,8 @@ class SourceTests extends FunSuite {
     }
 
     def push_note(work: os.Path, commit: String, note: String): Unit = {
-      val _ = git(work, "notes", "--ref=push_time", "add", "-f", "-m", note, commit)
+      val _ =
+        git(work, "notes", "--ref=push_time", "add", "-f", "-m", note, commit)
       val _ = git(work, "push", "-q", "origin", "refs/notes/push_time")
     }
   }
@@ -68,7 +77,9 @@ class SourceTests extends FunSuite {
     val reader: Target[Option[String]] = sc.target((m = s.source.master("a"))) {
       (producer, deps) =>
         val _ = runs.incrementAndGet()
-        deps.m.flatMap(c => producer.read_text(producer.commit(c).tree, os.rel / "f"))
+        deps.m.flatMap(c =>
+          producer.read_text(producer.commit(c).tree, os.rel / "f")
+        )
     }
     val c1 = s.push(a, "one")
     assertEquals(State(s.ws).track(reader), Some("one"))
@@ -93,7 +104,9 @@ class SourceTests extends FunSuite {
     assertEquals(st.read_text(tree, os.rel / "f"), Some("one"))
     assertEquals(os.read(st.checkout(tree) / "f"), "one")
     assertEquals(
-      State(s.ws).track(s.source.master("a")).map(c => st.read_text(st.commit(c).tree, os.rel / "f")),
+      State(s.ws)
+        .track(s.source.master("a"))
+        .map(c => st.read_text(st.commit(c).tree, os.rel / "f")),
       Some(Some("two"))
     )
   }
@@ -101,7 +114,8 @@ class SourceTests extends FunSuite {
   test("commit, history and notes") {
     val s = Setup()
     val a = s.make("a")
-    val c1 = s.push(a, "one", Map("GIT_COMMITTER_DATE" -> "2026-01-02T03:04:05+0200"))
+    val c1 =
+      s.push(a, "one", Map("GIT_COMMITTER_DATE" -> "2026-01-02T03:04:05+0200"))
     val c2 = s.push(a, "two")
     s.push_note(a, c1, "noted")
     val st = State(s.ws)
@@ -123,7 +137,9 @@ class SourceTests extends FunSuite {
     val c1 = s.push(a, "one")
     s.push_note(a, c1, "noted")
     def snapshot() =
-      os.walk(s.root).map(p => (p, os.isDir(p), if (os.isFile(p)) os.mtime(p) else 0L)).toSet
+      os.walk(s.root)
+        .map(p => (p, os.isDir(p), if (os.isFile(p)) os.mtime(p) else 0L))
+        .toSet
     val before = snapshot()
     val st = State(s.ws)
     val _ = st.track(s.source.repos)

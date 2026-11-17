@@ -4,7 +4,16 @@ import ag.grader.Milestone
 
 import ag.grader.name.{Alias, CourseName, ProjectName}
 
-import ag.grader.json.{RawMilestone, Weight, RedactedStudentResults, RedactedOutcome, OutcomeStatus, RedactedTestId, PrepareInfo, CommitSource}
+import ag.grader.json.{
+  RawMilestone,
+  Weight,
+  RedactedStudentResults,
+  RedactedOutcome,
+  OutcomeStatus,
+  RedactedTestId,
+  PrepareInfo,
+  CommitSource
+}
 
 import munit.FunSuite
 
@@ -152,7 +161,8 @@ class HtmlGenTests extends FunSuite {
           alias -> with_times(r, math.exp(rnd.nextGaussian() * 0.4))
         }
         .to(SortedMap),
-      milestones = milestones(Seq("t0", "t1", "t2", "t3"), Seq("t4", "t5", "t6")),
+      milestones =
+        milestones(Seq("t0", "t1", "t2", "t3"), Seq("t4", "t5", "t6")),
       bad_tests = SortedSet("t9"),
       staff_aliases = Set(Alias(7))
     )
@@ -238,7 +248,12 @@ class HtmlGenTests extends FunSuite {
 
   test("a try's worst status wins: fail, then timeout, then didn't run") {
     def worst(s: OutcomeStatus*) =
-      RedactedOutcome(course, project, RedactedTestId("t"), s.map(_ -> None)).worst
+      RedactedOutcome(
+        course,
+        project,
+        RedactedTestId("t"),
+        s.map(_ -> None)
+      ).worst
     assertEquals(worst(pass, timeout, failed), Some(failed))
     assertEquals(worst(timeout, pass), Some(timeout))
     assertEquals(worst(pass, unknown), Some(unknown))
@@ -289,7 +304,9 @@ class HtmlGenTests extends FunSuite {
     )
     assert(index.contains("""location.replace("cs439c_f26_p10.html")"""), index)
     assert(index.contains("""has("all")"""), index)
-    assert(!HtmlGen.render_index("cs439c_f26", Nil).contains("location.replace"))
+    assert(
+      !HtmlGen.render_index("cs439c_f26", Nil).contains("location.replace")
+    )
   }
 
   private def report_data(page: String): ujson.Value =
@@ -344,7 +361,9 @@ class HtmlGenTests extends FunSuite {
     )
   }
 
-  test("every page has a tab per milestone, its own marked; the current one is the main page") {
+  test(
+    "every page has a tab per milestone, its own marked; the current one is the main page"
+  ) {
     // Live, the current milestone
     assert(
       page.contains(
@@ -366,15 +385,27 @@ class HtmlGenTests extends FunSuite {
 
     // while m1 is the current milestone, it's the main page
     val current = HtmlGen.render(data.copy(milestone = m1, current = m1))
-    assert(current.contains("""<a class="active" href="cs439t_f26_p4.html" aria-current="page">m1</a>"""))
+    assert(
+      current.contains(
+        """<a class="active" href="cs439t_f26_p4.html" aria-current="page">m1</a>"""
+      )
+    )
     assert(current.contains("""<a href="cs439t_f26_p4--live.html">live</a>"""))
   }
 
-  test("milestone pages are named after the project, and only the main page is on the index") {
-    assertEquals(HtmlGen.page_file("c_p4", Milestone.Live, Milestone.Live), "c_p4.html")
+  test(
+    "milestone pages are named after the project, and only the main page is on the index"
+  ) {
+    assertEquals(
+      HtmlGen.page_file("c_p4", Milestone.Live, Milestone.Live),
+      "c_p4.html"
+    )
     assertEquals(HtmlGen.page_file("c_p4", m1, Milestone.Live), "c_p4--m1.html")
     assertEquals(HtmlGen.page_file("c_p4", m1, m1), "c_p4.html")
-    assertEquals(HtmlGen.page_file("c_p4", Milestone.Live, m1), "c_p4--live.html")
+    assertEquals(
+      HtmlGen.page_file("c_p4", Milestone.Live, m1),
+      "c_p4--live.html"
+    )
     assert(!HtmlGen.is_milestone_page("c_p4.html"))
     assert(HtmlGen.is_milestone_page("c_p4--m1.html"))
     assert(HtmlGen.is_milestone_page("c_p4--live.html"))

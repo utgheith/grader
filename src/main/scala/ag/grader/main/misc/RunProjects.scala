@@ -1,77 +1,77 @@
 package ag.grader.main.misc
 
-import ag.grader.Milestone
+import ag.grader.{Milestone, Priority, Round}
 import ag.grader.targets.Project
 import ag.grader.web.HtmlGen
 
-// Picks the active projects to run, from the local mirror (as
-// publish_results did: with no -p, one with work to do, picked by
-// priority, see Priority; named ones as far as their work goes; --tries:
-// all of them, to that many), and works out their results: every milestone
-// they publish (its tests and keep-going from the project's state), and
-// each student's in the current milestone. The tries are a limit, not a promise: a test
-// runs up to that many times, and stops sooner at a failure unless it
-// keeps going. Publishes nothing. Says how it went; the projects, each
-// with its limit.
+// Picks the active projects to run, from the local mirror, and runs them.
+// With no -p, one round (see Round) of one project: the most urgent of
+// their next rounds (see Priority), so a run is time-boxed and the loop
+// around it does the rest; named ones (or, with `narrow`, all: -s or -t
+// asks for that student's or test's work wherever it is), each its own
+// next round; with --tries, all of them, every milestone they publish, to
+// that many. Each milestone's tests and keep-going come from the project's
+// state. The tries are a limit, not a promise: a test runs up to that many
+// times, and stops sooner at a failure unless it keeps going. Publishes
+// nothing. Says how it went; the projects run.
 //
 // With `narrow`, only the students -s picks, the tests -t picks, and the
-// milestone `milestone` (if given) are run, and only their outcomes worked out.
+// milestone `milestone` (if given, else every one published) are run, to
+// the next round's tries (or the most a test gets), and only their
+// outcomes worked out.
 private[main] def run_projects(
     s: ag.rules.State,
     commonArgs: CommonArgs,
     tries: Option[Int],
     narrow: Boolean,
     milestone: Option[Milestone]
-): Seq[(Project, Int)] = {
+): Seq[Project] = {
   val source = source_of(commonArgs.workspace)
   val candidates = active_projects(s, commonArgs, source)
   def state(project: Project) = s.track(project.state)
   def all_milestones(project: Project): Seq[Milestone] =
     state(project).all_milestones.filter(state(project).publishes)
-  def work(project: Project): Option[(ag.grader.Band, Int)] = {
-    def has_work(milestone: Milestone)(n: Int) =
-      all_milestones(project).contains(milestone) && s.track(
-        project.milestone(milestone).has_work(n)
-      )
-    val (live, milestones) =
-      all_milestones(project).partition(_ == Milestone.Live)
-    ag.grader.Priority.band(
-      state(project).is_live,
-      s.track(project.iterations),
-      n => milestones.exists(has_work(_)(n)),
-      n => live.exists(has_work(_)(n))
+  def max(project: Project) = s.track(project.iterations).max
+  def next(project: Project): Option[Round] = {
+    val r = Priority.round(
+      state(project),
+      max(project),
+      (m, n) => s.track(project.milestone(m).has_work(n))
     )
-  }
-  def report(project: Project, w: Option[(ag.grader.Band, Int)]) =
     println(
-      s"${project.name}: ${state(project).description}; ${w.fold("up to date")(
-          (band, n) => s"work to do (${band.description}, up to $n tries)"
-        )}"
+      s"${project.name}: ${state(project).description}; ${r
+          .fold("up to date")(r => s"next: ${r.description}")}"
     )
-  val named = commonArgs.projects_.regex != ".*"
-  val projects: Seq[(Project, Int)] =
+    r
+  }
+  val named = commonArgs.projects_.regex != ".*" || narrow
+  // each with the milestones to run and their tries
+  val projects: Seq[(Project, Seq[Milestone], Int)] =
     tries match {
-      case Some(n)                               => candidates.map((_, n))
+      case Some(n)        => candidates.map(p => (p, all_milestones(p), n))
+      case None if narrow =>
+        for (project <- candidates)
+          yield (
+            project,
+            milestone.fold(all_milestones(project))(Seq(_)),
+            next(project).fold(max(project))(_.tries)
+          )
       case None if named || candidates.size <= 1 =>
         for (project <- candidates) yield {
-          val w = work(project)
-          report(project, w)
-          (project, w.fold(s.track(project.iterations).max)(_._2))
+          val r = next(project)
+          (project, r.fold(Seq())(_.milestones), r.fold(0)(_.tries))
         }
       case None =>
         val busy = for {
           project <- candidates
-          w = work(project)
-          _ = report(project, w)
-          (band, n) <- w
-        } yield ((project, n), project.p.value, band)
-        val picked = ag.grader.Priority.pick(busy).toSeq
+          r <- next(project)
+        } yield ((project, r.milestones, r.tries), project.p.value, r)
+        val picked = Priority.pick(busy).toSeq
         if (picked.isEmpty) println("nothing to do")
         picked
     }
-  for ((project, n) <- projects) {
+  for ((project, run_milestones, n) <- projects if run_milestones.nonEmpty) {
     val st = state(project)
-    val run_milestones = milestone.fold(all_milestones(project))(Seq(_))
     println(
       s"running ${project.name}, up to $n tries: ${st.description}; " +
         run_milestones
@@ -102,7 +102,7 @@ private[main] def run_projects(
             commonArgs.tests_.matches(id.external_name) ||
               commonArgs.tests_.matches(id.internal_name)
           )
-        } yield graded.run_one(st.keeps_going(milestone), n)(id)
+        } yield graded.run_one(st.keeps_going(milestone), n, id)
       )
       val results = outs.map(_.value)
       println(
@@ -112,19 +112,19 @@ private[main] def run_projects(
       f.report("run", results.size, commonArgs.verbose.value)
     } else {
       val students = s.track(project.students_with_submission).toSeq
-      val files = s.track(project.results_files(n))
-      val current = s.track_all(
-        students.map(csid =>
-          project.submission(csid).milestone(st.current).results(n)
-        )
+      val results = s.track_all(
+        for {
+          milestone <- run_milestones
+          csid <- students
+        } yield project.submission(csid).milestone(milestone).results(n)
       )
-      val outcomes = current.flatten.flatMap(_.outcomes.values)
+      val outcomes = results.flatten.flatMap(_.outcomes.values)
       println(
         s"${project.name}: ${(ag.grader.targets.runs_started() - started).toString} runs; " +
-          s"${files.keys.mkString(", ")} for ${students.size} students; ${HtmlGen.milestone_label(st.current)}: " +
+          s"${run_milestones.map(HtmlGen.milestone_label).mkString(", ")} for ${students.size} students: " +
           s"${outcomes.count(_.is_happy)} of ${outcomes.size} test results passed"
       )
     }
   }
-  projects
+  projects.map(_._1)
 }

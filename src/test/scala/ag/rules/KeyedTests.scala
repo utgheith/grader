@@ -16,7 +16,9 @@ class KeyedTests extends FunSuite {
       }
     }
 
-  test("a keyed target's value is kept across States, and grows as it decides") {
+  test(
+    "a keyed target's value is kept across States, and grows as it decides"
+  ) {
     val dir = ws()
     assertEquals(State(dir).track(log(1)), Seq(0))
     assertEquals(State(dir).track(log(1)), Seq(0))

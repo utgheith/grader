@@ -106,16 +106,24 @@ trait Tracker[A] extends Context[A] {
       f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
   )(using ReadWriter[A]): Result[A] = run_with(keyed = true)(f)
 
+  // (one at a time, of the targets saved where it is; see TargetBase.stored)
   private def run_with(keyed: Boolean)(
       f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
   )(using ReadWriter[A]): Result[A] = {
     val target = producing_opt.get
+    if (target.stored == target.path) saved_or_computed(keyed, target)(f)
+    else state.in_turn(target.stored)(saved_or_computed(keyed, target)(f))
+  }
+
+  private def saved_or_computed(keyed: Boolean, target: Target[A])(
+      f: (Producer[A], Option[Result[A]]) => Some[Result[A]] | (() => A)
+  )(using ReadWriter[A]): Result[A] = {
     if (keyed && dependencies.nonEmpty)
       throw IllegalStateException(
         s"${target.path.toString} is keyed, but tracks ${dependencies.keys.map(_.toString).mkString(", ")}"
       )
     val forced = os.exists(state.forced_path(target))
-    val loaded = state.store.load(target.path)
+    val loaded = state.store.load(target.stored)
 
     var reason = ""
     def because(why: String): Unit = if (reason.isEmpty) reason = why
@@ -176,9 +184,10 @@ trait Tracker[A] extends Context[A] {
       case compute: (() => A) =>
         if (reason.isEmpty) because("it chose to run again")
         os.write.over(producer.log_path, "", createFolders = true)
+        state.progress.running(target)
         val value = compute()
         val id = state.store.save(
-          path = target.path,
+          path = target.stored,
           old = loaded.map(_.commit),
           value = write(value, indent = 2).getBytes(UTF_8),
           deps = write(dependencies, indent = 2).getBytes(UTF_8),

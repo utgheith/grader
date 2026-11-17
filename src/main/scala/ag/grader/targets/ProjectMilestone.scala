@@ -4,7 +4,12 @@ import ag.grader.{Milestone, TestSet}
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
-import ag.grader.json.{RedactedStudentResults, OutcomeStatus, TestId}
+import ag.grader.json.{
+  PublishedRuns,
+  RedactedStudentResults,
+  OutcomeStatus,
+  TestId
+}
 
 import ag.common.{NoNulls, ToRelPath, given_ReadWriter_SortedMap}
 import ag.grader.repos.{OverrideRepo, ResultsRepo}
@@ -172,6 +177,20 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
               .map(Some(_))
         }
       out
+    }
+
+  // The runs its published results file has, read leniently (see
+  // PublishedRuns), by alias: what seeds a test's runs when it has none
+  // saved. r2 called the live milestone's file results.json.
+  lazy val published_runs: Target[SortedMap[Alias, PublishedRuns]] =
+    target((m = source.master(ResultsRepo.name_of(c, p)))) { (producer, deps) =>
+      val names = milestone.results_file +: (
+        if (milestone == Milestone.Live) Seq("results.json") else Seq()
+      )
+      names.iterator
+        .flatMap(Project.text_on(producer, deps.m, _))
+        .nextOption()
+        .fold(SortedMap[Alias, PublishedRuns]())(PublishedRuns.parse)
     }
 
   // ---- grading -------------------------------------------------------

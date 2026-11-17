@@ -79,21 +79,44 @@ private[main] def status_pages(
   }
 }
 
+// Exits with an explanation if `workspace` has no local mirror (one with
+// courses_config, which everything else is found from), before anything
+// is made there: a run without one would find no courses, and say nothing
+// of why (e.g. one that forgot --workspace, in ./workspace).
+private def require_mirror(workspace: os.Path): Unit =
+  if (!os.exists(source_of(workspace).dir("courses_config"))) {
+    System.err.println(
+      s"""No local mirror in ${workspace.toString} (${mirror_root(
+          workspace
+        ).toString} has no courses_config).
+         |Is --workspace right? `mirror --workspace <dir>` makes one.""".stripMargin
+    )
+    sys.exit(2)
+  }
+
 // the command line, for telling a second run who holds the lock
 private[main] var command_line = ""
 
 // Every command works in its workspace holding the workspace's lock (two
 // runs sharing a workspace would corrupt each other's state), with the
 // command output in it, and the status pages served while it runs (if
-// config.json has "web"). `f` gets an r3 State in the workspace's r3/,
+// config.json has "web"), and its progress on the status screen (unless
+// --plain; see StatusScreen). `f` gets an r3 State in the workspace's r3/,
 // which --force makes rebuild what the command asks for.
 private[main] def in_r3_workspace[A](
     args: CommonArgs
 )(f: ag.rules.State => A): A = {
   val workspace = args.workspace
+  require_mirror(workspace)
   os.makeDir.all(workspace)
   RunLock(workspace, command_line) {
     ag.rules.use_std_out_err(workspace / "std_out_err")
+    // what a stopped run (^C) left: no one else can be saving (see RunLock)
+    val stale = ag.rules.Store.remove_locks(r3_workspace(workspace) / "r3.git")
+    if (stale > 0)
+      println(
+        s"removed ${stale.toString} lock files left in the store by a stopped run"
+      )
     val server = for {
       web <- ag.grader.Config.web
       pages <- status_pages(workspace)
@@ -104,7 +127,7 @@ private[main] def in_r3_workspace[A](
         r3_workspace(workspace),
         args.force.value,
         args.browse.value
-      )(f)
+      )(s => ag.rules.StatusScreen(s.progress, !args.plain.value)(f(s)))
     finally server.foreach(_.stop())
   }
 }

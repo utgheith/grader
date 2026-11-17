@@ -3,7 +3,6 @@ package ag.common
 import munit.FunSuite
 import upickle.default.ReadWriter
 
-
 import ag.common.Signer.{given_Signer_Path, given_Signer_Path_Function}
 
 case class SimpleData(i: Int, s: String) derives ReadWriter

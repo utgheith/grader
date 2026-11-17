@@ -18,7 +18,8 @@ class CoreTests extends FunSuite {
     val t1 = Scope("test").target(EmptyTuple)((_, _) => Data(1))
     assertEquals(t1.path, os.RelPath("ag/rules/CoreTests/t1/test"))
     assertEquals(State(ws()).track(t1), Data(1))
-    val f = Scope("fun").fun((i: Int) => Scope("fun").target(EmptyTuple)((_, _) => i))
+    val f =
+      Scope("fun").fun((i: Int) => Scope("fun").target(EmptyTuple)((_, _) => i))
     assertEquals(f(10).path.last, "10")
   }
 
@@ -114,7 +115,9 @@ class CoreTests extends FunSuite {
     assertEquals(finished.get, 4)
   }
 
-  test("force makes a current target run again, once; force_roots only the roots") {
+  test(
+    "force makes a current target run again, once; force_roots only the roots"
+  ) {
     val dir = ws()
     val (leaf_runs, top_runs) = (AtomicInteger(0), AtomicInteger(0))
     val s = Scope("force")
@@ -154,7 +157,14 @@ class CoreTests extends FunSuite {
     // what an older version could have saved
     val store = State(dir).store
     val l = store.load(either.path).get
-    val _ = store.save(either.path, Some(l.commit), "null".getBytes, l.deps, None, "test")
+    val _ = store.save(
+      either.path,
+      Some(l.commit),
+      "null".getBytes,
+      l.deps,
+      None,
+      "test"
+    )
     assertEquals(State(dir).track(either), Right(1))
     assertEquals(runs.get, 2)
   }
@@ -185,7 +195,9 @@ class CoreTests extends FunSuite {
     }
     val e = intercept[Exception](State(ws()).track(a))
     assert(
-      Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null)
+      Iterator
+        .iterate[Throwable](e)(_.getCause)
+        .takeWhile(_ != null)
         .exists(t => String.valueOf(t.getMessage).contains("Circular")),
       e
     )

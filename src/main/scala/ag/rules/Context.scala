@@ -89,6 +89,19 @@ trait Producer[A] extends Context[A] with Logging {
 
   lazy val log_path: os.Path = state.log_path(producing)
 
+  // what the status screen shows for it from now on (see Progress), when
+  // there's more to say than its display, e.g. how far it's got
+  def describe(display: String): Unit =
+    state.progress.describe(producing, display)
+
+  // `f`, shown as waiting its turn (e.g. for a share of the machine) on the
+  // status screen (see Progress), then as running again
+  def waiting[B](f: => B): B = {
+    state.progress.queued(producing)
+    try f
+    finally state.progress.running(producing)
+  }
+
   override def log(msg: => Any): Unit =
     if (msg != null)
       os.write.append(log_path, msg.toString, createFolders = true)

@@ -1,9 +1,11 @@
 package ag.grader.gitolite
 
 import ag.grader.RemoteServer
+import ag.common.down
 import ag.rules.Source
 
 import java.util.UUID
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicInteger
 import scala.util.Try
 
@@ -132,20 +134,25 @@ object LocalMirror {
     )
     val done = AtomicInteger()
     val failed = AtomicInteger()
+    // as many at a time as ssh runs (see RemoteServer.ssh_per_host), so each
+    // repo's time is its own, not its wait for its turn
+    val turns = Semaphore(RemoteServer.ssh_per_host)
     stale
       .map { repo =>
         Thread
           .ofVirtual()
           .nn
           .start { () =>
-            val at = System.nanoTime()
-            val how = Try(one(server, root, repo, expected(repo))).fold(
-              e => { failed.incrementAndGet(); s"failed: ${e.toString}" },
-              identity
-            )
-            log(
-              s"  [${done.incrementAndGet()}/${stale.size}] $repo: $how (${secs(at)})"
-            )
+            turns.down(1) {
+              val at = System.nanoTime()
+              val how = Try(one(server, root, repo, expected(repo))).fold(
+                e => { failed.incrementAndGet(); s"failed: ${e.toString}" },
+                identity
+              )
+              log(
+                s"  [${done.incrementAndGet()}/${stale.size}] $repo: $how (${secs(at)})"
+              )
+            }
           }
           .nn
       }

@@ -1,6 +1,6 @@
 package ag.grader.main.cmd
 
-import ag.grader.main.misc.{CommonArgs, mirror_root, in_r3_workspace}
+import ag.grader.main.misc.{CommonArgs, source_of, in_r3_workspace}
 
 // every repo's master on the local mirror, as of its last sync: "repo
 // sha", as the server's `history`
@@ -9,7 +9,7 @@ object History {
     in_r3_workspace(commonArgs) { s =>
       for (
         (repo, id) <- s.track(
-          ag.rules.Source(mirror_root(commonArgs.workspace)).masters
+          source_of(commonArgs.workspace).masters
         )
       )
         println(s"$repo $id")

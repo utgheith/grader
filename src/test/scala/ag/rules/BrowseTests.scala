@@ -5,12 +5,16 @@ import munit.FunSuite
 
 // State.run's browse: what a run used, linked by path
 class BrowseTests extends FunSuite {
-  test("each target used is linked by its path to its value and data; a failed run links too") {
+  test(
+    "each target used is linked by its path to its value and data; a failed run links too"
+  ) {
     val dir = TempDirs.dir()
     val s = Scope("browse")
     val in = s.target(EmptyTuple)((_, _) => 7)
     val out = s.target((i = in)) { (producer, deps) =>
-      create_data(producer) { d => os.write(d / "f.txt", deps.i.toString); deps.i * 2 }
+      create_data(producer) { d =>
+        os.write(d / "f.txt", deps.i.toString); deps.i * 2
+      }
     }
     val _ = State.run(dir, browse = true)(_.track(out))
     val links = dir / "browse"

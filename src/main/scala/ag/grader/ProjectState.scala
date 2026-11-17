@@ -1,53 +1,65 @@
 package ag.grader
 
-import ag.grader.json.{RawMilestone, Iterations}
+import ag.grader.json.RawMilestone
 
 import upickle.default.ReadWriter
 
 import java.time.LocalDateTime
 
-// How urgent a project's grading work is, most urgent first:
-//   LiveFirst: a live project's (final deadline not passed) first tries,
-//              up to its iterations.min: quick feedback
-//   Other:     a project that isn't live, up to its iterations.max
-//   LiveRest:  a live project's remaining tries, up to its iterations.max
-//   Late:      only Live's (work pushed after the final deadline)
-enum Band {
-  case LiveFirst, Other, LiveRest, Late
+// Whom a milestone's grading serves, most urgent first:
+//   Open:   students: a milestone they're working toward (its deadline not
+//           passed), for fresh feedback
+//   Closed: TAs: a milestone whose deadline has passed, for its grades
+//   Late:   Live: work pushed after the final deadline
+enum Work {
+  case Open, Closed, Late
 
   def description: String = this match {
-    case LiveFirst => "live, first tries"
-    case Other     => "not live"
-    case LiveRest  => "live, remaining tries"
-    case Late      => "pushed after the final deadline"
+    case Open   => "open milestones (students)"
+    case Closed => "closed milestones (TAs)"
+    case Late   => "pushed after the final deadline"
   }
 }
 
-// Which project `publish_results` grades when none is named, and how many
-// tries: the most urgent band's (see Band), then the lowest numbered (p1
-// before p2, p9 before p10).
+// One round of a project's grading: its milestones of one kind of `work`
+// that have tests with fewer than `tries` tries, run to that many: one more
+// try for the tests furthest behind. A run does one round and ends (time
+// boxing): the next run, from a fresh mirror, picks again, so new pushes
+// wait for at most one round.
+final case class Round(work: Work, milestones: Seq[Milestone], tries: Int) {
+  def description: String =
+    s"${work.description}, to ${tries.toString} tries"
+}
+
+// Which round runs next: the most urgent kind of work (see Work), then the
+// fewest tries (first tries before retries), then the lowest numbered
+// project (p1 before p2, p9 before p10).
 object Priority {
-  // `items`: (item, project name, band). None if there are none.
-  def pick[A](items: Seq[(A, String, Band)]): Option[A] =
+  // `items`: (item, project name, round). None if there are none.
+  def pick[A](items: Seq[(A, String, Round)]): Option[A] =
     items
-      .minByOption((_, name, band) => (band.ordinal, name.length, name))
+      .minByOption((_, name, r) => (r.work.ordinal, r.tries, name.length, name))
       .map(_._1)
 
-  // A project's band, and the tries to run its tests to, if it has work to
-  // do: `has_work(n)` says whether its milestones have tests with fewer than
-  // n tries, `late_work(n)` whether Live has.
-  def band(
-      live: Boolean,
-      iterations: Iterations,
-      has_work: Int => Boolean,
-      late_work: Int => Boolean
-  ): Option[(Band, Int)] =
-    if (live) {
-      if (has_work(iterations.min)) Some((Band.LiveFirst, iterations.min))
-      else if (has_work(iterations.max)) Some((Band.LiveRest, iterations.max))
-      else None
-    } else if (has_work(iterations.max)) Some((Band.Other, iterations.max))
-    else Option.when(late_work(iterations.max))((Band.Late, iterations.max))
+  // A project's next round, if it has work to do: `has_work(m, n)` says
+  // whether milestone m (one it publishes) has tests with fewer than n tries.
+  // Tests get up to `max` tries.
+  def round(
+      st: ProjectState,
+      max: Int,
+      has_work: (Milestone, Int) => Boolean
+  ): Option[Round] =
+    (for {
+      work <- Work.values.to(LazyList)
+      milestones = st.all_milestones.filter(m =>
+        st.publishes(m) && st.work(m) == work
+      )
+      tries <- (1 to max).find(n => milestones.exists(has_work(_, n))).toSeq
+    } yield Round(
+      work,
+      milestones.filter(has_work(_, tries)),
+      tries
+    )).headOption
 }
 
 // Which of a project's tests a grading run covers:
@@ -99,6 +111,11 @@ final case class ProjectState(names: Seq[String], passed: Int)
     else if (passed == 0) s"before ${names.head}'s deadline"
     else
       s"after ${names(passed - 1)}'s deadline, before ${names(passed)}'s"
+
+  // Whom grading `milestone` serves (see Work)
+  def work(milestone: Milestone): Work = milestone match
+    case Milestone.Named(name) => if (is_open(name)) Work.Open else Work.Closed
+    case Milestone.Live        => Work.Late
 
   // Whether to keep running a test after it fails when grading `milestone`
   def keeps_going(milestone: Milestone): Boolean = milestone match

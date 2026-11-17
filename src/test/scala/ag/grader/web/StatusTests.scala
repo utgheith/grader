@@ -4,7 +4,21 @@ import ag.grader.{Fixture, Milestone}
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
-import ag.grader.json.{RawCourseNotSorted, RawProject, RawMilestone, Iterations, NotificationConfig, StudentResults, RedactedStudentResults, RedactedOutcome, OutcomeStatus, RedactedTestId, PrepareInfo, RedactedPrepareInfo, CommitSource}
+import ag.grader.json.{
+  RawCourseNotSorted,
+  RawProject,
+  RawMilestone,
+  Iterations,
+  NotificationConfig,
+  StudentResults,
+  RedactedStudentResults,
+  RedactedOutcome,
+  OutcomeStatus,
+  RedactedTestId,
+  PrepareInfo,
+  RedactedPrepareInfo,
+  CommitSource
+}
 
 import ag.common.TempDirs
 import ag.common.given_ReadWriter_SortedMap
@@ -22,8 +36,9 @@ class StatusTests extends FunSuite {
     val m = root / "mirror"
     for (d <- os.list(root) if os.isDir(d / ".git")) {
       val dest = m / s"${d.last}.git"
-      if (os.exists(dest)) { val _ = git(dest, "fetch", "-q", "--prune", "origin") }
-      else {
+      if (os.exists(dest)) {
+        val _ = git(dest, "fetch", "-q", "--prune", "origin")
+      } else {
         os.makeDir.all(m)
         val _ = git(m, "clone", "-q", "--mirror", d.toString, dest.toString)
       }
@@ -51,18 +66,28 @@ class StatusTests extends FunSuite {
       .trim
 
   // a repo, committed, with `files`
-  private def repo(root: os.Path, name: String, files: (String, String)*): os.Path = {
+  private def repo(
+      root: os.Path,
+      name: String,
+      files: (String, String)*
+  ): os.Path = {
     val d = root / name
     os.makeDir.all(d)
     if (!os.isDir(d / ".git")) { val _ = git(d, "init", "-q", "-b", "master") }
-    for ((f, text) <- files) os.write.over(d / os.RelPath(f), text, createFolders = true)
+    for ((f, text) <- files)
+      os.write.over(d / os.RelPath(f), text, createFolders = true)
     val _ = git(d, "add", "-A")
     val _ = git(d, "commit", "-q", "--allow-empty", "-m", s"update $name")
     d
   }
 
   private def outcome(test: String, runs: (OutcomeStatus, Option[Double])*) =
-    RedactedTestId(test) -> RedactedOutcome(course, project, RedactedTestId(test), runs)
+    RedactedTestId(test) -> RedactedOutcome(
+      course,
+      project,
+      RedactedTestId(test),
+      runs
+    )
 
   // m1, 3 days ago, with the students' tests (s1 has 2 more days), then m2,
   // a day ago: both past
@@ -71,24 +96,42 @@ class StatusTests extends FunSuite {
     RawMilestone("m2", now.minusDays(1), Seq(), 1)
   )
 
-  private def setup(root: os.Path, tweak: RawProject => RawProject = identity): String = {
-    val raw = tweak(RawProject(
-      active = true, cores = 1, ignore_tests = false, milestones = milestones(),
-      test_weights = Seq(), bad_tests = Seq(), docker_file = None,
-      test_extensions = Seq("ok"), staff = Seq(), iterations = Iterations(2, 4)
-    ))
+  private def setup(
+      root: os.Path,
+      tweak: RawProject => RawProject = identity
+  ): String = {
+    val raw = tweak(
+      RawProject(
+        active = true,
+        cores = 1,
+        ignore_tests = false,
+        milestones = milestones(),
+        test_weights = Seq(),
+        bad_tests = Seq(),
+        docker_file = None,
+        test_extensions = Seq("ok"),
+        staff = Seq(),
+        iterations = Iterations(2, 4)
+      )
+    )
     val rc = RawCourseNotSorted(
       active = true,
-      notifications = NotificationConfig(false, None, false, false, false, None),
+      notifications =
+        NotificationConfig(false, None, false, false, false, None),
       projects = Map("p1" -> raw),
       staff = SortedSet()
     )
-    val _ = repo(root, "courses_config", "courses.json" -> upickle.default.write(Map("c1" -> rc)))
+    val _ = repo(
+      root,
+      "courses_config",
+      "courses.json" -> upickle.default.write(Map("c1" -> rc))
+    )
 
     // s1's submission: commit_id_m1 names one commit, then another
     val sub = repo(root, "c1_p1_s1", "code.c" -> "v1")
     val first = git(sub, "rev-parse", "HEAD")
-    val _ = repo(root, "c1_p1_s1", "code.c" -> "v2", "commit_id_m1" -> s"$first\n")
+    val _ =
+      repo(root, "c1_p1_s1", "code.c" -> "v2", "commit_id_m1" -> s"$first\n")
     val second = git(sub, "rev-parse", "HEAD")
     val _ = repo(root, "c1_p1_s1", "commit_id_m1" -> s"$second\n")
 
@@ -98,22 +141,50 @@ class StatusTests extends FunSuite {
     val pass = (OutcomeStatus.pass, Some(1.5))
     val fail = (OutcomeStatus.fail, Some(2.0))
     val phase1 = SortedMap(
-      Alias(1) -> RedactedStudentResults(Some(Alias(1)), true, info(second, true),
-        SortedMap(outcome("t1", pass, pass, pass, pass), outcome("t2", pass, fail)))
+      Alias(1) -> RedactedStudentResults(
+        Some(Alias(1)),
+        true,
+        info(second, true),
+        SortedMap(
+          outcome("t1", pass, pass, pass, pass),
+          outcome("t2", pass, fail)
+        )
+      )
     )
     val latest = SortedMap(
-      Alias(1) -> RedactedStudentResults(Some(Alias(1)), true, info(second, false),
-        SortedMap(outcome("t1", pass, pass), outcome("t2", fail)))
+      Alias(1) -> RedactedStudentResults(
+        Some(Alias(1)),
+        true,
+        info(second, false),
+        SortedMap(outcome("t1", pass, pass), outcome("t2", fail))
+      )
     )
-    val _ = repo(root, "c1_p1__results",
+    val _ = repo(
+      root,
+      "c1_p1__results",
       "results_live.json" -> upickle.default.write(latest),
-      "results_m1.json" -> upickle.default.write(phase1))
-    val _ = repo(root, "c1_p1__aliases", "aliases.json" -> upickle.default.write(SortedMap(s1 -> Alias(1), s2 -> Alias(2))))
-    val own = StudentResults(s1, Some(Alias(1)), true,
-      PrepareInfo(t, second, false, None, CommitSource.Latest), latest(Alias(1)).outcomes)
-    val _ = repo(root, "c1_p1_s1_results",
+      "results_m1.json" -> upickle.default.write(phase1)
+    )
+    val _ = repo(
+      root,
+      "c1_p1__aliases",
+      "aliases.json" -> upickle.default.write(
+        SortedMap(s1 -> Alias(1), s2 -> Alias(2))
+      )
+    )
+    val own = StudentResults(
+      s1,
+      Some(Alias(1)),
+      true,
+      PrepareInfo(t, second, false, None, CommitSource.Latest),
+      latest(Alias(1)).outcomes
+    )
+    val _ = repo(
+      root,
+      "c1_p1_s1_results",
       "the_results.json" -> upickle.default.write(own),
-      "t2.out" -> "expected 3, got <4>")
+      "t2.out" -> "expected 3, got <4>"
+    )
     second
   }
 
@@ -131,24 +202,36 @@ class StatusTests extends FunSuite {
     val c = page("c1/")
     assert(c.contains("p1/m1/") && c.contains("p1/live/"))
     assert(c.contains("after the final deadline"))
-    assert(c.contains("<td class=num>6</td><td class=num>2</td>"), "m1: 6 runs, 2 to go")
+    assert(
+      c.contains("<td class=num>6</td><td class=num>2</td>"),
+      "m1: 6 runs, 2 to go"
+    )
     assert(c.contains("83.3%"), "m1: 5 of 6 runs passed")
     assert(c.contains("nothing published"), "m2 has no results")
 
     val milestone = page("c1/p1/m1/")
     assert(milestone.contains("""<a href="s1/">s1</a>"""))
     assert(milestone.contains("commit id file"))
-    assert(milestone.contains("s2") && milestone.contains("not in the published results"))
+    assert(
+      milestone.contains("s2") && milestone.contains(
+        "not in the published results"
+      )
+    )
 
     val st = page("c1/p1/m1/s1/")
     assert(st.contains(second))
     assert(st.contains("commit_id_m1 history"))
-    assert(st.contains("graded"), "marks the commit the file names that was graded")
+    assert(
+      st.contains("graded"),
+      "marks the commit the file names that was graded"
+    )
     assert(st.contains("with 2 extension days"))
     assert(st.contains("""<a href="t2/">t2</a>"""))
 
     val t = page("c1/p1/m1/s1/t2/")
-    assert(t.contains("""<a href="1">1</a>""") && t.contains("""<a href="2">2</a>"""))
+    assert(
+      t.contains("""<a href="1">1</a>""") && t.contains("""<a href="2">2</a>""")
+    )
     assert(t.contains("2 to go"))
 
     val run = page("c1/p1/m1/s1/t2/2")
@@ -175,42 +258,87 @@ class StatusTests extends FunSuite {
     val all = lines.toArray.toSeq.map(_.toString)
     assertEquals(all.head, "reading courses_config")
     assert(all.contains("reading 2 repos for 1 courses"), all)
-    assert(all.exists(_.matches("""  \[\d/2\] c1_p1__results: ok \(.*s\)""")), all)
-    assert(all.exists(_.matches("""  \[\d/2\] c1_p1__aliases: no such repo \(.*s\)""")), all)
+    assert(
+      all.exists(_.matches("""  \[\d/2\] c1_p1__results: ok \(.*s\)""")),
+      all
+    )
+    assert(
+      all.exists(
+        _.matches("""  \[\d/2\] c1_p1__aliases: no such repo \(.*s\)""")
+      ),
+      all
+    )
     assert(all.last.startsWith("read in "), all)
   }
 
   test("the tests pages: each test's commit, push, choice and who passes it") {
     val root = TempDirs.dir()
-    val _ = setup(root, _.copy(milestones = milestones(Seq("002")), bad_tests = Seq("t1")))
+    val _ = setup(
+      root,
+      _.copy(milestones = milestones(Seq("002")), bad_tests = Seq("t1"))
+    )
 
     // s2's test, committed before it's due (with m1: 3 days ago) and
     // pushed a minute later; then changed after it
     val sub = root / "c1_p1_s2"
     os.makeDir.all(sub)
-    val before = now.minusDays(5).atZone(java.time.ZoneId.systemDefault).nn.toEpochSecond
+    val before =
+      now.minusDays(5).atZone(java.time.ZoneId.systemDefault).nn.toEpochSecond
     def commit(file: String, text: String, secs: Long): String = {
       os.write.over(sub / file, text)
       val _ = os.proc("git", "add", "-A").call(cwd = sub)
       val _ = os
-        .proc("git", "-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "-m", s"$file")
-        .call(cwd = sub, env = Map("GIT_COMMITTER_DATE" -> s"@$secs +0000", "GIT_AUTHOR_DATE" -> s"@$secs +0000"))
+        .proc(
+          "git",
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@x",
+          "commit",
+          "-q",
+          "-m",
+          s"$file"
+        )
+        .call(
+          cwd = sub,
+          env = Map(
+            "GIT_COMMITTER_DATE" -> s"@$secs +0000",
+            "GIT_AUTHOR_DATE" -> s"@$secs +0000"
+          )
+        )
       git(sub, "rev-parse", "HEAD")
     }
     val _ = git(sub, "init", "-q", "-b", "master")
     val _ = commit("code.c", "v1", before - 3600)
     val test_sha = commit("s2.ok", "test v1", before)
-    val _ = git(sub, "notes", "--ref", "push_time", "add", "-m", s"${before + 60}", test_sha)
+    val _ = git(
+      sub,
+      "notes",
+      "--ref",
+      "push_time",
+      "add",
+      "-m",
+      s"${before + 60}",
+      test_sha
+    )
     val _ = commit("s2.ok", "test v2", System.currentTimeMillis() / 1000)
 
     val _ = repo(root, "c1_p1__tests", "002.ok" -> "test", "t1.ok" -> "test")
     // m1 ran s2's test (alias 002) on s1 (alias 1): passed some runs
     val pass = (OutcomeStatus.pass, Some(1.0))
     val failed = (OutcomeStatus.fail, Some(1.0))
-    val results = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-      os.read(root / "c1_p1__results" / "results_m1.json"))
-    val more = results.map((a, r) => a -> r.copy(outcomes = r.outcomes ++ Seq(outcome("002", pass, failed))))
-    val _ = repo(root, "c1_p1__results", "results_m1.json" -> upickle.default.write(more))
+    val results =
+      upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
+        os.read(root / "c1_p1__results" / "results_m1.json")
+      )
+    val more = results.map((a, r) =>
+      a -> r.copy(outcomes = r.outcomes ++ Seq(outcome("002", pass, failed)))
+    )
+    val _ = repo(
+      root,
+      "c1_p1__results",
+      "results_m1.json" -> upickle.default.write(more)
+    )
 
     val status = status_of(root)
     def page(path: String): String =
@@ -220,33 +348,52 @@ class StatusTests extends FunSuite {
     assert(page("c1/p1/m1/").contains("""<a href="by-test/">by test</a>"""))
 
     val ts = page("c1/p1/m1/by-test/")
-    assert(ts.contains("""<a href="002/">002</a>""") && ts.contains("""<a href="t1/">t1</a>"""))
+    assert(
+      ts.contains("""<a href="002/">002</a>""") && ts.contains(
+        """<a href="t1/">t1</a>"""
+      )
+    )
     assert(ts.contains("""<a href="../s2/">s2</a>"""), "s2 wrote test 002")
-    assert(ts.contains(test_sha.take(10)), "the commit that last changed it before the deadline")
+    assert(
+      ts.contains(test_sha.take(10)),
+      "the commit that last changed it before the deadline"
+    )
     assert(ts.contains("changed 1× later"))
     assert(ts.contains(">bad<"), "t1 is in bad_tests")
     assert(ts.contains("flaky"))
     assert(ts.contains("<span class=muted>course</span>"), "t1 is the course's")
-    assert(!ts.contains("after the deadline</span>"), "pushed before the deadline")
+    assert(
+      !ts.contains("after the deadline</span>"),
+      "pushed before the deadline"
+    )
 
     val t = page("c1/p1/m1/by-test/002/")
     assert(t.contains(test_sha))
     assert(t.contains("for m1"))
     assert(t.contains("0 of 1 students") && t.contains("1 flaky"))
-    assert(t.contains("""<a href="../../s1/002/">s1</a>"""), "links to s1's runs of it")
+    assert(
+      t.contains("""<a href="../../s1/002/">s1</a>"""),
+      "links to s1's runs of it"
+    )
     assert(t.contains(fmt_secs(before + 60)), "the push time from its note")
     assertEquals(status.page("c1/p1/m1/by-test/nope/"), None)
   }
 
   private def fmt_secs(secs: Long): String =
-    java.time.Instant.ofEpochSecond(secs).nn.atZone(java.time.ZoneId.systemDefault).nn
-      .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")).nn
+    java.time.Instant
+      .ofEpochSecond(secs)
+      .nn
+      .atZone(java.time.ZoneId.systemDefault)
+      .nn
+      .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+      .nn
 
   test("a status target is reused in a new State while its repo is unchanged") {
     val root = TempDirs.dir()
     val _ = setup(root)
     val data = StatusData(mirror(root))
-    val history = data.commit_history(Fixture.c1, Fixture.p1, s1, Milestone.Named("m1"))
+    val history =
+      data.commit_history(Fixture.c1, Fixture.p1, s1, Milestone.Named("m1"))
     // its log is emptied each time it's worked out
     def look(): (Option[Seq[StatusData.CommitRow]], Long) = {
       val _ = mirror(root)
@@ -274,11 +421,19 @@ class StatusTests extends FunSuite {
     // m1: pushed 2 hours after the commit; latest: 2 hours before it
     def pushed(file: String, hours: Long): Unit = {
       val f = root / "c1_p1__results" / file
-      val rs = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](os.read(f))
+      val rs = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
+        os.read(f)
+      )
       val moved = rs.map((a, r) =>
-        a -> r.copy(prepare_info = r.prepare_info.copy(
-          push_time = Some(r.prepare_info.commit_time.toInstant.nn.plusSeconds(hours * 3600)),
-          push_gap = true)))
+        a -> r.copy(prepare_info =
+          r.prepare_info.copy(
+            push_time = Some(
+              r.prepare_info.commit_time.toInstant.nn.plusSeconds(hours * 3600)
+            ),
+            push_gap = true
+          )
+        )
+      )
       val _ = repo(root, "c1_p1__results", file -> upickle.default.write(moved))
     }
     pushed("results_m1.json", 2)
@@ -288,16 +443,27 @@ class StatusTests extends FunSuite {
       status.page(path).map(_.body).getOrElse(fail(s"no page at $path"))
 
     val late = page("c1/p1/m1/")
-    assert(late.contains("""<span class="tag bad" title="pushed 2h 0m after it was committed"""), late)
-    assert(page("c1/p1/m1/s1/").contains(">pushed 2h 0m after the commit</span>"))
+    assert(
+      late.contains(
+        """<span class="tag bad" title="pushed 2h 0m after it was committed"""
+      ),
+      late
+    )
+    assert(
+      page("c1/p1/m1/s1/").contains(">pushed 2h 0m after the commit</span>")
+    )
 
     val ahead = page("c1/p1/live/")
     assert(ahead.contains(""">clock ahead</span>"""))
     assert(!ahead.contains("tag bad"))
-    assert(page("c1/p1/live/s1/").contains(">committed 2h 0m after the push</span>"))
+    assert(
+      page("c1/p1/live/s1/").contains(">committed 2h 0m after the push</span>")
+    )
   }
 
-  test("a course drills down by project or by student; a project by student or by test") {
+  test(
+    "a course drills down by project or by student; a project by student or by test"
+  ) {
     val root = TempDirs.dir()
     val _ = setup(root)
     val status = status_of(root)
@@ -305,18 +471,33 @@ class StatusTests extends FunSuite {
       status.page(path).map(_.body).getOrElse(fail(s"no page at $path"))
 
     val cs = page("")
-    assert(cs.contains("""<a href="c1/">by project</a>""") && cs.contains("""<a href="c1/by-student/">by student</a>"""))
+    assert(
+      cs.contains("""<a href="c1/">by project</a>""") && cs.contains(
+        """<a href="c1/by-student/">by student</a>"""
+      )
+    )
 
     // the course by project links each project's page; tabs switch views
     val c = page("c1/")
     assert(c.contains("""<a href="p1/">p1</a>"""))
-    assert(c.contains("""<span class=on>by project</span><a href="./by-student/">by student</a>"""))
+    assert(
+      c.contains(
+        """<span class=on>by project</span><a href="./by-student/">by student</a>"""
+      )
+    )
 
     // the course by student: everyone with an alias, latest results per project
     val cst = page("c1/by-student/")
     assert(cst.contains("""<span class=on>by student</span>"""))
-    assert(cst.contains("""<a href="s1/">s1</a>""") && cst.contains("""<a href="s2/">s2</a>"""))
-    assert(cst.contains("""<a href="../p1/live/s1/">1/2</a>"""), "s1 passes t1 of t1, t2 in the latest results")
+    assert(
+      cst.contains("""<a href="s1/">s1</a>""") && cst.contains(
+        """<a href="s2/">s2</a>"""
+      )
+    )
+    assert(
+      cst.contains("""<a href="../p1/live/s1/">1/2</a>"""),
+      "s1 passes t1 of t1, t2 in the latest results"
+    )
 
     // one student across the course: each project's milestones
     val one = page("c1/by-student/s1/")
@@ -331,7 +512,10 @@ class StatusTests extends FunSuite {
 
     val pst = page("c1/p1/by-student/")
     assert(pst.contains("""<a href="../../by-student/s1/">s1</a>"""))
-    assert(pst.contains("""<a href="../m1/s1/">1/2</a>"""), "m1: passes t1, flaky on t2")
+    assert(
+      pst.contains("""<a href="../m1/s1/">1/2</a>"""),
+      "m1: passes t1, flaky on t2"
+    )
     assert(pst.contains("""<a href="../live/s1/">1/2</a>"""))
 
     val pt = page("c1/p1/by-test/")
@@ -341,8 +525,16 @@ class StatusTests extends FunSuite {
 
     // the milestone pages have tabs too, and a crumb for the project
     val milestone = page("c1/p1/m1/")
-    assert(milestone.contains("""<span class=on>by student</span><a href="by-test/">by test</a>"""))
+    assert(
+      milestone.contains(
+        """<span class=on>by student</span><a href="by-test/">by test</a>"""
+      )
+    )
     assert(milestone.contains("""<a href="../">p1</a>"""))
-    assert(page("c1/p1/m1/by-test/").contains("""<a href="../">by student</a><span class=on>by test</span>"""))
+    assert(
+      page("c1/p1/m1/by-test/").contains(
+        """<a href="../">by student</a><span class=on>by test</span>"""
+      )
+    )
   }
 }

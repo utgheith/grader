@@ -23,11 +23,20 @@ trait Keyed[S](store: String)(using rw: ReadWriter[S]) { self: S =>
       .mkString
 
   // its target: `f` always gets the saved value, and decides whether to add
-  // to it
+  // to it. `display` is what a person is shown for it (its path is a hash):
+  // what it's for, say. `asked` is what's asked of it, when it can be asked
+  // for in several ways (how many runs, say): each is a target of its own
+  // (one run may ask for it in two ways, and must get both), but all keep
+  // the one value, saved at keyed/<store>/<key>, taking turns at it.
   protected final def keyed_target[Out: ReadWriter](
+      display: String,
+      asked: os.RelPath = os.rel
+  )(
       f: (Producer[Out], Option[Result[Out]]) => Some[Result[Out]] | (() => Out)
-  ): Target[Out] =
-    Target(os.rel / "keyed" / store / key, os.rel / "keyed" / store)(
+  ): Target[Out] = {
+    val at = os.rel / "keyed" / store / key
+    Target(at / asked, os.rel / "keyed" / store, Some(display), Some(at))(
       _.run_keyed(f)
     )
+  }
 }

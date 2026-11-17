@@ -14,11 +14,17 @@ object TempDirs {
 
   private def remove(d: os.Path): Unit =
     try {
-      for (p <- os.walk(d, includeTarget = true) if os.isDir(p, followLinks = false))
+      for (
+        p <- os.walk(d, includeTarget = true)
+        if os.isDir(p, followLinks = false)
+      )
         val _ = p.toIO.setWritable(true)
       os.remove.all(d)
     } catch {
-      case NonFatal(e) => System.err.println(s"TempDirs: can't remove ${d.toString}: ${e.toString}")
+      case NonFatal(e) =>
+        System.err.println(
+          s"TempDirs: can't remove ${d.toString}: ${e.toString}"
+        )
     }
 
   def dir(prefix: String = "test"): os.Path = {

@@ -22,9 +22,11 @@ case class RemoteServer(user: String, host: String, port: Int)
         check: Boolean = true,
         stdin: os.ProcessInput = ""
     ): (Int, os.Path, Option[os.Path]) = {
-      RemoteServer.ssh_locks.getOrElseUpdate(host, Semaphore(4)).down(1) {
-        os.proc(parts*).run(cwd = cwd, check = check, stdin = stdin)
-      }
+      RemoteServer.ssh_locks
+        .getOrElseUpdate(host, Semaphore(RemoteServer.ssh_per_host))
+        .down(1) {
+          os.proc(parts*).run(cwd = cwd, check = check, stdin = stdin)
+        }
     }
 
     def check(
@@ -50,6 +52,8 @@ case class RemoteServer(user: String, host: String, port: Int)
 }
 
 object RemoteServer {
+  // how many ssh processes run at once to one host (the rest wait their turn)
+  val ssh_per_host: Int = 4
   val ssh_locks: TrieMap[String, Semaphore] = TrieMap[String, Semaphore]()
 
 }

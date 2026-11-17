@@ -4,7 +4,17 @@ import ag.grader.Milestone
 
 import ag.grader.name.{Alias, CourseName, ProjectName}
 
-import ag.grader.json.{RawMilestone, Weight, RedactedStudentResults, RedactedOutcome, OutcomeStatus, RedactedTestId, PrepareInfo, CommitSource, PushGap}
+import ag.grader.json.{
+  RawMilestone,
+  Weight,
+  RedactedStudentResults,
+  RedactedOutcome,
+  OutcomeStatus,
+  RedactedTestId,
+  PrepareInfo,
+  CommitSource,
+  PushGap
+}
 
 import munit.FunSuite
 
@@ -164,7 +174,9 @@ class ScoreTests extends FunSuite {
     )
   }
 
-  test("a push long after the commit is told apart from a commit after the push") {
+  test(
+    "a push long after the commit is told apart from a commit after the push"
+  ) {
     val commit = cutoff.toInstant.nn
     assertEquals(PushGap.of(commit, None), None)
     assertEquals(PushGap.of(commit, Some(commit.plusSeconds(29 * 60))), None)
@@ -197,7 +209,6 @@ class ScoreTests extends FunSuite {
     assert(page.contains(f">$ratio%.3f</td>"))
     assert(page.contains("median correctness"))
   }
-
 
   test("an ignored chosen test carries no weight") {
     val ignoring_t2 = data.copy(bad_tests = SortedSet("t2"))

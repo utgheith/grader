@@ -33,13 +33,16 @@ class State(
 
   lazy val store: Store = Store(workspace / "r3.git")
 
+  // what its targets are doing (see StatusScreen)
+  val progress: Progress = Progress()
+
   // what this run's commands went through (see Target.tally)
   val tally: ag.common.Tally = ag.common.Tally()
 
   def forced_path(t: TargetBase): os.Path =
-    workspace / "forced" / Store.rel_path(t.path)
+    workspace / "forced" / Store.rel_path(t.stored)
   def log_path(t: TargetBase): os.Path =
-    workspace / "logs" / Store.rel_path(t.path) / "log.txt"
+    workspace / "logs" / Store.rel_path(t.stored) / "log.txt"
   lazy val scratch_root: os.Path = workspace / "scratch"
   lazy val checkouts: os.Path = workspace / "checkouts"
 
@@ -63,6 +66,21 @@ class State(
   }
 
   private val cache = mutable.Map[os.RelPath, Task[Result[?]]]()
+  // where each target used is saved (see TargetBase.stored)
+  private val stored_at =
+    scala.collection.concurrent.TrieMap[os.RelPath, os.RelPath]()
+
+  // Runs `f` as the only one working on what's saved at `stored`: the
+  // targets saved there take turns (see TargetBase.stored).
+  private val turns =
+    scala.collection.concurrent
+      .TrieMap[os.RelPath, java.util.concurrent.Semaphore]()
+  private[rules] def in_turn[B](stored: os.RelPath)(f: => B): B = {
+    val s = turns.getOrElseUpdate(stored, java.util.concurrent.Semaphore(1))
+    s.acquire()
+    try f
+    finally s.release()
+  }
 
   // For a person to look at: every target this run used, by its path, as a
   // link to a checkout of what's stored for it (value.json, and data/ if
@@ -71,7 +89,10 @@ class State(
   // how many.
   def link_used(dir: os.Path): Int = {
     os.remove.all(dir)
-    val paths = cache.synchronized(cache.keys.toSeq)
+    val paths = cache
+      .synchronized(cache.keys.toSeq)
+      .map(p => stored_at.getOrElse(p, p))
+      .distinct
     (for {
       path <- paths
       loaded <- store.load(path)
@@ -94,20 +115,31 @@ class State(
       throw new Exception(
         s"Circular dependency detected: ${(tracker.route.map(_.path) :+ target.path).map(_.toString).mkString(" -> ")}"
       )
+    val _ = stored_at.put(target.path, target.stored)
     var run: () => Unit = () => ()
     val result: Task[Result[?]] = cache.synchronized {
       cache.getOrElseUpdate(
         target.path, {
           if (force_roots && tracker.depth == 0) force(target)
-          def compute(): Result[?] =
-            ag.rules.read_only.set(read_only)(
-              target.make(new Tracker[A] {
-                override val depth: Int = tracker.depth + 1
-                override val route: Seq[Target[?]] = tracker.route :+ target
-                override val state: State = tracker.state
-                override def producing_opt: Option[Target[A]] = Some(target)
-              })
-            )
+          def compute(): Result[?] = {
+            progress.started(target)
+            try {
+              val r = ag.rules.read_only.set(read_only)(
+                target.make(new Tracker[A] {
+                  override val depth: Int = tracker.depth + 1
+                  override val route: Seq[Target[?]] = tracker.route :+ target
+                  override val state: State = tracker.state
+                  override def producing_opt: Option[Target[A]] = Some(target)
+                })
+              )
+              progress.finished(target)
+              r
+            } catch {
+              case e: Throwable =>
+                progress.failed(target)
+                throw e
+            }
+          }
           if (here) {
             val (task, complete) = Task.promise[Result[?]]()
             run = () => complete(Try(compute()))

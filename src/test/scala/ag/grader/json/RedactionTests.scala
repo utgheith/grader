@@ -2,9 +2,14 @@ package ag.grader.json
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
-
-
-import ag.grader.json.{StudentResults, RedactedOutcome, OutcomeStatus, TestId, PrepareInfo, CommitSource}
+import ag.grader.json.{
+  StudentResults,
+  RedactedOutcome,
+  OutcomeStatus,
+  TestId,
+  PrepareInfo,
+  CommitSource
+}
 
 import munit.FunSuite
 import upickle.default.write

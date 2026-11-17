@@ -4,7 +4,13 @@ import ag.grader.targets.{Course, Project, Submission, SubmissionMilestone}
 
 import ag.grader.name.{CSID, CourseName, ProjectName}
 
-import ag.grader.json.{RawCourseNotSorted, RawProject, RawMilestone, Iterations, NotificationConfig}
+import ag.grader.json.{
+  RawCourseNotSorted,
+  RawProject,
+  RawMilestone,
+  Iterations,
+  NotificationConfig
+}
 
 import ag.common.given_ReadWriter_SortedMap
 import ag.rules.Source
@@ -48,7 +54,11 @@ object Fixture {
   def submission(source: Source, csid: CSID = s1): Submission =
     project(source).submission(csid)
   // and its milestone
-  def graded(source: Source, milestone: Milestone, csid: CSID = s1): SubmissionMilestone =
+  def graded(
+      source: Source,
+      milestone: Milestone,
+      csid: CSID = s1
+  ): SubmissionMilestone =
     submission(source, csid).milestone(milestone)
 
   // seconds since the epoch of a local time
@@ -73,31 +83,68 @@ object Fixture {
         os.makeDir.all(d)
         val _ = git(d, Map(), "init", "-q", "-b", "master")
       }
-      for ((f, text) <- files) os.write.over(d / os.RelPath(f), text, createFolders = true)
+      for ((f, text) <- files)
+        os.write.over(d / os.RelPath(f), text, createFolders = true)
       for (f <- removed) os.remove.all(d / os.RelPath(f))
       val t = s"${at(when)} +0000"
       val env = Map("GIT_COMMITTER_DATE" -> t, "GIT_AUTHOR_DATE" -> t)
       val _ = git(d, env, "add", "-A")
-      val _ = git(d, env, "commit", "-q", "--allow-empty", "-m", s"at ${when.toString}\n\nmore")
+      val _ = git(
+        d,
+        env,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        s"at ${when.toString}\n\nmore"
+      )
       sync(name)
       git(d, Map(), "rev-parse", "HEAD")
     }
     def note(name: String, ref: String, sha: String, text: String): Unit = {
-      val _ = git(root / "work" / name, Map(), "notes", "--ref", ref, "add", "-f", "-m", text, sha)
+      val _ = git(
+        root / "work" / name,
+        Map(),
+        "notes",
+        "--ref",
+        ref,
+        "add",
+        "-f",
+        "-m",
+        text,
+        sha
+      )
       sync(name)
     }
     def sync(name: String): Unit = {
       val dest = mirror / s"$name.git"
       os.makeDir.all(mirror)
       if (os.exists(dest)) {
-        val _ = git(dest, Map(), "fetch", "-q", "--prune", (root / "work" / name).toString, "+refs/*:refs/*")
+        val _ = git(
+          dest,
+          Map(),
+          "fetch",
+          "-q",
+          "--prune",
+          (root / "work" / name).toString,
+          "+refs/*:refs/*"
+        )
       } else {
-        val _ = git(mirror, Map(), "clone", "-q", "--mirror", (root / "work" / name).toString, dest.toString)
+        val _ = git(
+          mirror,
+          Map(),
+          "clone",
+          "-q",
+          "--mirror",
+          (root / "work" / name).toString,
+          dest.toString
+        )
       }
     }
   }
 
-  val quiet: NotificationConfig = NotificationConfig(false, None, false, false, false, None)
+  val quiet: NotificationConfig =
+    NotificationConfig(false, None, false, false, false, None)
 
   def setup(
       root: os.Path,
@@ -106,9 +153,15 @@ object Fixture {
   ): (Repos, Source) = {
     val r = Repos(root)
     val raw = RawProject(
-      active = true, cores = 1, ignore_tests = false, milestones = milestones(),
-      test_weights = Seq(), bad_tests = Seq(),
-      docker_file = None, test_extensions = Seq("cc", "ok"), staff = Seq(),
+      active = true,
+      cores = 1,
+      ignore_tests = false,
+      milestones = milestones(),
+      test_weights = Seq(),
+      bad_tests = Seq(),
+      docker_file = None,
+      test_extensions = Seq("cc", "ok"),
+      staff = Seq(),
       iterations = Iterations(1, 1)
     )
     val rc = RawCourseNotSorted(
@@ -117,9 +170,18 @@ object Fixture {
       projects = Map("p1" -> change(raw)),
       staff = SortedSet()
     )
-    val _ = r.commit("courses_config", test_cutoff, "courses.json" -> upickle.default.write(Map("c1" -> rc)))()
-    val _ = r.commit("c1__enrollment", test_cutoff,
-      "enrollment.json" -> upickle.default.write(SortedMap(s1 -> "k1", CSID("s2") -> "k2")))()
+    val _ = r.commit(
+      "courses_config",
+      test_cutoff,
+      "courses.json" -> upickle.default.write(Map("c1" -> rc))
+    )()
+    val _ = r.commit(
+      "c1__enrollment",
+      test_cutoff,
+      "enrollment.json" -> upickle.default.write(
+        SortedMap(s1 -> "k1", CSID("s2") -> "k2")
+      )
+    )()
     (r, Source(r.mirror))
   }
 

@@ -30,7 +30,9 @@ class WebServerTests extends FunSuite {
   private object pages extends WebPages {
     val prefix = "status"
     def page(path: String): Option[WebPage] =
-      Option.when(path == "" || path == "x")(WebPage("text/html", s"page [$path]"))
+      Option.when(path == "" || path == "x")(
+        WebPage("text/html", s"page [$path]")
+      )
   }
 
   test("pages alone, without a run: behind the password, from /") {
@@ -44,9 +46,14 @@ class WebServerTests extends FunSuite {
     val server = WebServer.start(workspace, config, Some(pages)).get
     try {
       val trust = KeyStore.getInstance("PKCS12")
-      val pass = os.read(workspace / "web" / "self-signed.pass").trim.toCharArray
-      trust.load(os.read.inputStream(workspace / "web" / "self-signed.p12"), pass)
-      val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm)
+      val pass =
+        os.read(workspace / "web" / "self-signed.pass").trim.toCharArray
+      trust.load(
+        os.read.inputStream(workspace / "web" / "self-signed.p12"),
+        pass
+      )
+      val tmf =
+        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm)
       tmf.init(trust)
       val ssl = SSLContext.getInstance("TLS")
       ssl.init(null, tmf.getTrustManagers, null)
@@ -67,7 +74,10 @@ class WebServerTests extends FunSuite {
       )
       val cookie = ok.headers.firstValue("Set-Cookie").get.takeWhile(_ != ';')
       val root = get("/", cookie)
-      assertEquals((root.statusCode, root.headers.firstValue("Location").get), (303, "status/"))
+      assertEquals(
+        (root.statusCode, root.headers.firstValue("Location").get),
+        (303, "status/")
+      )
       assertEquals(get("/status/x", cookie).body, "page [x]")
       assertEquals(get("/status/y", cookie).statusCode, 404)
       // no run: none of its requests

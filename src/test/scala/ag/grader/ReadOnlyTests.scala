@@ -7,7 +7,15 @@ import ag.grader.cloudflare.CloudflareConfig
 import ag.grader.json.TestId
 
 import ag.common.TempDirs
-import ag.rules.{read_only, refuse_if_read_only, ReadOnlyException, Scope, State, Target, Tree}
+import ag.rules.{
+  read_only,
+  refuse_if_read_only,
+  ReadOnlyException,
+  Scope,
+  State,
+  Target,
+  Tree
+}
 import munit.FunSuite
 
 import scala.util.Try
@@ -21,19 +29,24 @@ class ReadOnlyTests extends FunSuite {
   private var runs = 0
   private var act = true
   private lazy val constant: Target[Int] = scope.target(EmptyTuple)((_, _) => 1)
-  private lazy val acting: Target[Int] = scope.target((c = constant)) { (_, _) =>
-    runs += 1
-    if (act) refuse_if_read_only("act")
-    runs
+  private lazy val acting: Target[Int] = scope.target((c = constant)) {
+    (_, _) =>
+      runs += 1
+      if (act) refuse_if_read_only("act")
+      runs
   }
 
   private def caused_by_read_only(e: Throwable): Boolean =
-    Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).exists(_.isInstanceOf[ReadOnlyException])
+    Iterator
+      .iterate[Throwable](e)(_.getCause)
+      .takeWhile(_ != null)
+      .exists(_.isInstanceOf[ReadOnlyException])
 
   test("only a read-only State's targets are read-only") {
     assert(!read_only.get, "not outside any target")
     val ws = TempDirs.dir()
-    val flag: Target[Boolean] = scope.target(EmptyTuple)((_, _) => read_only.get)
+    val flag: Target[Boolean] =
+      scope.target(EmptyTuple)((_, _) => read_only.get)
     assert(State(ws / "a", read_only = true).track(flag))
     assert(!State(ws / "b").track(flag))
   }
@@ -55,7 +68,9 @@ class ReadOnlyTests extends FunSuite {
   private def refused(what: String)(f: => Any): Unit = {
     val ws = TempDirs.dir()
     val t: Target[String] = scope.target(EmptyTuple) { (_, _) =>
-      Try(f).failed.toOption.collect { case e: ReadOnlyException => e.getMessage }.getOrElse("not refused")
+      Try(f).failed.toOption
+        .collect { case e: ReadOnlyException => e.getMessage }
+        .getOrElse("not refused")
     }
     val message = State(ws, read_only = true).track(t)
     assert(message.contains(what), message)
@@ -67,7 +82,9 @@ class ReadOnlyTests extends FunSuite {
     val run = TestRun(empty, empty, "t1", 1, None, None)
     val before = runs_started()
     val e = intercept[Exception](
-      State(ws, read_only = true).track(run.runs(TestId("t1", "t1"), "c_p_s", true, 1))
+      State(ws, read_only = true).track(
+        run.runs(TestId("t1", "t1"), "c_p_s", true, 1)
+      )
     )
     assert(caused_by_read_only(e), e)
     assertEquals(runs_started(), before, "nothing ran")
@@ -78,7 +95,8 @@ class ReadOnlyTests extends FunSuite {
     os.makeDir.all(site)
     // (it makes sure the project's there first, through the API)
     refused("won't call Cloudflare") {
-      CloudflareConfig(enabled = true, id = "x", api_key = "y", domain = None).deploy(site, "p")
+      CloudflareConfig(enabled = true, id = "x", api_key = "y", domain = None)
+        .deploy(site, "p")
     }
   }
 }

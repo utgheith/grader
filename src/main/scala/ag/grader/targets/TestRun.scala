@@ -4,7 +4,8 @@ import ag.grader.{Docker, TimeFormat}
 
 import ag.grader.json.{OutcomeStatus, TestId}
 
-import ag.common.{down, shout}
+import ag.common.shout
+import ag.common.ToRelPath
 import ag.rules.{Keyed, Producer, Target, Tree, WithData, create_data}
 import ag.rules.run
 import upickle.default.ReadWriter
@@ -34,25 +35,50 @@ final case class TestRun(
   // The runs, the latest's output files as their data: runs again while
   // there are fewer than `n` runs, but stops at a failure unless
   // `keep_going`. With n = 0, never runs. `id` and `what` (whose
-  // submission) only say what's running.
+  // submission, for which milestone) only say what's running.
+  //
+  // `seed`: runs made before, outside this store (as published, e.g. by
+  // r2), that it starts from when it has none saved, as if they were its
+  // own (without their output files: there are none to show). Once it has
+  // runs saved, `seed` is ignored. It's an exception to Keyed's rule that the
+  // key says everything a target reads: a seed is an observation of these
+  // inputs, like a run, and is taken once.
   def runs(
       id: TestId,
       what: String,
       keep_going: Boolean,
-      n: Int
-  ): Target[WithData[TestRun.History]] =
-    keyed_target[WithData[TestRun.History]] { (producer, saved) =>
-      val history = saved.toSeq.flatMap(_.value.value.outcomes)
+      n: Int,
+      seed: Seq[(OutcomeStatus, Option[Double])] = Seq()
+  ): Target[WithData[TestRun.History]] = {
+    val shown = s"${id.external_name}/${id.internal_name} for $what"
+    keyed_target[WithData[TestRun.History]](
+      shown,
+      ToRelPath(keep_going) / ToRelPath(n)
+    ) { (producer, saved) =>
+      val history = saved.fold(seed)(_.value.value.outcomes)
+      val enough = history.size >= n || !(keep_going || history.forall(
+        _._1 == OutcomeStatus.pass
+      ))
       saved match {
-        case s @ Some(_)
-            if history.size >= n || !(keep_going || history.forall(
-              _._1 == OutcomeStatus.pass
-            )) =>
-          s
-        case _ if n == 0 =>
-          () => create_data(producer)(_ => TestRun.History(this, Seq()))
+        case s @ Some(_) if enough => s
+        // nothing saved: the seed is enough (or never runs, n = 0)
+        case _ if enough =>
+          () => {
+            if (history.nonEmpty)
+              producer.log(
+                s"seeded with ${history.size.toString} published runs\n"
+              )
+            create_data(producer)(_ => TestRun.History(this, history))
+          }
         case _ =>
-          () =>
+          () => {
+            if (saved.isEmpty && seed.nonEmpty)
+              producer.log(
+                s"seeded with ${seed.size.toString} published runs\n"
+              )
+            producer.describe(
+              s"$shown: run ${(history.size + 1).toString} of up to ${n.toString}"
+            )
             create_data(producer) { out =>
               val res = TestRun.run_test(
                 producer,
@@ -67,8 +93,10 @@ final case class TestRun(
               )
               TestRun.History(this, history :+ res)
             }
+          }
       }
     }
+  }
 }
 
 object TestRun {
@@ -116,7 +144,9 @@ object TestRun {
     try {
       if (cores > limit)
         throw Exception(s"need $cores cores, limit is $limit")
-      governor.down(cores) {
+      // queued on the status screen while it waits for its cores
+      producer.waiting(governor.acquire(cores))
+      try {
         val root = producer.state.scratch_root
         os.makeDir.all(root)
         val work = os.temp.dir(dir = root, deleteOnExit = false)
@@ -188,7 +218,7 @@ object TestRun {
 
           (outcome, TimeFormat.parse(time).orElse(run_time))
         } finally remove(work)
-      }
+      } finally governor.release(cores)
     } finally { val _ = finished_runs.incrementAndGet() }
   }
 }

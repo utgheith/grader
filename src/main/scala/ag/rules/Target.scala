@@ -39,9 +39,18 @@ object WithData {
 trait TargetBase {
   // its unique name
   val path: os.RelPath
+  // where its value is saved (with its log, and its mark if forced): its
+  // path, but for a keyed target asked for in several ways (see
+  // Keyed.keyed_target), which are targets of their own that all keep one
+  // value, saved at the key, and take turns at it
+  val stored: os.RelPath
   // the definition that made it: its path without scope and parameters
   val kind: os.RelPath
   val is_peek: Boolean
+  // what a person is shown for it (e.g. on the status screen), if not its
+  // path: for one whose path says little, like a keyed target's hash
+  val label: Option[String]
+  def display: String = label.getOrElse(path.toString)
 }
 
 trait Target[A] extends TargetBase { outer =>
@@ -49,9 +58,12 @@ trait Target[A] extends TargetBase { outer =>
 
   def append(p: os.RelPath): Target[A] = new Target[A] {
     override val path: os.RelPath = outer.path / p
+    override val stored: os.RelPath = outer.stored / p
     override val kind: os.RelPath = outer.kind
     override def make(tracker: Tracker[A]): Result[A] = outer.make(tracker)
     override val is_peek: Boolean = outer.is_peek
+    override val label: Option[String] =
+      outer.label.map(l => s"$l ${p.toString}")
   }
 
   // Tracks it, adding its value's measure to the run's tally (State.tally,
@@ -74,9 +86,11 @@ trait Target[A] extends TargetBase { outer =>
     else
       new Target[A] {
         override val path: os.RelPath = outer.path
+        override val stored: os.RelPath = outer.stored
         override val kind: os.RelPath = outer.kind
         override def make(tracker: Tracker[A]): Result[A] = outer.make(tracker)
         override val is_peek: Boolean = true
+        override val label: Option[String] = outer.label
       }
 }
 
@@ -92,13 +106,20 @@ object Target {
 
   type Values[N <: Tuple, V <: Tuple] = NamedTuple[N, Tuple.Map[V, Value]]
 
-  def apply[A](p: os.RelPath, k: os.RelPath)(
+  def apply[A](
+      p: os.RelPath,
+      k: os.RelPath,
+      l: Option[String] = None,
+      s: Option[os.RelPath] = None
+  )(
       f: Tracker[A] => Result[A]
   ): Target[A] = new Target[A] {
     override val path: os.RelPath = p
+    override val stored: os.RelPath = s.getOrElse(p)
     override val kind: os.RelPath = k
     override def make(tracker: Tracker[A]): Result[A] = f(tracker)
     override val is_peek: Boolean = false
+    override val label: Option[String] = l
   }
 }
 

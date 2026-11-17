@@ -86,6 +86,10 @@ case class CommonArgs(
       "rebuild what this command asks for, even if its saved results are current (their inputs are reused)"
     )
     force: Flag = Flag(false),
+    @arg(doc =
+      "plain output: no status screen while targets run (there's none either when output isn't a terminal)"
+    )
+    plain: Flag = Flag(false),
     workspace: os.Path = os.pwd / "workspace"
 )
 

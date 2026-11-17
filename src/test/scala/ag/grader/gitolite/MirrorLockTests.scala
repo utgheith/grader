@@ -30,7 +30,10 @@ class MirrorLockTests extends FunSuite {
       for (d <- Seq(source.root, repo, repo / "refs" / "heads"))
         assert(Try(os.write(d / "stray", "x")).isFailure, d)
     } finally
-      for (d <- source.root +: os.walk(source.root) if os.isDir(d, followLinks = false))
+      for (
+        d <- source.root +: os.walk(source.root)
+        if os.isDir(d, followLinks = false)
+      )
         os.perms.set(d, "rwxr-xr-x")
   }
 }
