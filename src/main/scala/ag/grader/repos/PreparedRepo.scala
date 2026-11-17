@@ -4,7 +4,7 @@ import ag.grader.targets.{Project, Submission}
 
 import ag.grader.name.{CSID, CourseName, ProjectName}
 
-import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+import ag.grader.gitolite.{OwnedRepo, Create, Publish}
 
 import ag.common.ToRelPath
 import ag.grader.Milestone
@@ -12,10 +12,10 @@ import ag.rules.{Source, Target, Tree, WithData}
 
 // A student's prepared submission for a project, as their tests run on it
 // (see Submission.prepare): a directory for each milestone that has a commit to
-// grade (latest, phase1, phase2), in their own repo, for them and the staff
-// to read. The runs run on what's here (prepared), so what the student sees
-// is what was tested. Staff can push to it, but it's the grader's: it's
-// worked out again over what they push.
+// grade (latest, phase1, phase2), on the grader's prepared branch of their
+// own repo (see StudentRepo), for them and the staff to read. The runs run
+// on what's here (prepared), so what the student sees is what was tested.
+// It's the grader's: it's worked out again over anything pushed to it.
 final case class PreparedRepo(submission: Submission)
     extends OwnedRepo[PreparedRepo] derives ToRelPath {
   val source: Source = submission.source
@@ -23,15 +23,9 @@ final case class PreparedRepo(submission: Submission)
   private def c: CourseName = project.c
   private def p: ProjectName = project.p
   private def csid: CSID = submission.csid
-  def repo_name: String = PreparedRepo.name_of(c, p, csid)
-  def create: Option[Create] =
-    Some(
-      Create(
-        "empty",
-        readers = Seq(csid.value, Groups.staff(c)),
-        writers = Seq(Groups.staff(c))
-      )
-    )
+  def repo_name: String = StudentRepo.name_of(c, csid)
+  override def branch: String = StudentRepo.prepared_branch(p)
+  def create: Option[Create] = Some(StudentRepo.create(c, csid))
   val message = "updated prepared code"
 
   lazy val latest: Target[WithData[Publish]] = owned { t =>
@@ -64,9 +58,4 @@ final case class PreparedRepo(submission: Submission)
         producer.id_at(data, ToRelPath(milestone)).map(Tree(_, data.at))
       }
   }
-}
-
-object PreparedRepo {
-  def name_of(c: CourseName, p: ProjectName, csid: CSID): String =
-    s"${c.value}_${p.value}_${csid.value}__prepared"
 }

@@ -42,7 +42,7 @@ class TestRunsTests extends FunSuite {
     val (r, source) = setup(root)
     for (csid <- Seq(s1, s2))
       val _ = r.commit(
-        s"c1_p1_${csid.value}",
+        s"c1_${csid.value}:p1",
         test_cutoff.minusDays(1),
         "main.c" -> csid.value
       )()
@@ -67,7 +67,7 @@ class TestRunsTests extends FunSuite {
         .andThen(_.copy(bad_tests = Seq("s1")))
     )
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "s1.cc" -> "my test",
       "s1.ok" -> "my output"
@@ -155,7 +155,7 @@ class TestRunsTests extends FunSuite {
     val (r, source) = setup(root)
     // a result of their own for t1 is removed before t1 runs
     val sha = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "main.c" -> "mine",
       "t1.result" -> "pass"
@@ -208,7 +208,7 @@ class TestRunsTests extends FunSuite {
   ) {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
       "c1_p1__override",
       test_cutoff.minusDays(30),
@@ -251,7 +251,7 @@ class TestRunsTests extends FunSuite {
   ) {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
       "c1_p1__override",
       test_cutoff.minusDays(30),
@@ -279,7 +279,7 @@ class TestRunsTests extends FunSuite {
   ) {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
       "c1_p1__override",
       test_cutoff.minusDays(30),
@@ -324,7 +324,7 @@ class TestRunsTests extends FunSuite {
     assertNotEquals(in.copy(image = Some("i")).key, in.key)
     // another commit, even with the same files, is other runs: its prepared
     // submission names it (prepared_commit)
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1))()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1))()
     val other = State(root / "ws").track(
       Fixture
         .graded(source, Milestone.Live)

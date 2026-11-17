@@ -67,8 +67,11 @@ final class Source(val root: os.Path) {
     scope.target((all = repos))((_, deps) => deps.all.contains(name))
   }
 
-  def master(name: String): Target[Option[Commit]] =
-    ref(name, "refs/heads/master")
+  // one branch of repo `name`, pinned (see ref)
+  def branch(name: String, b: String): Target[Option[Commit]] =
+    ref(name, s"refs/heads/$b")
+
+  def master(name: String): Target[Option[Commit]] = branch(name, "master")
 
   // every repo's master: repo -> id (repos with no master left out), as
   // the server's `history` lists them, as of the last fetch

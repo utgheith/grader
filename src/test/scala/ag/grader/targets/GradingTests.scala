@@ -42,7 +42,7 @@ class GradingTests extends FunSuite {
     )
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val sha =
-      r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+      r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
       "c1_p1__override",
       test_cutoff.minusDays(30),
@@ -177,10 +177,13 @@ class GradingTests extends FunSuite {
     val s = State(root / "ws")
     val repo = ag.grader.repos.PreparedRepo(Fixture.submission(source))
     val p = s.track(repo.latest)
-    assertEquals(p.value.repo, "c1_p1_s1__prepared")
+    assertEquals(
+      (p.value.repo, p.value.branch),
+      ("c1_s1", "grader/p1/prepared")
+    )
     assertEquals(
       p.value.create,
-      Some(Create("empty", Seq("s1", "@c1_staff"), Seq("@c1_staff")))
+      Some(Create("empty", Seq("s1", "@c1_staff"), Seq("s1")))
     )
     assertEquals(
       os.list(s.checkout(p.data)).map(_.last).sorted,
@@ -229,7 +232,7 @@ class GradingTests extends FunSuite {
     val (r, source, _, sha) = setup(root)
     // what was there before goes, but its dot files
     val _ = r.commit(
-      "c1_p1_s1_results",
+      "c1_s1:grader/p1/results",
       test_cutoff,
       ".gitignore" -> "*.o\n",
       "old.result" -> "x"
@@ -238,9 +241,11 @@ class GradingTests extends FunSuite {
     val p = s.track(
       ag.grader.repos.StudentResultsRepo(Fixture.submission(source)).latest(1)
     )
+    // in the student's repo, which they write (but not this branch: the
+    // server's rules)
     assertEquals(
       p.value.create,
-      Some(Create("empty", Seq("s1", "@c1_staff"), Seq()))
+      Some(Create("empty", Seq("s1", "@c1_staff"), Seq("s1")))
     )
     val dir = s.checkout(p.data)
     assertEquals(

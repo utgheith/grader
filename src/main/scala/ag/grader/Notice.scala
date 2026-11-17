@@ -16,8 +16,8 @@ final case class Notice(to: CSID, cc: Option[CSID], what: Notice.What)
   def subject(server: RemoteServer): String = what match {
     case Notice.What.KeyUpdated(course, csid) =>
       s"key updated for $course::${csid.toString}"
-    case Notice.What.RepoCreated(repo, _) =>
-      s"git clone ${server.git_uri(repo)}"
+    case Notice.What.RepoCreated(repo, branch, _) =>
+      s"git clone -b $branch ${server.git_uri(repo)}"
   }
 
   def body(server: RemoteServer): String = what match {
@@ -26,7 +26,7 @@ final case class Notice(to: CSID, cc: Option[CSID], what: Notice.What)
       |To check your connection:
       |    ssh ${server.ssh_uri} info
       """.stripMargin
-    case Notice.What.RepoCreated(_, readme) =>
+    case Notice.What.RepoCreated(_, _, readme) =>
       s"""$readme
          |
          |To clone:
@@ -58,7 +58,8 @@ object Notice {
     // a student's key, added or changed in gitolite-admin
     case KeyUpdated(course: CourseName, csid: CSID)
     // a student's repo made, which starts with `readme`
-    case RepoCreated(repo: String, readme: String)
+    // (`branch`: the student's branch of it, see repos.StudentRepo)
+    case RepoCreated(repo: String, branch: String, readme: String)
   }
 
   // Who's told about `what`, which is for `csid`, as the course's settings

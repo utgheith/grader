@@ -72,13 +72,17 @@ object Fixture {
       .trim
 
   // A work tree per repo under root/work; each commit is mirrored into
-  // root/mirror. Returns the commit's id.
+  // root/mirror. A name "repo:branch" is that branch of a shared repo (see
+  // ag.grader.repos.StudentRepo), with a work tree of its own (whose master
+  // is mirrored as the branch). Returns the commit's id.
   class Repos(root: os.Path) {
     val mirror: os.Path = root / "mirror"
+    private def work(name: String): os.Path =
+      root / "work" / name.replace(':', '@').replace('/', '@')
     def commit(name: String, when: LocalDateTime, files: (String, String)*)(
         removed: String*
     ): String = {
-      val d = root / "work" / name
+      val d = work(name)
       if (!os.isDir(d / ".git")) {
         os.makeDir.all(d)
         val _ = git(d, Map(), "init", "-q", "-b", "master")
@@ -103,7 +107,7 @@ object Fixture {
     }
     def note(name: String, ref: String, sha: String, text: String): Unit = {
       val _ = git(
-        root / "work" / name,
+        work(name),
         Map(),
         "notes",
         "--ref",
@@ -117,29 +121,27 @@ object Fixture {
       sync(name)
     }
     def sync(name: String): Unit = {
-      val dest = mirror / s"$name.git"
-      os.makeDir.all(mirror)
-      if (os.exists(dest)) {
-        val _ = git(
-          dest,
-          Map(),
-          "fetch",
-          "-q",
-          "--prune",
-          (root / "work" / name).toString,
-          "+refs/*:refs/*"
-        )
-      } else {
-        val _ = git(
-          mirror,
-          Map(),
-          "clone",
-          "-q",
-          "--mirror",
-          (root / "work" / name).toString,
-          dest.toString
-        )
+      val (repo, refspecs) = name.split(':') match {
+        case Array(r, b) =>
+          (
+            r,
+            Seq(
+              s"+refs/heads/master:refs/heads/$b",
+              "+refs/notes/*:refs/notes/*"
+            )
+          )
+        case _ => (name, Seq("+refs/*:refs/*"))
       }
+      val dest = mirror / s"$repo.git"
+      os.makeDir.all(mirror)
+      if (!os.exists(dest)) {
+        val _ = git(mirror, Map(), "init", "-q", "--bare", dest.toString)
+      }
+      val _ = git(
+        dest,
+        Map(),
+        Seq("fetch", "-q", work(name).toString) ++ refspecs*
+      )
     }
   }
 

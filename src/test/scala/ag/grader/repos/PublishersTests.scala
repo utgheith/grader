@@ -36,7 +36,7 @@ class PublishersTests extends FunSuite {
     val root = TempDirs.dir()
     val (r, source, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val p =
       State(root / "ws").track(AliasesRepo(Fixture.project(source)).latest)
     assertEquals(p.value.base, None)
@@ -101,7 +101,7 @@ class PublishersTests extends FunSuite {
     val (r, source, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "s1.cc" -> "mine",
       "s1.ok" -> "out"
@@ -203,7 +203,7 @@ class PublishersTests extends FunSuite {
     val root = TempDirs.dir()
     val (r, source, _) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
       "c1_p1__aliases",
       test_cutoff,
@@ -228,7 +228,7 @@ class PublishersTests extends FunSuite {
     val (r, source, _) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "s1.cc" -> "mine",
       "s1.ok" -> "my output"

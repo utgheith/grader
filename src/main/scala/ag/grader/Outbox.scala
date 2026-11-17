@@ -7,9 +7,9 @@ import ag.rules.WithData
 import scala.util.Try
 
 // What the grader would push to the git server, kept as local commits for
-// `sync` to push: a bare repo per server repo, outbox/<repo>.git, whose
-// master is the commit to push and whose outbox.json is the Publish it came
-// from. Its objects come from the mirror's repo and the r3 store, through
+// `sync` to push: a bare repo per server repo, or branch of one,
+// outbox/<key>.git (see Publish.key), whose master is the commit to push
+// (to the branch) and whose outbox.json is the Publish it came from. Its objects come from the mirror's repo and the r3 store, through
 // git's alternates (relative: the workspace can move).
 //
 // A commit's parent is the mirror's master it was worked out from, so a
@@ -17,7 +17,8 @@ import scala.util.Try
 // is behind, and the next run, on an updated mirror, works it out again.
 final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
 
-  def dir(repo: String): os.Path = root / os.RelPath(s"$repo.git")
+  // `key`: a Publish's (see Publish.key)
+  def dir(key: String): os.Path = root / os.RelPath(s"$key.git")
   private def mirror_dir(repo: String): os.Path =
     mirror / os.RelPath(s"$repo.git")
 
@@ -42,7 +43,7 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
   private def has_master(d: os.Path): Boolean =
     git(d, "rev-parse", "--verify", "-q", "refs/heads/master").isDefined
 
-  // the repos with something to push
+  // the keys (see Publish.key) of what has something to push
   def pending: Seq[String] =
     if (!os.isDir(root)) Seq()
     else
@@ -51,21 +52,21 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
         .map(d => d.relativeTo(root).toString.stripSuffix(".git"))
         .sorted
 
-  def publish_of(repo: String): Publish =
-    upickle.default.read[Publish](os.read(dir(repo) / "outbox.json"))
+  def publish_of(key: String): Publish =
+    upickle.default.read[Publish](os.read(dir(key) / "outbox.json"))
 
   // Records what `p` says its repo should hold: a commit of its files on its
   // base, unless the base has them already (as RepoInfo.update, where there's
   // then nothing to commit), or, with no base, there are none. Then there's
-  // nothing to push, but a repo that isn't there is still to be made. True
-  // if there's something to do; what was pending for the repo is replaced.
+  // nothing to push, but a repo that isn't there is still to be made; a
+  // branch that isn't there is pushed as its base, where it starts. True if
+  // there's something to do; what was pending for it is replaced.
   def record(p: WithData[Publish]): Boolean = {
-    val repo = p.value.repo
+    val repo = p.value.key
     val d = dir(repo)
-    // where the base is: the repo's mirror, or its fork source's
-    val base_dir = mirror_dir(
-      p.value.create.filterNot(_ => p.value.exists).fold(repo)(_.fork_from)
-    )
+    // where the base is: the repo's mirror, or where it starts (see
+    // Publish.from)
+    val base_dir = mirror_dir(p.value.from.getOrElse(p.value.repo))
     val same = p.value.base match {
       case Some(b) => tree_of(base_dir, b).contains(p.data.id)
       case None    => p.data.id == Outbox.empty_tree
@@ -88,7 +89,11 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
         createFolders = true
       )
       if (same) {
-        val _ = git(d, "update-ref", "-d", "refs/heads/master")
+        // (a repo's fork starts at its base; a branch, only if it's pushed)
+        p.value.base.filter(_ => p.value.branch != "master") match {
+          case Some(b) => val _ = git(d, "update-ref", "refs/heads/master", b)
+          case None => val _ = git(d, "update-ref", "-d", "refs/heads/master")
+        }
       } else {
         // a commit that would drop a submodule (which a publisher's copy of
         // its base can't keep) isn't made
@@ -145,9 +150,10 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
         .ssh("info", repo)
         .lines(cwd = root)
         .exists(_.split("""\s""").lastOption.contains(repo))
-    for (repo <- pending) {
-      val d = dir(repo)
-      val p = publish_of(repo)
+    for (key <- pending) {
+      val d = dir(key)
+      val p = publish_of(key)
+      val repo = p.repo
       val done = Try {
         if (!p.exists && !on_server(repo)) {
           val create = p.create.getOrElse(
@@ -162,15 +168,15 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
             server.ssh("perms", repo, "+", "WRITERS", w).check(cwd = d)
         }
         if (has_master(d)) {
-          ag.rules.refuse_if_read_only(s"push $repo")
-          log(s"pushing $repo")
+          ag.rules.refuse_if_read_only(s"push $key")
+          log(s"pushing $key")
           server
             .SshProc(
               "git",
               "push",
               "-q",
               server.git_uri(repo),
-              "refs/heads/master:refs/heads/master"
+              s"refs/heads/master:refs/heads/${p.branch}"
             )
             .check(cwd = d)
         }
@@ -181,11 +187,11 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
         // logged: it isn't sent again)
         for (n <- p.notices)
           Try(n.send(server, can_send_mail, log)).failed.foreach(e =>
-            log(s"$repo: mailing ${n.to.toString} failed: ${e.getMessage}")
+            log(s"$key: mailing ${n.to.toString} failed: ${e.getMessage}")
           )
       } else
         log(
-          s"$repo: not done (the server's moved on? update the mirror and run again): ${done.failed.get.getMessage}"
+          s"$key: not done (the server's moved on? update the mirror and run again): ${done.failed.get.getMessage}"
         )
     }
     LocalMirror.update(server, mirror, log)

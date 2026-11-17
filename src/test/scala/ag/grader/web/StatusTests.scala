@@ -66,14 +66,41 @@ class StatusTests extends FunSuite {
       .trim
 
   // a repo, committed, with `files`
+  // a commit of `files` to repo `name` (a work tree under root), or, as
+  // "repo:branch", to that branch of it (made empty if it isn't there)
   private def repo(
       root: os.Path,
       name: String,
       files: (String, String)*
   ): os.Path = {
-    val d = root / name
+    val (r, branch) = name.split(':') match {
+      case Array(r, b) => (r, Some(b))
+      case _           => (name, None)
+    }
+    val d = root / r
     os.makeDir.all(d)
-    if (!os.isDir(d / ".git")) { val _ = git(d, "init", "-q", "-b", "master") }
+    if (!os.isDir(d / ".git")) {
+      val _ = git(d, "init", "-q", "-b", branch.getOrElse("master"))
+    }
+    for (b <- branch) {
+      val has = os
+        .proc("git", "rev-parse", "-q", "--verify", s"refs/heads/$b")
+        .call(cwd = d, check = false)
+        .exitCode == 0
+      val current = os
+        .proc("git", "symbolic-ref", "--short", "HEAD")
+        .call(cwd = d, check = false)
+        .out
+        .text()
+        .trim
+      if (current != b) {
+        if (has) { val _ = git(d, "checkout", "-q", b) }
+        else {
+          val _ = git(d, "checkout", "-q", "--orphan", b)
+          val _ = git(d, "rm", "-rfq", "--ignore-unmatch", ".")
+        }
+      }
+    }
     for ((f, text) <- files)
       os.write.over(d / os.RelPath(f), text, createFolders = true)
     val _ = git(d, "add", "-A")
@@ -128,12 +155,12 @@ class StatusTests extends FunSuite {
     )
 
     // s1's submission: commit_id_m1 names one commit, then another
-    val sub = repo(root, "c1_p1_s1", "code.c" -> "v1")
+    val sub = repo(root, "c1_s1:p1", "code.c" -> "v1")
     val first = git(sub, "rev-parse", "HEAD")
     val _ =
-      repo(root, "c1_p1_s1", "code.c" -> "v2", "commit_id_m1" -> s"$first\n")
+      repo(root, "c1_s1:p1", "code.c" -> "v2", "commit_id_m1" -> s"$first\n")
     val second = git(sub, "rev-parse", "HEAD")
-    val _ = repo(root, "c1_p1_s1", "commit_id_m1" -> s"$second\n")
+    val _ = repo(root, "c1_s1:p1", "commit_id_m1" -> s"$second\n")
 
     val t = ZonedDateTime.of(now.minusDays(4), ZoneOffset.UTC).nn
     def info(sha: String, from_file: Boolean) =
@@ -181,7 +208,7 @@ class StatusTests extends FunSuite {
     )
     val _ = repo(
       root,
-      "c1_p1_s1_results",
+      "c1_s1:grader/p1/results",
       "the_results.json" -> upickle.default.write(own),
       "t2.out" -> "expected 3, got <4>"
     )
@@ -280,7 +307,7 @@ class StatusTests extends FunSuite {
 
     // s2's test, committed before it's due (with m1: 3 days ago) and
     // pushed a minute later; then changed after it
-    val sub = root / "c1_p1_s2"
+    val sub = root / "c1_s2"
     os.makeDir.all(sub)
     val before =
       now.minusDays(5).atZone(java.time.ZoneId.systemDefault).nn.toEpochSecond
@@ -308,7 +335,7 @@ class StatusTests extends FunSuite {
         )
       git(sub, "rev-parse", "HEAD")
     }
-    val _ = git(sub, "init", "-q", "-b", "master")
+    val _ = git(sub, "init", "-q", "-b", "p1")
     val _ = commit("code.c", "v1", before - 3600)
     val test_sha = commit("s2.ok", "test v1", before)
     val _ = git(
@@ -408,7 +435,7 @@ class StatusTests extends FunSuite {
     assertEquals(again, first)
     assertEquals(still, at, "not worked out again")
     // a new commit to the repo: worked out again
-    val _ = repo(root, "c1_p1_s1", "commit_id_m1" -> "")
+    val _ = repo(root, "c1_s1:p1", "commit_id_m1" -> "")
     Thread.sleep(20)
     val (changed, later) = look()
     assertEquals(changed.map(_.size), Some(3))

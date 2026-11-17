@@ -136,12 +136,12 @@ class CoursePublishersTests extends FunSuite {
         Notice(
           s1,
           Some(CSID("s9")),
-          Notice.What.RepoCreated("c1_p1_s1", "read me")
+          Notice.What.RepoCreated("c1_s1", "p1", "read me")
         )
       )
     )
     // once it's there, nothing to tell
-    val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff, "main.c" -> "mine")()
     assertEquals(
       State(root / "ws")
         .track(WorkRepo(Fixture.submission(source)).latest)
@@ -172,10 +172,11 @@ class CoursePublishersTests extends FunSuite {
     val key = Notice(s1, None, Notice.What.KeyUpdated(c1, s1))
     assertEquals(key.subject(server), "key updated for c1::s1")
     assert(key.body(server).contains(s"ssh ${server.ssh_uri} info"))
-    val repo = Notice(s1, None, Notice.What.RepoCreated("c1_p1_s1", "read me"))
+    val repo =
+      Notice(s1, None, Notice.What.RepoCreated("c1_s1", "p1", "read me"))
     assertEquals(
       repo.subject(server),
-      s"git clone ${server.git_uri("c1_p1_s1")}"
+      s"git clone -b p1 ${server.git_uri("c1_s1")}"
     )
     assert(repo.body(server).startsWith("read me\n\nTo clone:\n    git clone "))
     // nothing is sent unless config.json allows it
@@ -269,23 +270,27 @@ class CoursePublishersTests extends FunSuite {
     )
   }
 
-  test("a work repo: a fork of the project's repo, nothing pushed") {
+  test(
+    "a work branch: in the student's repo (forked from empty), it starts as the project's repo, pushed as is"
+  ) {
     val root = TempDirs.dir()
     val (r, source, _, ob) = setup(root)
     val p =
       State(root / "ws").track(WorkRepo(Fixture.submission(source)).latest)
     assertEquals(
-      p.value.create,
-      Some(Create("c1_p1", Seq("s1", "@c1_staff"), Seq("s1")))
+      (p.value.repo, p.value.branch, p.value.from, p.value.create),
+      (
+        "c1_s1",
+        "p1",
+        Some("c1_p1"),
+        Some(Create("empty", Seq("s1", "@c1_staff"), Seq("s1")))
+      )
     )
     assert(ob.record(p))
-    assert(
-      os.proc("git", "rev-parse", "--verify", "-q", "master")
-        .call(cwd = ob.dir("c1_p1_s1"), check = false)
-        .exitCode != 0
-    )
+    val project = git(r.mirror / "c1_p1.git", Map(), "rev-parse", "master")
+    assertEquals(git(ob.dir("c1_s1/p1"), Map(), "rev-parse", "master"), project)
     // once made, nothing: the student's commits are theirs
-    val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
+    val _ = r.commit("c1_s1:p1", test_cutoff, "main.c" -> "mine")()
     assert(
       !ob.record(
         State(root / "ws").track(WorkRepo(Fixture.submission(source)).latest)
@@ -300,7 +305,7 @@ class CoursePublishersTests extends FunSuite {
       name: String,
       path: String
   ): Unit = {
-    val w = root / "work" / name
+    val w = root / "work" / name.replace(':', '@')
     val _ = git(
       w,
       Map(),
@@ -318,8 +323,8 @@ class CoursePublishersTests extends FunSuite {
   ) {
     val root = TempDirs.dir()
     val (r, source, _, ob) = setup(root)
-    val _ = r.commit("c1_p1_s1", test_cutoff, "main.c" -> "mine")()
-    add_submodule(r, root, "c1_p1_s1", "sub")
+    val _ = r.commit("c1_s1:p1", test_cutoff, "main.c" -> "mine")()
+    add_submodule(r, root, "c1_s1:p1", "sub")
     assert(
       !ob.record(
         State(root / "ws").track(WorkRepo(Fixture.submission(source)).latest)

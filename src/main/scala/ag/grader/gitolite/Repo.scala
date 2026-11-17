@@ -14,7 +14,9 @@ import ag.rules.{
 }
 
 // A repo on the git server, one kind per file, each a case class whose
-// fields say which repo (see DerivedScope).
+// fields say which repo (see DerivedScope); or a branch of one: several
+// can share a repo (a student's, see ag.grader.repos.StudentRepo), each its
+// own branch, worked out and pushed on its own.
 //
 // Every repo is inspected the same way, from the local mirror. A repo the
 // grader publishes (PublishedRepo) says how its contents follow from what
@@ -29,8 +31,15 @@ trait Repo[S] extends DerivedScope[S] { self: S =>
   // its name on the server
   def repo_name: String
 
-  // its master on the mirror, if it has one
-  lazy val inspect: Target[Option[Commit]] = source.master(repo_name)
+  // its branch on the server: master, unless it shares its repo
+  def branch: String = Repo.master
+
+  // its branch on the mirror, if it's there
+  lazy val inspect: Target[Option[Commit]] = source.branch(repo_name, branch)
+}
+
+object Repo {
+  val master = "master"
 }
 
 trait ReadOnlyRepo[S] extends Repo[S] { self: S => }
@@ -43,6 +52,14 @@ sealed trait PublishedRepo[S] extends Repo[S] { self: S =>
   // how the server makes it if it isn't there (None: the grader never does)
   def create: Option[Create]
   def message: String
+
+  // where its branch starts if it isn't there, as (repo, branch): by
+  // default, where the repo's fork starts (create), for master; a branch
+  // of a shared repo says (None: it starts empty)
+  def start_from: Option[(String, String)] =
+    create
+      .filter(_ => branch == Repo.master)
+      .map(c => (c.fork_from, Repo.master))
 
   // The target: `inputs` tracks what the contents depend on; `update`
   // works them out in `dir`, which holds what's there now (or what it'd be
@@ -57,21 +74,41 @@ sealed trait PublishedRepo[S] extends Repo[S] { self: S =>
         create_data(producer) { dir =>
           base.foreach(b => producer.copy_to(producer.commit(b).tree, dir))
           val notices = update(in, producer, dir, exists)
-          Publish(repo_name, exists, base.map(_.id), message, create, notices)
+          publish(exists, base, notices)
         }
       }
     }
 
-  // whether it's there, and what it holds now (or, if it isn't there, what
-  // it'd be forked from)
+  // what's to be pushed, given whether it's there and its base
+  protected final def publish(
+      exists: Boolean,
+      base: Option[Commit],
+      notices: Seq[Notice]
+  ): Publish =
+    Publish(
+      repo_name,
+      exists,
+      base.map(_.id),
+      message,
+      create,
+      notices,
+      branch,
+      start_from.filterNot(_ => exists).map(_._1)
+    )
+
+  // whether it's there (a repo of its own: the repo, even with no master;
+  // a branch: the branch), and what it holds now (or, if it isn't there,
+  // what it starts from: see start_from)
   protected final def exists_and_base(
       tracker: Tracker[?]
   ): (Boolean, Option[Commit]) = {
-    val exists = tracker.track(source.exists(repo_name))
-    val base = tracker.track(create.filterNot(_ => exists) match {
-      case Some(c) => source.master(c.fork_from)
-      case None    => inspect
-    })
+    val here = tracker.track(inspect)
+    val exists =
+      if (branch == Repo.master) tracker.track(source.exists(repo_name))
+      else here.isDefined
+    val base =
+      if (exists) here
+      else start_from.flatMap((r, b) => tracker.track(source.branch(r, b)))
     (exists, base)
   }
 }
@@ -152,7 +189,7 @@ trait CreatedRepo[S] extends PublishedRepo[S] { self: S =>
       tracker.run_if_needed { producer =>
         val notices = if (exists) Seq() else tell(in, producer, base)
         WithData(
-          Publish(repo_name, exists, base.map(_.id), message, create, notices),
+          publish(exists, base, notices),
           base.fold(Tree(Outbox.empty_tree))(b => producer.commit(b).tree)
         )
       }

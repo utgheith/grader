@@ -53,7 +53,7 @@ final case class SubmissionMilestone(
     target(
       (
         sub = submission.submission,
-        refs = source.refs(ag.grader.repos.WorkRepo.name_of(c, p, csid)),
+        refs = source.refs(ag.grader.repos.StudentRepo.name_of(c, csid)),
         deadline = deadline
       )
     ) { (producer, deps) =>

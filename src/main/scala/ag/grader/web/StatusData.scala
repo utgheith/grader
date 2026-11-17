@@ -39,10 +39,19 @@ final class StatusData(val source: Source) extends Scope("status") {
   import StatusData.*
 
   def project_repo(c: CourseName, p: ProjectName): String = s"${c}_$p"
-  def work_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    s"${project_repo(c, p)}_${csid.value}"
-  def own_results_repo(c: CourseName, p: ProjectName, csid: CSID): String =
-    s"${work_repo(c, p, csid)}_results"
+  // a student's repo, and their branches in it (see repos.StudentRepo)
+  def student_repo(c: CourseName, csid: CSID): String =
+    ag.grader.repos.StudentRepo.name_of(c, csid)
+  private def work(c: CourseName, p: ProjectName, csid: CSID) =
+    source.branch(
+      student_repo(c, csid),
+      ag.grader.repos.StudentRepo.work_branch(p)
+    )
+  private def own_results_branch(c: CourseName, p: ProjectName, csid: CSID) =
+    source.branch(
+      student_repo(c, csid),
+      ag.grader.repos.StudentRepo.results_branch(p)
+    )
 
   private def master(repo: String): Target[Option[Commit]] = source.master(repo)
 
@@ -109,7 +118,7 @@ final class StatusData(val source: Source) extends Scope("status") {
   lazy val own_results: (CourseName, ProjectName, CSID) => Target[
     Option[(StudentResults, Tree)]
   ] = fun { (c: CourseName, p: ProjectName, csid: CSID) =>
-    target((m = master(own_results_repo(c, p, csid)))) { (producer, deps) =>
+    target((m = own_results_branch(c, p, csid))) { (producer, deps) =>
       for {
         m <- deps.m
         json <- text(producer, m, "the_results.json")
@@ -141,10 +150,10 @@ final class StatusData(val source: Source) extends Scope("status") {
     Option[TestCommit]
   ] =
     fun { (c: CourseName, p: ProjectName, csid: CSID, milestone: Milestone) =>
-      val repo = work_repo(c, p, csid)
+      val repo = student_repo(c, csid)
       target(
         (
-          m = master(repo),
+          m = work(c, p, csid),
           push_times = source.ref(repo, "refs/notes/push_time"),
           commits = source.ref(repo, "refs/notes/commits"),
           rp = project(c, p)
@@ -170,7 +179,7 @@ final class StatusData(val source: Source) extends Scope("status") {
   lazy val commit_history: (CourseName, ProjectName, CSID, Milestone) => Target[
     Option[Seq[CommitRow]]
   ] = fun { (c: CourseName, p: ProjectName, csid: CSID, milestone: Milestone) =>
-    target((m = master(work_repo(c, p, csid)))) { (producer, deps) =>
+    target((m = work(c, p, csid))) { (producer, deps) =>
       deps.m.map { m =>
         milestone.commit_id_file match {
           case Some(file) =>

@@ -123,8 +123,11 @@ class RepoTests extends FunSuite {
       os.RelPath("ag/grader/repos/StudentResultsRepo/latest/c1/p1/s1/3")
     )
     assertEquals(
-      StudentResultsRepo(Fixture.submission(e)).repo_name,
-      "c1_p1_s1_results"
+      {
+        val r = StudentResultsRepo(Fixture.submission(e))
+        (r.repo_name, r.branch)
+      },
+      ("c1_s1", "grader/p1/results")
     )
     def deadline(m: ag.grader.Milestone) =
       ag.grader.Fixture.graded(e, m).deadline

@@ -37,13 +37,13 @@ class SubmissionsTests extends FunSuite {
     val (r, source) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     // s1 changed something; s2's repo is still the starting code
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(30), base_files*)()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(30), base_files*)()
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "main.c" -> "int main() { return 1; }"
     )()
-    val _ = r.commit("c1_p1_s2", test_cutoff.minusDays(30), base_files*)()
+    val _ = r.commit("c1_s2:p1", test_cutoff.minusDays(30), base_files*)()
     val s = State(root / "ws")
     assertEquals(
       s.track(Fixture.course(source).enrolled_csids),
@@ -63,12 +63,12 @@ class SubmissionsTests extends FunSuite {
     val (r, source) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val sha1 =
-      r.commit("c1_p1_s1", test_cutoff.minusDays(1), "main.c" -> "v1")()
+      r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "v1")()
     val sha2 =
-      r.commit("c1_p1_s1", code_cutoff.minusDays(1), "main.c" -> "v2")()
-    val sha3 = r.commit("c1_p1_s1", code_cutoff.plusDays(1), "main.c" -> "v3")()
+      r.commit("c1_s1:p1", code_cutoff.minusDays(1), "main.c" -> "v2")()
+    val sha3 = r.commit("c1_s1:p1", code_cutoff.plusDays(1), "main.c" -> "v3")()
     r.note(
-      "c1_p1_s1",
+      "c1_s1:p1",
       "push_time",
       sha2,
       s"${at(code_cutoff) - 100}\n${at(code_cutoff)}"
@@ -98,7 +98,7 @@ class SubmissionsTests extends FunSuite {
     assertEquals(graded(m1).flatMap(_.push_time), None)
     // m2 asks for sha1 by a short id; one that names nothing is ignored
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       code_cutoff.plusDays(2),
       "commit_id_m2" -> s"${sha1.take(10)}\n",
       "commit_id_m1" -> "nope\n"
@@ -128,9 +128,9 @@ class SubmissionsTests extends FunSuite {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
-    val _ = r.commit("c1_p1_s1", test_cutoff.minusDays(30), base_files*)()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(30), base_files*)()
     val sha = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "main.c" -> "mine",
       "Makefile" -> "student's",
@@ -166,15 +166,15 @@ class SubmissionsTests extends FunSuite {
     val (r, source) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), base_files*)()
     val t1 = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       test_cutoff.minusDays(1),
       "s1.cc" -> "test",
       "s1.ok" -> "expected"
     )()
     val t2 =
-      r.commit("c1_p1_s1", test_cutoff.plusDays(1), "s1.cc" -> "better")()
+      r.commit("c1_s1:p1", test_cutoff.plusDays(1), "s1.cc" -> "better")()
     val _ = r.commit(
-      "c1_p1_s1",
+      "c1_s1:p1",
       code_cutoff.plusHours(1),
       "s1.cc" -> "too late to count"
     )()
@@ -225,7 +225,7 @@ class SubmissionsTests extends FunSuite {
     )()
     val _ = r.commit("c1_p2", test_cutoff.minusDays(30), "main.c" -> "base")()
     val t = r.commit(
-      "c1_p2_s1",
+      "c1_s1:p2",
       test_cutoff.minusDays(1),
       "s1.cc" -> "test",
       "s1.dir/a/b" -> "deep",
@@ -258,7 +258,7 @@ class SubmissionsTests extends FunSuite {
       "aliases.json" -> upickle.default.write(SortedMap(s1 -> Alias(3)))
     )()
     val _ = r.commit(
-      "c1_p1_s1_results",
+      "c1_s1:grader/p1/results",
       test_cutoff,
       "the_results.json" -> "{\"not\": \"results\"}"
     )()

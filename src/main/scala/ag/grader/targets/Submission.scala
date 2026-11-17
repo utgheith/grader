@@ -43,12 +43,23 @@ final case class Submission(project: Project, csid: CSID)
 
   // ---- the submission, its code ready to test --------------------------
 
-  // The student's master, if they have a repo and it's more than the
+  // where the student's work is, (repo, branch), and its branch: see
+  // repos.StudentRepo
+  private val (work_repo, work_branch) =
+    ag.grader.repos.WorkRepo.place_of(c, p, csid)
+  private def work: Target[Option[Commit]] =
+    source.branch(work_repo, work_branch)
+  private def own_results: Target[Option[Commit]] = {
+    val (r, b) = ag.grader.repos.StudentResultsRepo.place_of(c, p, csid)
+    source.branch(r, b)
+  }
+
+  // The student's branch for the project, if it's there and more than the
   // project's starting code (its files differ from the project repo's).
   lazy val submission: Target[Option[Commit]] =
     target(
       (
-        w = source.master(ag.grader.repos.WorkRepo.name_of(c, p, csid)),
+        w = work,
         base = source.master(ag.grader.repos.ProjectRepo.name_of(c, p))
       )
     ) { (producer, deps) =>
@@ -73,13 +84,12 @@ final case class Submission(project: Project, csid: CSID)
       report(deps.sub) != report(deps.base)
     }
 
-  // whether the student's repo has a spamon file
+  // whether the student's branch has a spamon file
   lazy val has_spamon: Target[Boolean] =
-    target((w = source.master(ag.grader.repos.WorkRepo.name_of(c, p, csid)))) {
-      (producer, deps) =>
-        deps.w.exists(m =>
-          producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
-        )
+    target((w = work)) { (producer, deps) =>
+      deps.w.exists(m =>
+        producer.id_at(producer.commit(m).tree, os.rel / "spamon").isDefined
+      )
     }
 
   // Commit `sha` of the student's repo, with the course's overrides on top,
@@ -96,7 +106,7 @@ final case class Submission(project: Project, csid: CSID)
       create_data(producer) { dir =>
         val commit = producer.commit(
           Commit(
-            source.dir(ag.grader.repos.WorkRepo.name_of(c, p, csid)).toString,
+            source.dir(work_repo).toString,
             sha
           )
         )
@@ -111,11 +121,7 @@ final case class Submission(project: Project, csid: CSID)
   // whether the student's published results are there and this grader can
   // read them
   lazy val published_results_readable: Target[Boolean] =
-    target(
-      (m =
-        source.master(ag.grader.repos.StudentResultsRepo.name_of(c, p, csid))
-      )
-    ) { (producer, deps) =>
+    target((m = own_results)) { (producer, deps) =>
       Project.readable[StudentResults](
         Project.text_on(producer, deps.m, "the_results.json"),
         "the_results.json"
@@ -125,11 +131,7 @@ final case class Submission(project: Project, csid: CSID)
   // The student's published results, if there are any. Fails if they can't
   // be read, saying what rewrites them (as Project.get_student_results).
   lazy val published_results: Target[Option[StudentResults]] =
-    target(
-      (m =
-        source.master(ag.grader.repos.StudentResultsRepo.name_of(c, p, csid))
-      )
-    ) { (producer, deps) =>
+    target((m = own_results)) { (producer, deps) =>
       Project.text_on(producer, deps.m, "the_results.json").map { json =>
         Try(
           NoNulls.check(
@@ -140,7 +142,7 @@ final case class Submission(project: Project, csid: CSID)
           .fold(
             e =>
               throw IllegalStateException(
-                s"${ag.grader.repos.StudentResultsRepo.name_of(c, p, csid)}'s the_results.json isn't readable by this " +
+                s"${work_repo}'s ${ag.grader.repos.StudentRepo.results_branch(p)}'s the_results.json isn't readable by this " +
                   s"version of the grader; `run grade -c $c -p $p` " +
                   s"rewrites it (${e.getMessage})",
                 e
