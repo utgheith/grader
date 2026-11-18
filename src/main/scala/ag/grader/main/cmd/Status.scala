@@ -3,7 +3,7 @@ package ag.grader.main.cmd
 import ag.grader.main.misc.status_pages
 
 // Serves the status pages (and nothing else) until stopped. It only reads
-// the local mirror (see `mirror`), in its own workspace, so it can go on
+// the local mirror (see `sync`), in its own workspace, so it can go on
 // beside runs, which serve the same pages while they're up.
 object Status {
   def apply(workspace: os.Path): Unit =

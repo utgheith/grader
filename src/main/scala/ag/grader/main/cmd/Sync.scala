@@ -1,21 +1,24 @@
 package ag.grader.main.cmd
 
-import ag.grader.main.misc.outbox_of
+import ag.grader.main.misc.{mirror_root, outbox_of}
 
-// Pushes the outbox to the git server (see ag.grader.Outbox), then brings
-// the local mirror up to date. Needs config.json's can_push_repo.
+// Brings the local mirror of the git server up to date (see
+// ag.grader.gitolite.LocalMirror), first pushing the outbox to the server
+// (see ag.grader.Outbox) if config.json allows it (can_push_repo).
 object Sync {
-  def apply(workspace: os.Path): Unit =
-    if (!ag.grader.Config.pushes_allowed)
-      println("config.json doesn't allow pushing (can_push_repo)")
-    else {
-      val ob = outbox_of(workspace)
+  def apply(workspace: os.Path): Unit = {
+    val server = ag.grader.Config.gitolite_server
+    val ob = outbox_of(workspace)
+    if (ag.grader.Config.pushes_allowed) {
       println(s"${ob.pending.size} repos to push")
-      ob.sync(
-        ag.grader.Config.gitolite_server,
-        ag.grader.Config.mail_allowed,
-        println
-      )
+      ob.sync(server, ag.grader.Config.mail_allowed, println)
       println(s"${ob.pending.size} still pending")
+    } else {
+      println(
+        s"not pushing (config.json's can_push_repo): ${ob.pending.size} repos pending"
+      )
+      ag.grader.gitolite.LocalMirror
+        .update(server, mirror_root(workspace), println)
     }
+  }
 }

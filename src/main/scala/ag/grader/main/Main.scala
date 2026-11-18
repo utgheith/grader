@@ -122,10 +122,6 @@ object Main {
     cmd.PushToCloudflare(commonArgs)
 
   @main
-  def mirror(workspace: os.Path = os.pwd / "workspace"): Unit =
-    cmd.Mirror(workspace)
-
-  @main
   def status(workspace: os.Path = os.pwd / "workspace"): Unit =
     cmd.Status(workspace)
 

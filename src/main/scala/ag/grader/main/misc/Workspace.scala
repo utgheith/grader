@@ -48,7 +48,7 @@ private[main] def active_projects(
 private[main] def dropbox_of(): ag.grader.targets.Dropbox =
   ag.grader.targets.Dropbox(ag.grader.Config.dropbox_root)
 
-// The local mirror of the git server: kept up to date by `mirror`, read
+// The local mirror of the git server: kept up to date by `sync`, read
 // by the status pages.
 private[main] def mirror_root(workspace: os.Path): os.Path =
   workspace / "mirror"
@@ -89,7 +89,7 @@ private def require_mirror(workspace: os.Path): Unit =
       s"""No local mirror in ${workspace.toString} (${mirror_root(
           workspace
         ).toString} has no courses_config).
-         |Is --workspace right? `mirror --workspace <dir>` makes one.""".stripMargin
+         |Is --workspace right? `sync --workspace <dir>` makes one.""".stripMargin
     )
     sys.exit(2)
   }

@@ -1,0 +1,8 @@
+{
+  "gitolite": { "user": "git", "host": "127.0.0.1", "port": 1 },
+  "dropbox_path": null,
+  "site_base": null,
+  "can_send_mail": false,
+  "can_push_repo": false,
+  "cloudflare": null
+}

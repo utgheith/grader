@@ -23,6 +23,8 @@ testFrameworks += TestFramework("munit.Framework")
 // in a JVM of their own, so their temporary directories (TempDirs) are
 // removed when it exits: sbt's own JVM unloads the tests' classes first
 Test / fork := true
+// the tests' own config.json, not the one the grader runs with here
+Test / javaOptions += s"-Dgrader.config=${(baseDirectory.value / "src" / "test" / "config.json").getPath}"
 
 nativeImageOptions ++= Seq(
       "--no-fallback",

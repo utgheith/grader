@@ -11,7 +11,7 @@ import scala.util.Try
 
 // Keeps a local mirror of the git server: a bare clone of each repo,
 // <root>/<repo>.git, with every ref (notes included). Targets read it as an
-// ag.rules.Source; only this writes to it (from `mirror`, and after `sync`),
+// ag.rules.Source; only this writes to it (from `sync`),
 // and to keep it that way its directories are read-only (as git leaves the
 // object files) except while an update changes them, so a stray write fails.
 // A repo is fetched only if the

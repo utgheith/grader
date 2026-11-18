@@ -75,13 +75,16 @@ case class Config(
 
 object Config {
 
+  // the file the grader.config system property names (the tests': see
+  // build.sbt), or the nearest config.json from the working directory up
   private def config_file: os.Path = {
     @tailrec
     def find(d: os.Path): os.Path = {
       val t = d / "config.json"
       if os.isFile(t) then t else find(d / os.up)
     }
-    find(os.pwd)
+    Option(System.getProperty("grader.config"))
+      .fold(find(os.pwd))(f => os.Path(f, os.pwd))
   }
 
   private def load(): Config = read[Config](os.read(config_file))
