@@ -59,7 +59,9 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
   // base, unless the base has them already (as RepoInfo.update, where there's
   // then nothing to commit), or, with no base, there are none. Then there's
   // nothing to push, but a repo that isn't there is still to be made; a
-  // branch that isn't there is pushed as its base, where it starts. True if
+  // branch that isn't there is pushed as its base, where it starts, and with
+  // no base (and nothing to tell) it's left out: a branch can't be there
+  // empty, and the repo is made for whichever branch has something. True if
   // there's something to do; what was pending for it is replaced.
   def record(p: WithData[Publish]): Boolean = {
     val repo = p.value.key
@@ -71,7 +73,9 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
       case Some(b) => tree_of(base_dir, b).contains(p.data.id)
       case None    => p.data.id == Outbox.empty_tree
     }
-    if (same && p.value.exists) {
+    val empty_branch = same && p.value.base.isEmpty &&
+      p.value.branch != "master" && p.value.notices.isEmpty
+    if (same && (p.value.exists || empty_branch)) {
       os.remove.all(d)
       false
     } else {

@@ -24,7 +24,8 @@ enum Milestone derives ReadWriter:
     case Named(name) => Some(s"commit_id_$name")
     case Live        => None
 
-  // the milestone's results, in the project's results repo
+  // the milestone's results file, on the course's site (see
+  // repos.ClassRepo.results_path)
   def results_file: String = s"results_$slug.json"
 
 object Milestone:

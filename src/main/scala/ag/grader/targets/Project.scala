@@ -1,6 +1,6 @@
 package ag.grader.targets
 
-import ag.grader.{Milestone, ProjectState}
+import ag.grader.{Clock, Milestone, ProjectState}
 
 import ag.grader.web.{ReportInputs, HtmlGen}
 
@@ -22,18 +22,8 @@ import ag.common.{
   given_ReadWriter_SortedSet
 }
 import ag.grader.repos.{CoursesConfig, ProjectRepo}
-import ag.rules.{
-  Commit,
-  Context,
-  DerivedScope,
-  Producer,
-  Source,
-  Target,
-  Tree,
-  periodic
-}
+import ag.rules.{Commit, Context, DerivedScope, Producer, Source, Target, Tree}
 
-import java.time.LocalDateTime
 import scala.collection.{SortedMap, SortedSet}
 import scala.util.Try
 
@@ -128,7 +118,7 @@ final case class Project(course: Course, p: ProjectName)
   // the project's aliases (none if the repo or file isn't there, or can't
   // be read)
   lazy val published_aliases: Target[SortedMap[CSID, Alias]] =
-    target((m = source.master(ag.grader.repos.AliasesRepo.name_of(c, p)))) {
+    target((m = ag.grader.repos.AliasesRepo(this).inspect)) {
       (producer, deps) =>
         Project
           .text_on(producer, deps.m, "aliases.json")
@@ -140,12 +130,12 @@ final case class Project(course: Course, p: ProjectName)
 
   // ---- the tests -----------------------------------------------------
 
-  // the override repo's tests: the names it has a file (or directory) of
+  // the override's tests: the names it has a file (or directory) of
   // for every test extension
   lazy val override_test_names: Target[SortedSet[String]] =
     target(
       (
-        ov = source.master(ag.grader.repos.OverrideRepo.name_of(c, p)),
+        ov = ag.grader.repos.OverrideRepo(this).inspect,
         ext = test_extensions
       )
     ) { (producer, deps) =>
@@ -177,12 +167,12 @@ final case class Project(course: Course, p: ProjectName)
   // ---- grading -------------------------------------------------------
 
   // Where the project is relative to its deadlines (as Project.state):
-  // worked out again every minute as time passes; what depends on it reruns
-  // only when it changes.
+  // worked out again every minute of the course's time (Clock); what depends
+  // on it reruns only when it changes.
   lazy val state: Target[ProjectState] =
     target(
-      (ms = milestones, clock = periodic(60 * 1000L))
-    ) { (_, deps) => ProjectState.at(LocalDateTime.now().nn, deps.ms) }
+      (ms = milestones, clock = Clock.minute)
+    ) { (_, deps) => ProjectState.at(Clock.now, deps.ms) }
 
   // The results files of the milestones the project publishes now (see
   // ProjectState.publishes), by file name (Milestone.results_file)
@@ -204,13 +194,24 @@ final case class Project(course: Course, p: ProjectName)
     }
   }
 
-  // What a project's report pages show (as r2's HtmlGen.page): its published
-  // results, from the mirror, and its settings
+  // What a project's report pages show (as r2's HtmlGen.page), and the
+  // results files the site has: the results of the milestones it publishes
+  // now, as far as everyone has run (results(0): nothing runs), those of
+  // the others as published (from the mirror), and its settings
   lazy val report_inputs: Target[ReportInputs] =
     complex_target[ReportInputs] { tracker =>
       val st = tracker.track(state)
-      val results = tracker.track_all(
-        st.all_milestones.map(milestone(_).published_results)
+      val (now, before) = st.all_milestones.partition(st.publishes)
+      val fresh = now.zip(tracker.track_all(now.map(milestone(_).results(0))))
+      val published =
+        before.zip(
+          tracker.track_all(before.map(milestone(_).published_results))
+        )
+      val results = st.all_milestones.map(m =>
+        fresh
+          .collectFirst { case (`m`, r) => Right(Some(r)) }
+          .orElse(published.collectFirst { case (`m`, r) => r })
+          .getOrElse(Right(None))
       )
       val deps = tracker.track_all(
         (

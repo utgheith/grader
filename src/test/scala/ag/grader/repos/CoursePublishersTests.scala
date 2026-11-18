@@ -224,7 +224,10 @@ class CoursePublishersTests extends FunSuite {
       ),
       SortedMap(me -> "ssh-ed25519 mine")
     )
-    assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq())))
+    assertEquals(
+      p.value.create,
+      Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff")))
+    )
   }
 
   test(
@@ -232,7 +235,7 @@ class CoursePublishersTests extends FunSuite {
   ) {
     val root = TempDirs.dir()
     val (r, source, dropbox, ob) = setup(root)
-    val _ = r.commit("c1__enrollment", test_cutoff, "enrollment.json" -> "[]")()
+    val _ = r.commit("c1:grader/enrollment", test_cutoff, "enrollment.json" -> "[]")()
     os.remove.all(dropbox.root.get / "c1")
     assert(
       !ob.record(
@@ -262,7 +265,7 @@ class CoursePublishersTests extends FunSuite {
       Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff")))
     )
     // once it's there, their changes stand
-    val _ = r.commit("c1__grades", test_cutoff, "grades.csv" -> "x")()
+    val _ = r.commit("c1:grades", test_cutoff, "grades.csv" -> "x")()
     assert(
       !ob.record(
         State(root / "ws").track(GradesRepo(Fixture.course(source)).latest)
@@ -331,8 +334,8 @@ class CoursePublishersTests extends FunSuite {
       )
     )
     // the grades repo is copied to work it out, which loses the submodule
-    val _ = r.commit("c1__grades", test_cutoff, "grades.csv" -> "x")()
-    add_submodule(r, root, "c1__grades", "sub")
+    val _ = r.commit("c1:grades", test_cutoff, "grades.csv" -> "x")()
+    add_submodule(r, root, "c1:grades", "sub")
     val e = intercept[Exception](
       ob.record(
         State(root / "ws").track(GradesRepo(Fixture.course(source)).latest)
@@ -343,12 +346,12 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test(
-    "site: a page per milestone and the front page; old pages stay, unchanged pages aren't rewritten"
+    "site: a page per milestone, the results, and the front page; old pages stay, unchanged pages aren't rewritten"
   ) {
     val root = TempDirs.dir()
     val (r, source, _, ob) = setup(root)
     val _ = r.commit(
-      "c1__site",
+      "c1:grader/site",
       test_cutoff,
       "c1_p0.html" -> "an old project's page"
     )()
@@ -362,17 +365,20 @@ class CoursePublishersTests extends FunSuite {
         "c1_p1--m1.html",
         "c1_p1--m2.html",
         "c1_p1.html",
-        "index.html"
+        "index.html",
+        "results/p1/results_live.json",
+        "results/p1/results_m1.json",
+        "results/p1/results_m2.json"
       )
     )
     val index = os.read(dir / "index.html")
     assert(index.contains("c1_p0.html") && index.contains("c1_p1.html"))
     // published as is: worked out again, the same pages (generated times and all)
-    val m = r.mirror / "c1__site.git"
+    val m = r.mirror / "c1.git"
     assert(ob.record(p))
     val _ = os
-      .proc("git", "push", "-q", m.toString, "master:refs/heads/master")
-      .call(cwd = ob.dir("c1__site"))
+      .proc("git", "push", "-q", m.toString, "master:refs/heads/grader/site")
+      .call(cwd = ob.dir("c1/grader/site"))
     Thread.sleep(1100)
     assert(
       !ob.record(
@@ -382,7 +388,7 @@ class CoursePublishersTests extends FunSuite {
   }
 
   test(
-    "a site is served when its pages change, and only then; its host is named without secrets"
+    "a site is served as published, when its pages change, and only then; its host is named without secrets"
   ) {
     val root = TempDirs.dir()
     val (r, source, _, _) = setup(root)
@@ -395,21 +401,24 @@ class CoursePublishersTests extends FunSuite {
       }
     }
     def deployment = SiteDeployment(Fixture.course(source), host)
+    val _ = r.commit(
+      "c1:grader/site",
+      test_cutoff,
+      "index.html" -> "the front page",
+      ".initialized" -> ""
+    )()
     assertEquals(
       State(root / "ws").track(deployment.deployed),
       "https://c1.example"
     )
-    // the pages, without the repo's dot files
-    assertEquals(
-      served.toSeq,
-      Seq(Seq("c1_p1--m1.html", "c1_p1--m2.html", "c1_p1.html", "index.html"))
-    )
+    // the published pages, without the repo's dot files
+    assertEquals(served.toSeq, Seq(Seq("index.html")))
     // nothing changed: not served again
     val _ = State(root / "ws").track(deployment.deployed)
     assertEquals(served.size, 1)
-    // a page added to the repo: served again
+    // a page published: served again
     val _ = r.commit(
-      "c1__site",
+      "c1:grader/site",
       test_cutoff,
       "c1_p0.html" -> "an old project's page"
     )()

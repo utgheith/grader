@@ -47,7 +47,7 @@ class TestRunsTests extends FunSuite {
         "main.c" -> csid.value
       )()
     val _ = r.commit(
-      "c1_p1__aliases",
+      "c1:grader/p1/aliases",
       test_cutoff,
       "aliases.json" -> upickle.default.write(SortedMap(s2 -> Alias(5)))
     )()
@@ -73,13 +73,13 @@ class TestRunsTests extends FunSuite {
       "s1.ok" -> "my output"
     )()
     val _ = r.commit(
-      "c1_p1__aliases",
+      "c1:grader/p1/aliases",
       test_cutoff,
       "aliases.json" -> upickle.default.write(SortedMap(s1 -> Alias(1)))
     )()
     // t1 has no .ok: not a test
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> makefile,
       "t0.cc" -> "pass",
@@ -121,17 +121,17 @@ class TestRunsTests extends FunSuite {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "t0.cc" -> "pass",
       "t0.ok" -> "zero",
       "t1.cc" -> "one"
     )()
-    val work = root / "work" / "c1_p1__override"
+    val work = root / "work" / "c1@p1@override"
     os.symlink(work / "t1.ok", os.RelPath("t0.ok"))
     os.symlink(work / "t2.cc", os.RelPath("./t1.cc"))
     os.symlink(work / "t2.ok", os.RelPath("../elsewhere"))
-    val _ = r.commit("c1_p1__override", test_cutoff.minusDays(29))()
+    val _ = r.commit("c1:p1/override", test_cutoff.minusDays(29))()
     val s = State(root / "ws")
     def files(id: String) = {
       val dir = s.checkout(
@@ -161,7 +161,7 @@ class TestRunsTests extends FunSuite {
       "t1.result" -> "pass"
     )()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> makefile,
       "t0.cc" -> "pass",
@@ -204,13 +204,13 @@ class TestRunsTests extends FunSuite {
   }
 
   test(
-    "run_one: with no runs saved, it starts from the published ones (r2's results.json for live) of the same commit"
+    "run_one: with no runs saved, it starts from the published ones (on the site) of the same commit"
   ) {
     val root = TempDirs.dir()
     val (r, source) = setup(root)
     val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> makefile,
       "t0.cc" -> "pass",
@@ -219,9 +219,9 @@ class TestRunsTests extends FunSuite {
     val graded = Fixture.graded(source, Milestone.Live)
     val sha = State(root / "ws0").track(graded.prepare_info).get.sha
     def publish(sha: String) = r.commit(
-      "c1_p1__results",
+      "c1:grader/site",
       test_cutoff,
-      "results.json" ->
+      "results/p1/results_live.json" ->
         s"""[[1, {"prepare_info": {"sha": "$sha"}, "outcomes": [[{"external_name": "t0"},
          {"project": "p1", "test_id": {"external_name": "t0"}, "outcomes": [["pass", 1.0], ["pass", 2.0]]}]]}]]"""
     )()
@@ -253,7 +253,7 @@ class TestRunsTests extends FunSuite {
     val (r, source) = setup(root)
     val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> makefile,
       "t0.cc" -> "pass",
@@ -281,7 +281,7 @@ class TestRunsTests extends FunSuite {
     val (r, source) = setup(root)
     val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> makefile,
       "t0.cc" -> "pass",

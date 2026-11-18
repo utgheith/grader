@@ -1,6 +1,6 @@
 package ag.grader.web
 
-import ag.grader.{Milestone, ProjectState, TestSet}
+import ag.grader.{Clock, Milestone, ProjectState, TestSet}
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
@@ -49,9 +49,6 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
 
   private def courses: SortedMap[CourseName, RawCourse] = look(data.courses)
 
-  private def project_repo(c: CourseName, p: ProjectName) =
-    data.project_repo(c, p)
-
   // a milestone's published results, by alias, and when they were committed
   private def results(
       c: CourseName,
@@ -89,7 +86,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
   ///////////// working it out /////////////
 
   private def project_state(rp: RawProject): ProjectState =
-    ProjectState.at(LocalDateTime.now().nn, rp.milestones)
+    ProjectState.at(Clock.now, rp.milestones)
 
   // runs a test still has to go, as run_one decides: up to the most tries
   // (iterations.max), unless it failed and the milestone doesn't keep going
@@ -622,27 +619,29 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
     val started = System.nanoTime()
     log("reading courses_config")
     val cs = courses
-    val names = for {
+    // each course's site, and its projects' aliases
+    val branches = for {
       (c, rc) <- cs.toSeq
-      p <- rc.projects.keys.toSeq.map(ProjectName(_))
-      suffix <- Seq("__results", "__aliases")
-    } yield s"${project_repo(c, p)}$suffix"
-    log(s"reading ${names.size} repos for ${cs.size} courses")
+      (n, b) <- (s"$c site", data.site(c)) +: rc.projects.keys.toSeq.map(p =>
+        (s"$c $p aliases", data.aliases_branch(c, ProjectName(p)))
+      )
+    } yield (n, b)
+    log(s"reading ${branches.size} branches for ${cs.size} courses")
     val done = java.util.concurrent.atomic.AtomicInteger()
-    names
-      .map { n =>
+    branches
+      .map { (n, b) =>
         Thread
           .ofVirtual()
           .nn
           .start { () =>
             val at = System.nanoTime()
-            val how = Try(look(data.source.master(n))) match {
+            val how = Try(look(b)) match {
               case Success(Some(_)) => "ok"
-              case Success(None)    => "no such repo"
+              case Success(None)    => "not there"
               case Failure(e)       => s"failed: ${e.toString}"
             }
             log(
-              s"  [${done.incrementAndGet()}/${names.size}] $n: $how (${secs(at)})"
+              s"  [${done.incrementAndGet()}/${branches.size}] $n: $how (${secs(at)})"
             )
           }
           .nn
@@ -750,7 +749,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       val rs = results(c, p, milestone).toOption.flatten.map(_._1)
       val mine = alias.flatMap(a => rs.flatMap(_.get(a)))
       // the student's own repo has the current milestone's results only
-      // (a student's own results repo has the current milestone's)
+      // (a student's results branch has the current milestone's)
       val own =
         if (milestone == project_state(rp).current) own_results(c, p, csid)
         else None
@@ -881,7 +880,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
       outcomes.values.map(_.outcomes.count(_._1.isHappy)).sum
   }
 
-  // the milestone's tests: those published in the tests repo, and any its
+  // the milestone's tests: those published on the tests branch, and any its
   // results ran
   private def test_views(
       c: CourseName,
@@ -1300,7 +1299,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
             if (
               milestone == project_state(v.rp).current && n == o.outcomes.size
             )
-              "<p class=muted>Its output isn't in the student's results repo (it holds the last published run).</p>"
+              "<p class=muted>Its output isn't on the student's results branch (it holds the last published run).</p>"
             else "<p class=muted>Only the last run's output is kept, for the current milestone's results.</p>"
           )
         shell(
@@ -1412,7 +1411,7 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
         s"""<a href="$l">${h(t)}</a>"""
       ) :+ s"<span>${h(title.split(" / ").last)}</span>").mkString(" › ")}</nav>
        |<span class=muted>from the committed repos, as of ${h(
-        LocalDateTime.now().nn.format(minutes).nn
+        Clock.now.format(minutes).nn
       )}</span></header>
        |<main><h1>${h(
         title

@@ -138,7 +138,7 @@ class SubmissionsTests extends FunSuite {
       "dir/x.ok" -> "kept: not at the top"
     )()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "Makefile" -> "the course's",
       "t0.ok" -> "an override test"
@@ -253,7 +253,7 @@ class SubmissionsTests extends FunSuite {
     )
     assertEquals(s.track(Fixture.submission(source).published_results), None)
     val _ = r.commit(
-      "c1_p1__aliases",
+      "c1:grader/p1/aliases",
       test_cutoff,
       "aliases.json" -> upickle.default.write(SortedMap(s1 -> Alias(3)))
     )()

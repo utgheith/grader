@@ -31,7 +31,7 @@ class PublishersTests extends FunSuite {
     os.proc("git" +: args).call(cwd = dir).out.text().trim
 
   test(
-    "a new repo: a commit with no parent; once it's on the mirror, nothing to push"
+    "a new branch: a commit with no parent; once it's on the mirror, nothing to push"
   ) {
     val root = TempDirs.dir()
     val (r, source, ob) = setup(root)
@@ -40,11 +40,11 @@ class PublishersTests extends FunSuite {
     val p =
       State(root / "ws").track(AliasesRepo(Fixture.project(source)).latest)
     assertEquals(p.value.base, None)
-    assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq())))
+    assertEquals(p.value.create, Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff"))))
     assert(ob.record(p))
-    assertEquals(ob.pending, Seq("c1_p1__aliases"))
+    assertEquals(ob.pending, Seq("c1/grader/p1/aliases"))
     // recording it again changes nothing
-    val d = ob.dir("c1_p1__aliases")
+    val d = ob.dir("c1/grader/p1/aliases")
     val commit = git(d, "rev-parse", "master")
     assert(ob.record(p))
     assertEquals(git(d, "rev-parse", "master"), commit)
@@ -56,9 +56,9 @@ class PublishersTests extends FunSuite {
     )
 
     // as if synced: the mirror gets it
-    val m = r.mirror / "c1_p1__aliases.git"
+    val m = r.mirror / "c1.git"
     val _ = git(r.mirror, "init", "-q", "--bare", m.toString)
-    val _ = git(d, "push", "-q", m.toString, "master:refs/heads/master")
+    val _ = git(d, "push", "-q", m.toString, "master:refs/heads/grader/p1/aliases")
     val again =
       State(root / "ws").track(AliasesRepo(Fixture.project(source)).latest)
     assertEquals(again.value.base, Some(commit))
@@ -67,7 +67,9 @@ class PublishersTests extends FunSuite {
     assert(!os.exists(d))
   }
 
-  test("a repo with nothing in it: made, but nothing pushed (as r2)") {
+  test(
+    "a branch with nothing in it: nothing to do (it can't be there empty; its repo is made for a branch with something)"
+  ) {
     val root = TempDirs.dir()
     val (r, source, ob) = setup(root)
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
@@ -75,27 +77,13 @@ class PublishersTests extends FunSuite {
       SubmittedTestsRepo(Fixture.project(source)).latest
     )
     assertEquals(p.data.id, Outbox.empty_tree)
-    assert(ob.record(p))
-    assertEquals(ob.pending, Seq("c1_p1__submitted_tests"))
-    assert(
-      os.proc("git", "rev-parse", "--verify", "-q", "master")
-        .call(cwd = ob.dir("c1_p1__submitted_tests"), check = false)
-        .exitCode != 0
-    )
-    // once the mirror has it (empty), nothing to do
-    val _ = git(r.mirror, "init", "-q", "--bare", "c1_p1__submitted_tests.git")
-    assert(
-      !ob.record(
-        State(root / "ws").track(
-          SubmittedTestsRepo(Fixture.project(source)).latest
-        )
-      )
-    )
+    assertEquals((p.value.exists, p.value.base), (false, None))
+    assert(!ob.record(p))
     assertEquals(ob.pending, Seq())
   }
 
   test(
-    "a new repo starts where its fork does: on the fork source's master, with its files"
+    "a new branch of a shared repo doesn't start where the repo's fork does: just its files, with no parent"
   ) {
     val root = TempDirs.dir()
     val (r, source, ob) = setup(root)
@@ -106,34 +94,16 @@ class PublishersTests extends FunSuite {
       "s1.cc" -> "mine",
       "s1.ok" -> "out"
     )()
-    val start =
+    val _ =
       r.commit("empty", test_cutoff.minusDays(60), ".gitignore" -> "*.o\n")()
     val s = State(root / "ws")
     val p = s.track(SubmittedTestsRepo(Fixture.project(source)).latest)
-    assertEquals((p.value.exists, p.value.base), (false, Some(start)))
-    assertEquals(
-      files(s.checkout(p.data)),
-      Seq(".gitignore", "001.cc", "001.ok")
-    )
+    assertEquals((p.value.exists, p.value.base), (false, None))
+    assertEquals(files(s.checkout(p.data)), Seq("001.cc", "001.ok"))
     assert(ob.record(p))
-    val d = ob.dir("c1_p1__submitted_tests")
-    assertEquals(git(d, "rev-parse", "master^"), start)
-    // nothing but the fork's files: the fork is all there is to do
-    val q = s.track(AliasesRepo(Fixture.project(source)).latest)
-    assert(
-      ob.record(
-        q.copy(data =
-          ag.rules.Tree(
-            git(r.mirror / "empty.git", "rev-parse", "master^{tree}")
-          )
-        )
-      )
-    )
-    assert(
-      os.proc("git", "rev-parse", "--verify", "-q", "master")
-        .call(cwd = ob.dir("c1_p1__aliases"), check = false)
-        .exitCode != 0
-    )
+    val d = ob.dir("c1/grader/p1/submitted_tests")
+    val commit = git(d, "rev-parse", "master")
+    assertEquals(git(d, "rev-list", "--parents", "-n", "1", "master"), commit)
   }
 
   test("the override repo: made once, from the project's tests and Makefiles") {
@@ -158,11 +128,11 @@ class PublishersTests extends FunSuite {
     )
     assertEquals(
       p.value.create,
-      Some(Create("empty", Seq("@all"), Seq("@c1_staff")))
+      Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff")))
     )
     // once it's there, the staff's changes are theirs
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(29),
       ".initialized" -> "",
       "t0.ok" -> "changed"
@@ -185,7 +155,7 @@ class PublishersTests extends FunSuite {
       "Makefile" -> "all:"
     )()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(29),
       "Makefile" -> "theirs",
       "t9.cc" -> "theirs"
@@ -205,7 +175,7 @@ class PublishersTests extends FunSuite {
     val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
     val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
-      "c1_p1__aliases",
+      "c1:grader/p1/aliases",
       test_cutoff,
       "aliases.json" -> upickle.default.write(
         SortedMap(CSID("gone") -> Alias(7))
@@ -234,14 +204,14 @@ class PublishersTests extends FunSuite {
       "s1.ok" -> "my output"
     )()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       "t0.cc" -> "a test",
       "t0.ok" -> "",
       "Makefile" -> ""
     )()
     val _ = r.commit(
-      "c1_p1__tests",
+      "c1:grader/p1/tests",
       test_cutoff.minusDays(30),
       "old.cc" -> "gone",
       ".keep" -> "kept"

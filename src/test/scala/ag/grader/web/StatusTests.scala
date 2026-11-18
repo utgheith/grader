@@ -108,6 +108,15 @@ class StatusTests extends FunSuite {
     d
   }
 
+  // `file` on branch `b` of `repo` (named "repo:b", as `repo`)
+  private def show(root: os.Path, name: String, file: String): String = {
+    val (r, b) = name.split(':') match {
+      case Array(r, b) => (r, b)
+      case _           => (name, "master")
+    }
+    os.proc("git", "show", s"$b:$file").call(cwd = root / r).out.text()
+  }
+
   private def outcome(test: String, runs: (OutcomeStatus, Option[Double])*) =
     RedactedTestId(test) -> RedactedOutcome(
       course,
@@ -188,13 +197,13 @@ class StatusTests extends FunSuite {
     )
     val _ = repo(
       root,
-      "c1_p1__results",
-      "results_live.json" -> upickle.default.write(latest),
-      "results_m1.json" -> upickle.default.write(phase1)
+      "c1:grader/site",
+      "results/p1/results_live.json" -> upickle.default.write(latest),
+      "results/p1/results_m1.json" -> upickle.default.write(phase1)
     )
     val _ = repo(
       root,
-      "c1_p1__aliases",
+      "c1:grader/p1/aliases",
       "aliases.json" -> upickle.default.write(
         SortedMap(s1 -> Alias(1), s2 -> Alias(2))
       )
@@ -278,20 +287,23 @@ class StatusTests extends FunSuite {
   test("warm says how reading the course and milestone pages' repos goes") {
     val root = TempDirs.dir()
     val _ = setup(root)
-    os.remove.all(root / "c1_p1__aliases" / ".git")
+    val _ = os.proc("git", "checkout", "-q", "grader/site").call(cwd = root / "c1")
+    val _ = os
+      .proc("git", "branch", "-q", "-D", "grader/p1/aliases")
+      .call(cwd = root / "c1")
     val status = status_of(root)
     val lines = java.util.concurrent.ConcurrentLinkedQueue[String]()
     status.warm(l => { val _ = lines.add(l) })
     val all = lines.toArray.toSeq.map(_.toString)
     assertEquals(all.head, "reading courses_config")
-    assert(all.contains("reading 2 repos for 1 courses"), all)
+    assert(all.contains("reading 2 branches for 1 courses"), all)
     assert(
-      all.exists(_.matches("""  \[\d/2\] c1_p1__results: ok \(.*s\)""")),
+      all.exists(_.matches("""  \[\d/2\] c1 site: ok \(.*s\)""")),
       all
     )
     assert(
       all.exists(
-        _.matches("""  \[\d/2\] c1_p1__aliases: no such repo \(.*s\)""")
+        _.matches("""  \[\d/2\] c1 p1 aliases: not there \(.*s\)""")
       ),
       all
     )
@@ -350,21 +362,22 @@ class StatusTests extends FunSuite {
     )
     val _ = commit("s2.ok", "test v2", System.currentTimeMillis() / 1000)
 
-    val _ = repo(root, "c1_p1__tests", "002.ok" -> "test", "t1.ok" -> "test")
+    val _ =
+      repo(root, "c1:grader/p1/tests", "002.ok" -> "test", "t1.ok" -> "test")
     // m1 ran s2's test (alias 002) on s1 (alias 1): passed some runs
     val pass = (OutcomeStatus.pass, Some(1.0))
     val failed = (OutcomeStatus.fail, Some(1.0))
     val results =
       upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-        os.read(root / "c1_p1__results" / "results_m1.json")
+        show(root, "c1:grader/site", "results/p1/results_m1.json")
       )
     val more = results.map((a, r) =>
       a -> r.copy(outcomes = r.outcomes ++ Seq(outcome("002", pass, failed)))
     )
     val _ = repo(
       root,
-      "c1_p1__results",
-      "results_m1.json" -> upickle.default.write(more)
+      "c1:grader/site",
+      "results/p1/results_m1.json" -> upickle.default.write(more)
     )
 
     val status = status_of(root)
@@ -447,9 +460,8 @@ class StatusTests extends FunSuite {
     val _ = setup(root)
     // m1: pushed 2 hours after the commit; latest: 2 hours before it
     def pushed(file: String, hours: Long): Unit = {
-      val f = root / "c1_p1__results" / file
       val rs = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-        os.read(f)
+        show(root, "c1:grader/site", s"results/p1/$file")
       )
       val moved = rs.map((a, r) =>
         a -> r.copy(prepare_info =
@@ -461,7 +473,11 @@ class StatusTests extends FunSuite {
           )
         )
       )
-      val _ = repo(root, "c1_p1__results", file -> upickle.default.write(moved))
+      val _ = repo(
+        root,
+        "c1:grader/site",
+        s"results/p1/$file" -> upickle.default.write(moved)
+      )
     }
     pushed("results_m1.json", 2)
     pushed("results_live.json", -2)

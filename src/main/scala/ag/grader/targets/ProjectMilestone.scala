@@ -12,8 +12,16 @@ import ag.grader.json.{
 }
 
 import ag.common.{NoNulls, ToRelPath, given_ReadWriter_SortedMap}
-import ag.grader.repos.{OverrideRepo, ResultsRepo}
-import ag.rules.{DerivedScope, Source, Target, Tree, WithData, create_data}
+import ag.grader.repos.{ClassRepo, OverrideRepo}
+import ag.rules.{
+  Commit,
+  DerivedScope,
+  Source,
+  Target,
+  Tree,
+  WithData,
+  create_data
+}
 
 import java.time.{ZoneId, ZonedDateTime}
 import scala.collection.{SortedMap, SortedSet}
@@ -60,7 +68,7 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
 
   // Every test, and the tree with its files, named <internal name>.<ext>:
   // each student's own (their alias outside, their CSID inside) and the
-  // override repo's (as Project.publish_tests: one of those wins over a
+  // override's (as Project.publish_tests: one of those wins over a
   // student's with the same id)
   lazy val tests: Target[SortedMap[TestId, Tree]] =
     target(
@@ -68,7 +76,7 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
         students = student_tests,
         aliases = project.aliases,
         names = project.override_test_names,
-        ov = source.master(OverrideRepo.name_of(c, p))
+        ov = OverrideRepo(project).inspect
       )
     ) { (producer, deps) =>
       val theirs = for {
@@ -143,11 +151,17 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
 
   // ---- published, read back -----------------------------------------
 
+  // the course's site (on the mirror), and where this milestone's results
+  // are on it
+  private def site: Target[Option[Commit]] =
+    source.branch(ClassRepo.name_of(c), ClassRepo.site_branch)
+  private def results_path: String = ClassRepo.results_path(p, milestone)
+
   lazy val results_readable: Target[Boolean] =
-    target((m = source.master(ResultsRepo.name_of(c, p)))) { (producer, deps) =>
+    target((m = site)) { (producer, deps) =>
       Project.readable[SortedMap[Alias, RedactedStudentResults]](
-        Project.text_on(producer, deps.m, milestone.results_file),
-        milestone.results_file
+        Project.text_on(producer, deps.m, results_path),
+        results_path
       )
     }
 
@@ -157,10 +171,10 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
   lazy val published_results: Target[
     Either[String, Option[SortedMap[Alias, RedactedStudentResults]]]
   ] =
-    target((m = source.master(ResultsRepo.name_of(c, p)))) { (producer, deps) =>
+    target((m = site)) { (producer, deps) =>
       val out
           : Either[String, Option[SortedMap[Alias, RedactedStudentResults]]] =
-        Project.text_on(producer, deps.m, milestone.results_file) match {
+        Project.text_on(producer, deps.m, results_path) match {
           case None       => Right(None)
           case Some(json) =>
             Try(
@@ -171,7 +185,7 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
               )
             ).toEither.left
               .map(e =>
-                s"${ResultsRepo.name_of(c, p)}'s ${milestone.results_file} isn't readable by this version " +
+                s"${ClassRepo.name_of(c)}'s ${ClassRepo.site_branch}'s $results_path isn't readable by this version " +
                   s"of the grader; `run grade -c $c -p $p` rewrites it (${String.valueOf(e.getMessage)})"
               )
               .map(Some(_))
@@ -181,15 +195,11 @@ final case class ProjectMilestone(project: Project, milestone: Milestone)
 
   // The runs its published results file has, read leniently (see
   // PublishedRuns), by alias: what seeds a test's runs when it has none
-  // saved. r2 called the live milestone's file results.json.
+  // saved.
   lazy val published_runs: Target[SortedMap[Alias, PublishedRuns]] =
-    target((m = source.master(ResultsRepo.name_of(c, p)))) { (producer, deps) =>
-      val names = milestone.results_file +: (
-        if (milestone == Milestone.Live) Seq("results.json") else Seq()
-      )
-      names.iterator
-        .flatMap(Project.text_on(producer, deps.m, _))
-        .nextOption()
+    target((m = site)) { (producer, deps) =>
+      Project
+        .text_on(producer, deps.m, results_path)
         .fold(SortedMap[Alias, PublishedRuns]())(PublishedRuns.parse)
     }
 

@@ -13,11 +13,11 @@ import ag.grader.repos.CoursesConfig
 // Works out, from the local mirror, what the repos the arguments pick
 // should hold (ag.grader.repos), and records what differs in the
 // outbox, for `sync` to push: the students' keys and each active course's
-// enrollment (from the dropbox), grades repo and site; each project's
-// override, aliases, submitted tests and tests repos; and each enrolled
-// student's work repo for each active project. The results repos are
+// enrollment (from the dropbox) and grades; each project's override,
+// aliases, submitted tests and tests; and each enrolled student's work
+// branch for each active project. The site (with the results) is
 // `grade`'s. Run it again after a sync: what's read from the mirror (the
-// tests from the override repo, the students from the enrollment) takes
+// tests from the override, the students from the enrollment) takes
 // a round to get there.
 object Outbox {
   def apply(commonArgs: CommonArgs): Unit =
@@ -58,12 +58,7 @@ object Outbox {
              ag.grader.repos.EnrollmentRepo(_, dropbox).latest
            )
          else Seq()) ++
-          courses.flatMap(course =>
-            Seq(
-              ag.grader.repos.GradesRepo(course).latest,
-              ag.grader.repos.SiteRepo(course).latest
-            )
-          ) ++
+          courses.map(ag.grader.repos.GradesRepo(_).latest) ++
           picked.flatMap(ag.grader.repos.Grade.project) ++
           work_repos
       )

@@ -3,7 +3,7 @@ package ag.grader.cloudflare
 import ag.grader.targets.Course
 
 import ag.grader.name.CourseName
-import ag.grader.repos.SiteRepo
+import ag.grader.repos.{ClassRepo, SiteRepo}
 
 import ag.common.ToRelPath
 import ag.rules.{DerivedScope, Source, Target}
@@ -21,9 +21,9 @@ object SiteHost {
   given ToRelPath[SiteHost] = h => os.RelPath(h.name)
 }
 
-// A course's site, served by `host`: its latest pages, as the outbox has
-// them (sync pushes them to the site repo), whether or not they've been
-// synced. Served again only when they change.
+// A course's site, served by `host`: its pages as published (the site
+// branch on the mirror, so what's served is what's on the server). Served
+// again only when they change.
 final case class SiteDeployment(course: Course, host: SiteHost)
     extends DerivedScope[SiteDeployment] derives ToRelPath {
   val source: Source = course.source
@@ -41,7 +41,9 @@ final case class SiteDeployment(course: Course, host: SiteHost)
         os.makeDir(site)
         producer.copy_to(deps.pages, site)
         for (f <- os.list(site) if f.last.startsWith(".")) os.remove.all(f)
-        producer.log(s"serving ${SiteRepo.name_of(c)} on ${host.name}\n")
+        producer.log(
+          s"serving ${ClassRepo.name_of(c)}'s ${ClassRepo.site_branch} on ${host.name}\n"
+        )
         host.publish(site, c)
       } finally os.remove.all(work)
     }

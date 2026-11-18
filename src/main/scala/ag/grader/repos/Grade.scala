@@ -24,20 +24,21 @@ object Grade {
 
   // grading a project to `n` tries, for `students` (those with a
   // submission): what it publishes (so a new student's alias and tests go
-  // out with their first results), its results repo, and each student's
-  // own results and prepared code (what the tests ran on)
+  // out with their first results), its course's site (with its results, as
+  // far as everyone has run), and each student's own results and prepared
+  // code (what the tests ran on)
   def all(
       project: Project,
       students: Iterable[CSID],
       n: Int
   ): Seq[Target[WithData[Publish]]] =
     Grade.project(project) ++
-      (ResultsRepo(project).latest(n) +: own(project, students, n))
+      (SiteRepo(project.course).latest +: own(project, students, n))
 
   // the same, as far as everyone has run, with `students` (some of those
   // with a submission) for the own repos: no test runs again (n = 0; see
   // SubmissionMilestone.run_one), so students and tests run to different
-  // counts can share the results repo
+  // counts can share the site
   def so_far(
       project: Project,
       students: Iterable[CSID]

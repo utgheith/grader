@@ -67,7 +67,10 @@ case class Config(
     can_push_repo: Option[Boolean],
     cloudflare: Option[CloudflareConfig],
     // serve each run's graph live; see ag.web.WebConfig
-    web: Option[ag.web.WebConfig] = None
+    web: Option[ag.web.WebConfig] = None,
+    // a file holding the course's time (see Clock), relative to this file's
+    // directory; a simulation's (gitolite-mirror/sim), never a live config's
+    clock: Option[String] = None
 ) derives ReadWriter {}
 
 object Config {
@@ -100,6 +103,11 @@ object Config {
   // where the students drop their keys (dropbox_path, under the home
   // directory), read straight from config.json; None if it has none
   def dropbox_root: Option[os.Path] = load().dropbox_path.map(os.home / _)
+
+  // the file holding the course's time (see Clock), read straight from
+  // config.json; None if it has none: the course runs on the wall clock
+  def clock_file: Option[os.Path] =
+    load().clock.map(f => os.Path(f, config_file / os.up))
 
   // Read straight from config.json on every call, never through a target,
   // so the api_key is never cached under workspace/.

@@ -10,7 +10,8 @@ import scala.collection.SortedMap
 // The students' ssh keys, as they drop them in `root`/<course>/<csid>.pub
 // (each file owned by its student, or by `keeper`: the grader's own user,
 // who can put a key there for a student), as r3 targets: looked at again
-// every minute. No root, or no directory for the course, no keys. The r3
+// every second (a directory listing), so a run sees a key dropped just
+// before it. No root, or no directory for the course, no keys. The r3
 // form of Course.dropbox.
 final class Dropbox(
     val root: Option[os.Path],
@@ -21,7 +22,7 @@ final class Dropbox(
   // course (which isn't the same as no keys: see ag.grader.repos.EnrollmentRepo)
   lazy val course_keys: CourseName => Target[Option[SortedMap[CSID, String]]] =
     fun { (c: CourseName) =>
-      target((clock = periodic(60 * 1000L))) { (_, _) =>
+      target((clock = periodic(1000L))) { (_, _) =>
         for {
           root <- root
           dir = root / c.value

@@ -8,7 +8,7 @@ import ag.grader.main.misc.{
 }
 
 // How many students each picked active course has enrolled, as its
-// enrollment repo on the local mirror says
+// enrollment branch on the local mirror says
 object Enrollment {
   def apply(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>

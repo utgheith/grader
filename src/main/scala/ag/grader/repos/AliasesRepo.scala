@@ -4,7 +4,7 @@ import ag.grader.targets.Project
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
-import ag.grader.gitolite.{Groups, AdditiveRepo, Create, Publish}
+import ag.grader.gitolite.{AdditiveRepo, Create, Publish}
 
 import ag.common.{ToRelPath, given_ReadWriter_SortedMap}
 import ag.rules.{Source, Target, WithData}
@@ -12,7 +12,8 @@ import ag.rules.{Source, Target, WithData}
 import scala.collection.SortedMap
 
 // A project's aliases, which name the students in what's published (as
-// Project.publish_aliases): the staff's to read. Added to as students
+// Project.publish_aliases), on the grader's aliases branch of the course's
+// repo (see ClassRepo), for the staff. Added to as students
 // submit; an alias, once published, never changes or goes, since what's
 // published is keyed by it.
 final case class AliasesRepo(project: Project) extends AdditiveRepo[AliasesRepo]
@@ -20,9 +21,9 @@ final case class AliasesRepo(project: Project) extends AdditiveRepo[AliasesRepo]
   val source: Source = project.source
   private def c: CourseName = project.c
   private def p: ProjectName = project.p
-  def repo_name: String = AliasesRepo.name_of(c, p)
-  def create: Option[Create] =
-    Some(Create("empty", Seq(Groups.staff(c)), Seq()))
+  def repo_name: String = ClassRepo.name_of(c)
+  override def branch: String = ClassRepo.aliases_branch(p)
+  def create: Option[Create] = Some(ClassRepo.create(c))
   val message = "more aliases"
 
   lazy val latest: Target[WithData[Publish]] =
@@ -40,9 +41,4 @@ final case class AliasesRepo(project: Project) extends AdditiveRepo[AliasesRepo]
       os.write.over(f, upickle.default.write(aliases, indent = 2))
       Seq()
     }
-}
-
-object AliasesRepo {
-  def name_of(c: CourseName, p: ProjectName): String =
-    s"${ProjectRepo.name_of(c, p)}__aliases"
 }

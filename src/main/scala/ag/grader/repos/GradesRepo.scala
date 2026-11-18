@@ -4,22 +4,23 @@ import ag.grader.targets.Course
 
 import ag.grader.name.CourseName
 
-import ag.grader.gitolite.{Groups, HandedOverRepo, Create, Publish}
+import ag.grader.gitolite.{HandedOverRepo, Create, Publish}
 
 import ag.common.ToRelPath
 import ag.rules.{Source, Target, WithData}
 
-// A course's grades repo: the staff's workspace for grading data (as
-// r2's Course.create_grades_repo). The grader makes it, with a README, and
-// otherwise leaves it to them; only the staff read and write it.
+// A course's grades: the staff's workspace for grading data (as r2's
+// Course.create_grades_repo), on the staff's grades branch of the course's
+// repo (see ClassRepo). The grader makes it, with a README, and otherwise
+// leaves it to them.
 final case class GradesRepo(course: Course) extends HandedOverRepo[GradesRepo]
     derives ToRelPath {
   val source: Source = course.source
   private def c: CourseName = course.c
-  def repo_name: String = GradesRepo.name_of(c)
-  def create: Option[Create] =
-    Some(Create("empty", Seq(Groups.staff(c)), Seq(Groups.staff(c))))
-  val message = "creating grades repo"
+  def repo_name: String = ClassRepo.name_of(c)
+  override def branch: String = ClassRepo.grades_branch
+  def create: Option[Create] = Some(ClassRepo.create(c))
+  val message = "creating grades"
 
   lazy val latest: Target[WithData[Publish]] =
     handed_over(_ => ()) { (_, _, dir) =>
@@ -36,8 +37,4 @@ final case class GradesRepo(course: Course) extends HandedOverRepo[GradesRepo]
       )
       Seq()
     }
-}
-
-object GradesRepo {
-  def name_of(c: CourseName): String = s"${c.value}__grades"
 }

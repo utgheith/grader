@@ -5,7 +5,7 @@ import ag.grader.name.{Alias, CSID}
 import upickle.default.ReadWriter
 import scala.collection.SortedMap
 
-// Published to everyone (results repos readable by all, the public report
+// Published to everyone (the results on the site, the public report
 // pages): must hold no CSIDs. Tests are named by alias; for the commit, see
 // RedactedPrepareInfo.
 @upickle.implicits.allowUnknownKeys(false)
@@ -16,7 +16,7 @@ case class RedactedStudentResults(
     outcomes: SortedMap[RedactedTestId, RedactedOutcome]
 ) derives ReadWriter
 
-// A student's own results: goes to their private results repo (and the
+// A student's own results: goes to their results branch (and the
 // emails made from it), so it may hold their own CSID and commit details.
 // Other students must stay anonymous, though: tests are keyed by
 // RedactedTestId, since a student-written test's TestId.internal_name is its

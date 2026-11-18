@@ -11,7 +11,7 @@ import ag.common.{
   given_ReadWriter_SortedMap,
   given_ReadWriter_SortedSet
 }
-import ag.grader.repos.{CoursesConfig, EnrollmentRepo}
+import ag.grader.repos.{ClassRepo, CoursesConfig}
 import ag.rules.{DerivedScope, Source, Target}
 
 import scala.collection.{SortedMap, SortedSet}
@@ -65,9 +65,12 @@ final case class Course(c: CourseName, source: Source)
 
   // ---- enrollment ------------------------------------------------------
 
-  // csid -> their ssh key, from the course's enrollment repo
+  // csid -> their ssh key, from the course's enrollment (see
+  // repos.EnrollmentRepo)
   lazy val enrollment: Target[SortedMap[CSID, String]] =
-    target((m = source.master(EnrollmentRepo.name_of(c)))) { (producer, deps) =>
+    target(
+      (m = source.branch(ClassRepo.name_of(c), ClassRepo.enrollment_branch))
+    ) { (producer, deps) =>
       deps.m.flatMap(m =>
         producer.read_text(producer.commit(m).tree, os.rel / "enrollment.json")
       ) match {
@@ -75,7 +78,7 @@ final case class Course(c: CourseName, source: Source)
         case None       =>
           if (deps.m.isDefined)
             producer.log(
-              s"${EnrollmentRepo.name_of(c)} has no enrollment.json\n"
+              s"${ClassRepo.name_of(c)}'s ${ClassRepo.enrollment_branch} has no enrollment.json\n"
             )
           SortedMap[CSID, String]()
       }

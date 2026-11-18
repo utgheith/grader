@@ -44,7 +44,7 @@ class GradingTests extends FunSuite {
     val sha =
       r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
     val _ = r.commit(
-      "c1_p1__override",
+      "c1:p1/override",
       test_cutoff.minusDays(30),
       (Seq(
         "Makefile" -> makefile,
@@ -61,14 +61,25 @@ class GradingTests extends FunSuite {
   private def git(dir: os.Path, args: String*): String =
     os.proc("git" +: args).call(cwd = dir).out.text().trim
 
-  // what `sync` would do for `repo`: the mirror gets the outbox's commit
-  private def as_if_synced(r: Repos, ob: Outbox, repo: String): Unit = {
+  // what `sync` would do for `branch` of `repo`: the mirror gets the
+  // outbox's commit
+  private def as_if_synced(
+      r: Repos,
+      ob: Outbox,
+      repo: String,
+      branch: String
+  ): Unit = {
     val m = r.mirror / s"$repo.git"
     if (!os.exists(m)) {
       val _ = git(r.mirror, "init", "-q", "--bare", m.toString)
     }
-    val _ =
-      git(ob.dir(repo), "push", "-q", m.toString, "master:refs/heads/master")
+    val _ = git(
+      ob.dir(s"$repo/$branch"),
+      "push",
+      "-q",
+      m.toString,
+      s"master:refs/heads/$branch"
+    )
   }
 
   private def statuses(r: RedactedStudentResults | StudentResults) = {
@@ -115,7 +126,7 @@ class GradingTests extends FunSuite {
   }
 
   test(
-    "the results repo: a file per milestone; has_work until the results cover n tries"
+    "the results: a file per milestone, on the site; has_work until the published results cover n tries"
   ) {
     val root = TempDirs.dir()
     val (r, source, ob, _) = setup(root)
@@ -129,17 +140,30 @@ class GradingTests extends FunSuite {
     assert(has_work(1))
 
     val s = State(root / "ws")
-    val p =
-      s.track(ag.grader.repos.ResultsRepo(Fixture.project(source)).latest(1))
-    assertEquals(p.value.create, Some(Create("empty", Seq("@all"), Seq())))
-    val dir = s.checkout(p.data)
+    // run to 1 try
+    val files = s.track(Fixture.project(source).results_files(1))
     assertEquals(
-      os.list(dir).map(_.last).sorted,
+      files.keySet.toSeq,
       Seq("results_live.json", "results_m1.json", "results_m2.json")
     )
-    val latest = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-      os.read(dir / "results_live.json")
+    // the site has them, as far as everyone has run
+    val p = s.track(ag.grader.repos.SiteRepo(Fixture.course(source)).latest)
+    assertEquals(
+      (p.value.repo, p.value.branch, p.value.create),
+      (
+        "c1",
+        "grader/site",
+        Some(Create("empty", Seq("@c1_staff"), Seq("@c1_staff")))
+      )
     )
+    val dir = s.checkout(p.data) / "results" / "p1"
+    assertEquals(os.list(dir).map(_.last).sorted, files.keySet.toSeq)
+    def read(f: String) =
+      upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
+        os.read(dir / f)
+      )
+    for (f <- files.keySet) assertEquals(read(f), files(f))
+    val latest = read("results_live.json")
     assertEquals(latest.keySet, SortedSet(Alias(1)))
     assertEquals(
       statuses(latest(Alias(1))),
@@ -148,9 +172,7 @@ class GradingTests extends FunSuite {
         "t1" -> Seq(OutcomeStatus.unknown)
       )
     )
-    val one = upickle.default.read[SortedMap[Alias, RedactedStudentResults]](
-      os.read(dir / "results_m1.json")
-    )
+    val one = read("results_m1.json")
     assertEquals(
       one(Alias(1)).outcomes.keySet.map(_.external_name),
       SortedSet("t0")
@@ -162,9 +184,9 @@ class GradingTests extends FunSuite {
         s.track(ag.grader.repos.AliasesRepo(Fixture.project(source)).latest)
       )
     )
-    as_if_synced(r, ob, "c1_p1__aliases")
+    as_if_synced(r, ob, "c1", "grader/p1/aliases")
     assert(ob.record(p))
-    as_if_synced(r, ob, "c1_p1__results")
+    as_if_synced(r, ob, "c1", "grader/site")
     assert(!has_work(1))
     assert(has_work(2))
   }

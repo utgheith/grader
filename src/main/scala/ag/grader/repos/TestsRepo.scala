@@ -4,23 +4,25 @@ import ag.grader.targets.Project
 
 import ag.grader.name.{Alias, CSID, CourseName, ProjectName}
 
-import ag.grader.gitolite.{Groups, OwnedRepo, Create, Publish}
+import ag.grader.gitolite.{OwnedRepo, Create, Publish}
 
 import ag.common.ToRelPath
 import ag.rules.{Producer, Source, Target, WithData}
 
 import scala.collection.SortedMap
 
-// Every test of a project, for everyone to read (as Project.publish_tests):
-// the students' (by alias, at <alias>.<ext>) and the override repo's.
+// Every test of a project (as Project.publish_tests): the students' (by
+// alias, at <alias>.<ext>) and the override's. On the grader's tests
+// branch of the course's repo (see ClassRepo), for the staff; students
+// see the tests in their prepared code.
 final case class TestsRepo(project: Project) extends OwnedRepo[TestsRepo]
     derives ToRelPath {
   val source: Source = project.source
   private def c: CourseName = project.c
   private def p: ProjectName = project.p
-  def repo_name: String = s"${ProjectRepo.name_of(c, p)}__tests"
-  def create: Option[Create] =
-    Some(Create("empty", Seq(Groups.everyone), Seq()))
+  def repo_name: String = ClassRepo.name_of(c)
+  override def branch: String = ClassRepo.tests_branch(p)
+  def create: Option[Create] = Some(ClassRepo.create(c))
   val message = "tests"
 
   lazy val latest: Target[WithData[Publish]] =

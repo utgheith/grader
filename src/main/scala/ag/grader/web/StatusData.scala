@@ -38,7 +38,6 @@ import scala.util.Try
 final class StatusData(val source: Source) extends Scope("status") {
   import StatusData.*
 
-  def project_repo(c: CourseName, p: ProjectName): String = s"${c}_$p"
   // a student's repo, and their branches in it (see repos.StudentRepo)
   def student_repo(c: CourseName, csid: CSID): String =
     ag.grader.repos.StudentRepo.name_of(c, csid)
@@ -53,7 +52,14 @@ final class StatusData(val source: Source) extends Scope("status") {
       ag.grader.repos.StudentRepo.results_branch(p)
     )
 
-  private def master(repo: String): Target[Option[Commit]] = source.master(repo)
+  // a branch of the course's repo (see repos.ClassRepo)
+  def class_branch(c: CourseName, branch: String): Target[Option[Commit]] =
+    source.branch(ag.grader.repos.ClassRepo.name_of(c), branch)
+  // the course's site, which has the projects' results
+  def site(c: CourseName): Target[Option[Commit]] =
+    class_branch(c, ag.grader.repos.ClassRepo.site_branch)
+  def aliases_branch(c: CourseName, p: ProjectName): Target[Option[Commit]] =
+    class_branch(c, ag.grader.repos.ClassRepo.aliases_branch(p))
 
   // `file` in commit `c`'s files, if it's there
   private def text(ctx: Context[?], c: Commit, file: String): Option[String] =
@@ -69,47 +75,46 @@ final class StatusData(val source: Source) extends Scope("status") {
   lazy val milestone_results
       : (CourseName, ProjectName, Milestone) => Target[MilestoneResults] =
     fun { (c: CourseName, p: ProjectName, milestone: Milestone) =>
-      target((m = master(s"${project_repo(c, p)}__results"))) {
-        (producer, deps) =>
-          (for {
-            m <- deps.m
-            json <- text(producer, m, milestone.results_file)
-          } yield Try(
-            upickle.default.read[SortedMap[Alias, RedactedStudentResults]](json)
-          ).toEither match {
-            case Left(e) =>
-              MilestoneResults(
-                None,
-                None,
-                Some(
-                  s"${milestone.results_file} can't be read: ${e.getMessage}"
-                )
+      val file = ag.grader.repos.ClassRepo.results_path(p, milestone)
+      target((m = site(c))) { (producer, deps) =>
+        (for {
+          m <- deps.m
+          json <- text(producer, m, file)
+        } yield Try(
+          upickle.default.read[SortedMap[Alias, RedactedStudentResults]](json)
+        ).toEither match {
+          case Left(e) =>
+            MilestoneResults(
+              None,
+              None,
+              Some(
+                s"$file can't be read: ${e.getMessage}"
               )
-            case Right(r) =>
-              MilestoneResults(
-                Some(r),
-                producer
-                  .history(m, first_parent = false)
-                  .find(changed(producer, _, Seq(milestone.results_file)))
-                  .map(_.committed),
-                None
-              )
-          }).getOrElse(MilestoneResults(None, None, None))
+            )
+          case Right(r) =>
+            MilestoneResults(
+              Some(r),
+              producer
+                .history(m, first_parent = false)
+                .find(changed(producer, _, Seq(file)))
+                .map(_.committed),
+              None
+            )
+        }).getOrElse(MilestoneResults(None, None, None))
       }
     }
 
   lazy val aliases
       : (CourseName, ProjectName) => Target[SortedMap[CSID, Alias]] = fun {
     (c: CourseName, p: ProjectName) =>
-      target((m = master(s"${project_repo(c, p)}__aliases"))) {
-        (producer, deps) =>
-          (for {
-            m <- deps.m
-            json <- text(producer, m, "aliases.json")
-            a <- Try(
-              upickle.default.read[SortedMap[CSID, Alias]](json)
-            ).toOption
-          } yield a).getOrElse(SortedMap[CSID, Alias]())
+      target((m = aliases_branch(c, p))) { (producer, deps) =>
+        (for {
+          m <- deps.m
+          json <- text(producer, m, "aliases.json")
+          a <- Try(
+            upickle.default.read[SortedMap[CSID, Alias]](json)
+          ).toOption
+        } yield a).getOrElse(SortedMap[CSID, Alias]())
       }
   }
 
@@ -127,11 +132,14 @@ final class StatusData(val source: Source) extends Scope("status") {
     }
   }
 
-  // the names of the tests in the tests repo
+  // the names of the tests on the tests branch
   lazy val published_tests: (CourseName, ProjectName) => Target[Seq[String]] =
     fun { (c: CourseName, p: ProjectName) =>
       target(
-        (m = master(s"${project_repo(c, p)}__tests"), rp = project(c, p))
+        (
+          m = class_branch(c, ag.grader.repos.ClassRepo.tests_branch(p)),
+          rp = project(c, p)
+        )
       ) { (producer, deps) =>
         val extensions = deps.rp.toSeq.flatMap(_.test_extensions)
         (for {

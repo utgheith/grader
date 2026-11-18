@@ -9,7 +9,8 @@ import ag.grader.main.misc.{
 
 // Runs the picked projects (as run does: with no -p, one round of one
 // project), then records their results, as far as they got, in the outbox, for `sync` to push: what the project
-// publishes (override, aliases, submitted tests, tests), its results, and
+// publishes (override, aliases, submitted tests, tests), its course's site
+// (with its results), and
 // each student's own results and prepared code (see repos.Grade.all).
 // The r3 form of publish_results. With -s or -t, only the students and
 // tests they pick are run (as run's), and only the picked students' own
@@ -23,6 +24,7 @@ object Grade {
         commonArgs.students_.regex != ".*" || commonArgs.tests_.regex != ".*"
       val projects = run_projects(s, commonArgs, tries, picking, None)
       // as far as everyone has run: the round run is only some of it
+      // (a course's site once, however many of its projects ran)
       val wanted = s.track_all(projects.flatMap { project =>
         val students = s.track(project.students_with_submission).toSeq
         ag.grader.repos.Grade.so_far(
@@ -32,7 +34,7 @@ object Grade {
             students.filter(csid => commonArgs.students_.matches(csid.value))
           else students
         )
-      })
+      }.distinct)
       val ob = outbox_of(commonArgs.workspace)
       val k = wanted.count(ob.record)
       println(

@@ -178,7 +178,7 @@ object Fixture {
       "courses.json" -> upickle.default.write(Map("c1" -> rc))
     )()
     val _ = r.commit(
-      "c1__enrollment",
+      "c1:grader/enrollment",
       test_cutoff,
       "enrollment.json" -> upickle.default.write(
         SortedMap(s1 -> "k1", CSID("s2") -> "k2")

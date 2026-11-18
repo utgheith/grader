@@ -4,14 +4,14 @@ import ag.grader.targets.Project
 
 import ag.grader.name.{CourseName, ProjectName}
 
-import ag.grader.gitolite.{Groups, HandedOverRepo, Create, Publish}
+import ag.grader.gitolite.{HandedOverRepo, Create, Publish}
 
 import ag.common.ToRelPath
 import ag.rules.{Source, Target, WithData}
 
-// A project's override repo: its tests and Makefiles, which the staff keep
-// (as Project.publish_override_repo). Everyone can read it, the staff
-// write it. The grader starts it from the project repo's tests and
+// A project's override: its tests and Makefiles, which the staff keep (as
+// Project.publish_override_repo), on the staff's override branch of the
+// course's repo (see ClassRepo). The grader starts it from the project repo's tests and
 // Makefiles (adding them to what's there, if the staff made it first), and
 // marks it .initialized; then it's theirs.
 final case class OverrideRepo(project: Project)
@@ -19,9 +19,9 @@ final case class OverrideRepo(project: Project)
   val source: Source = project.source
   private def c: CourseName = project.c
   private def p: ProjectName = project.p
-  def repo_name: String = OverrideRepo.name_of(c, p)
-  def create: Option[Create] =
-    Some(Create("empty", Seq(Groups.everyone), Seq(Groups.staff(c))))
+  def repo_name: String = ClassRepo.name_of(c)
+  override def branch: String = ClassRepo.override_branch(p)
+  def create: Option[Create] = Some(ClassRepo.create(c))
   val message = "update override"
 
   // handed over once the grader has started it, even if the staff made it
@@ -70,9 +70,6 @@ final case class OverrideRepo(project: Project)
 }
 
 object OverrideRepo {
-  def name_of(c: CourseName, p: ProjectName): String =
-    s"${ProjectRepo.name_of(c, p)}__override"
-
   private val marker = ".initialized"
   private val makefiles = Set("Makefile", "makefile")
 }

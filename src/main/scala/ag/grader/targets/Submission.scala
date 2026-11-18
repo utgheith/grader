@@ -99,7 +99,7 @@ final case class Submission(project: Project, csid: CSID)
   lazy val prepare: String => Target[WithData[Unit]] = fun { (sha: String) =>
     target(
       (
-        ov = source.master(ag.grader.repos.OverrideRepo.name_of(c, p)),
+        ov = ag.grader.repos.OverrideRepo(project).inspect,
         ext = project.test_extensions
       )
     ) { (producer, deps) =>

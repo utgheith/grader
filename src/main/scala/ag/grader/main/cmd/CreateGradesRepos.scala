@@ -8,7 +8,7 @@ import ag.grader.main.misc.{
   in_r3_workspace
 }
 
-// Records each picked active course's grades repo in the outbox, for
+// Records each picked active course's grades branch in the outbox, for
 // `sync` to push (see repos.GradesRepo): made with a README if it isn't
 // there, then left to the staff.
 object CreateGradesRepos {
