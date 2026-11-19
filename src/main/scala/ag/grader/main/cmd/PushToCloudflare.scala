@@ -7,10 +7,11 @@ import ag.grader.main.misc.{
   in_r3_workspace
 }
 
-// Serves each picked active course's site, as published (`grade`
-// publishes it: see repos.SiteRepo), on Cloudflare (see SiteDeployment),
-// if config.json's cloudflare is enabled: again only when its pages
-// change. The r3 form of push_to_cloudflare.
+// Serves each picked active course's site on Cloudflare (see
+// SiteDeployment), if config.json's cloudflare is enabled: again only when
+// its pages change. `grade` does this for the courses it grades; this is
+// for serving a site by hand. The site is worked out as `grade` would
+// publish it (see repos.SiteRepo), without running anything.
 object PushToCloudflare {
   def apply(commonArgs: CommonArgs): Unit =
     in_r3_workspace(commonArgs) { s =>

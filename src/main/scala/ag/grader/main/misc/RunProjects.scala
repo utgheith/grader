@@ -24,7 +24,10 @@ private[main] def run_projects(
     commonArgs: CommonArgs,
     tries: Option[Int],
     narrow: Boolean,
-    milestone: Option[Milestone]
+    milestone: Option[Milestone],
+    // called as each project starts running (unless `narrow`), with the
+    // milestones it runs and their tries: what to start beside its runs
+    running: (Project, Seq[Milestone], Int) => Unit = (_, _, _) => ()
 ): Seq[Project] = {
   val source = source_of(commonArgs.workspace)
   val candidates = active_projects(s, commonArgs, source)
@@ -111,6 +114,7 @@ private[main] def run_projects(
       )
       f.report("run", results.size, commonArgs.verbose.value)
     } else {
+      running(project, run_milestones, n)
       val students = s.track(project.students_with_submission).toSeq
       val results = s.track_all(
         for {

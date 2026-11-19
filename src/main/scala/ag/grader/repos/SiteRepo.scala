@@ -4,8 +4,6 @@ import ag.grader.targets.Course
 
 import ag.grader.web.HtmlGen
 
-import ag.grader.Outbox
-
 import ag.grader.name.{CourseName, ProjectName}
 
 import ag.grader.gitolite.{OwnedRepo, Create, Publish}
@@ -62,9 +60,9 @@ final case class SiteRepo(course: Course) extends OwnedRepo[SiteRepo]
       Seq()
     }
 
-  // what's served: its files as published (on the mirror), so a new
-  // commit with the same files isn't served again
-  lazy val pages: Target[Tree] = target((m = inspect)) { (producer, deps) =>
-    deps.m.fold(Tree(Outbox.empty_tree))(producer.commit(_).tree)
-  }
+  // what's served: the files `latest` publishes (not the mirror's, which
+  // may not have caught up with the push), so the site is served as it's
+  // published, and a new commit with the same files isn't served again
+  lazy val pages: Target[Tree] =
+    target((published = latest))((_, deps) => deps.published.data)
 }

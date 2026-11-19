@@ -6,8 +6,8 @@ import ag.rules.WithData
 
 import scala.util.Try
 
-// What the grader would push to the git server, kept as local commits for
-// `sync` to push: a bare repo per server repo, or branch of one,
+// What the grader would push to the git server, kept as local commits until
+// they're pushed (as they're recorded: see main.misc.Publishing; or by `sync`): a bare repo per server repo, or branch of one,
 // outbox/<key>.git (see Publish.key), whose master is the commit to push
 // (to the branch) and whose outbox.json is the Publish it came from. Its objects come from the mirror's repo and the r3 store, through
 // git's alternates (relative: the workspace can move).
@@ -52,6 +52,22 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
         .map(d => d.relativeTo(root).toString.stripSuffix(".git"))
         .sorted
 
+  // Whether what's pending for `key` can no longer be pushed as it is: the
+  // branch on the mirror (brought up to date first) has moved off the
+  // commit it was worked out on. Then it's to be worked out again; a push
+  // would fail.
+  def is_stale(key: String): Boolean = {
+    val p = publish_of(key)
+    val d = mirror_dir(p.repo)
+    val current =
+      if (!os.isDir(d)) None
+      else git(d, "rev-parse", "--verify", "-q", s"refs/heads/${p.branch}")
+    current.nonEmpty && current != p.base
+  }
+
+  // drops what's pending for `key`
+  def drop(key: String): Unit = locked_key(key)(os.remove.all(dir(key)))
+
   def publish_of(key: String): Publish =
     upickle.default.read[Publish](os.read(dir(key) / "outbox.json"))
 
@@ -63,7 +79,7 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
   // no base (and nothing to tell) it's left out: a branch can't be there
   // empty, and the repo is made for whichever branch has something. True if
   // there's something to do; what was pending for it is replaced.
-  def record(p: WithData[Publish]): Boolean = {
+  def record(p: WithData[Publish]): Boolean = locked(p.value.repo) {
     val repo = p.value.key
     val d = dir(repo)
     // where the base is: the repo's mirror, or where it starts (see
@@ -137,29 +153,23 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
     }
   }
 
-  // Makes the repos that are to be made (by forking: what's pushed goes on
-  // top of where the fork starts) and pushes what's pending to `server` (a
-  // fast-forward or nothing), sending each one's notices once it's done;
-  // then brings the mirror up to date. What can't be done stays pending, and
-  // is reported.
-  def sync(
+  // Does what's pending for `key` (a Publish's, see Publish.key), if
+  // anything: makes its repo if it's to be made (by forking: what's pushed
+  // goes on top of where the fork starts) and pushes it (a fast-forward or
+  // nothing), then sends its notices. Throws if it can't: then it stays
+  // pending.
+  def push_one(
       server: RemoteServer,
       can_send_mail: Boolean,
-      log: String => Unit
-  ): Unit = {
-    // whether `repo` is on the server: asked without reading it, which would
-    // make it (gitolite makes a missing repo its reader may create)
-    def on_server(repo: String): Boolean =
-      server
-        .ssh("info", repo)
-        .lines(cwd = root)
-        .exists(_.split("""\s""").lastOption.contains(repo))
-    for (key <- pending) {
-      val d = dir(key)
+      log: String => Unit,
+      key: String
+  ): Unit = locked_key(key) {
+    val d = dir(key)
+    if (os.isFile(d / "outbox.json")) {
       val p = publish_of(key)
       val repo = p.repo
-      val done = Try {
-        if (!p.exists && !on_server(repo)) {
+      try {
+        if (!p.exists && !on_server(server, repo)) {
           val create = p.create.getOrElse(
             throw Exception(s"$repo isn't on the server, and can't be made")
           )
@@ -184,22 +194,53 @@ final class Outbox(val root: os.Path, mirror: os.Path, store: os.Path) {
             )
             .check(cwd = d)
         }
-      }
-      if (done.isSuccess) {
-        os.remove.all(d)
-        // the emails about it, now that it's done (a failed one is only
-        // logged: it isn't sent again)
-        for (n <- p.notices)
-          Try(n.send(server, can_send_mail, log)).failed.foreach(e =>
-            log(s"$key: mailing ${n.to.toString} failed: ${e.getMessage}")
+      } catch {
+        case scala.util.control.NonFatal(e) =>
+          throw Exception(
+            s"$key: not pushed (it stays in the outbox; has the server moved on since the mirror fetched $repo?)",
+            e
           )
-      } else
-        log(
-          s"$key: not done (the server's moved on? update the mirror and run again): ${done.failed.get.getMessage}"
+      }
+      os.remove.all(d)
+      // the emails about it, now that it's done (a failed one is only
+      // logged: it isn't sent again)
+      for (n <- p.notices)
+        Try(n.send(server, can_send_mail, log)).failed.foreach(e =>
+          log(s"$key: mailing ${n.to.toString} failed: ${e.getMessage}")
         )
     }
+  }
+
+  // Does what's pending (see push_one), in order, then brings the mirror up
+  // to date. Stops at the first that can't be done, and throws: it and the
+  // rest stay pending.
+  def sync(
+      server: RemoteServer,
+      can_send_mail: Boolean,
+      log: String => Unit
+  ): Unit = {
+    for (key <- pending) push_one(server, can_send_mail, log, key)
     LocalMirror.update(server, mirror, log)
   }
+
+  // whether `repo` is on the server: asked without reading it, which would
+  // make it (gitolite makes a missing repo its reader may create)
+  private def on_server(server: RemoteServer, repo: String): Boolean =
+    server
+      .ssh("info", repo)
+      .lines(cwd = root)
+      .exists(_.split("""\s""").lastOption.contains(repo))
+
+  // recording and pushing what's for a repo: one at a time (runs record and
+  // push from many threads; two of a new repo's branches mustn't both make
+  // it)
+  private val locks = scala.collection.concurrent.TrieMap[String, Object]()
+  private def locked[A](repo: String)(f: => A): A =
+    locks.getOrElseUpdate(repo, Object()).synchronized(f)
+  // the lock of the repo what's pending for `key` is for (its own, if
+  // there's nothing)
+  private def locked_key[A](key: String)(f: => A): A =
+    locked(Try(publish_of(key).repo).getOrElse(key))(f)
 }
 
 object Outbox {

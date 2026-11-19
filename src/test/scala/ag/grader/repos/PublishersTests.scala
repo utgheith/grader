@@ -31,6 +31,41 @@ class PublishersTests extends FunSuite {
     os.proc("git" +: args).call(cwd = dir).out.text().trim
 
   test(
+    "what's pending is stale once the branch moves off its base on the mirror, and can be dropped"
+  ) {
+    val root = TempDirs.dir()
+    val (r, source, ob) = setup(root)
+    val _ = r.commit("c1_p1", test_cutoff.minusDays(30), "main.c" -> "x")()
+    val _ = r.commit("c1_s1:p1", test_cutoff.minusDays(1), "main.c" -> "mine")()
+    val key = "c1/grader/p1/aliases"
+    def latest = State(root / "ws").track(AliasesRepo(Fixture.project(source)).latest)
+    assert(ob.record(latest))
+    // no such repo, or branch, on the mirror: it can still be pushed
+    assert(!ob.is_stale(key))
+    val m = r.mirror / "c1.git"
+    val _ = git(r.mirror, "init", "-q", "--bare", m.toString)
+    assert(!ob.is_stale(key))
+    // someone else made the branch: it can't
+    val other = root / "other"
+    val _ = git(root, "init", "-q", other.toString)
+    os.write(other / "theirs.txt", "1")
+    val _ = git(other, "add", ".")
+    val _ = git(other, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-m", "theirs")
+    val _ = git(other, "push", "-q", m.toString, "HEAD:refs/heads/grader/p1/aliases")
+    assert(ob.is_stale(key))
+    // worked out again, on what's there now: it can
+    assert(ob.record(latest))
+    assert(!ob.is_stale(key))
+    // and the branch moves again
+    os.write.over(other / "theirs.txt", "2")
+    val _ = git(other, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-am", "again")
+    val _ = git(other, "push", "-q", m.toString, "HEAD:refs/heads/grader/p1/aliases")
+    assert(ob.is_stale(key))
+    ob.drop(key)
+    assertEquals(ob.pending, Seq())
+  }
+
+  test(
     "a new branch: a commit with no parent; once it's on the mirror, nothing to push"
   ) {
     val root = TempDirs.dir()

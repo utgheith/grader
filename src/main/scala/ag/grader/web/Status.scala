@@ -612,8 +612,8 @@ final class Status(data: StatusData, state: () => State) extends WebPages {
 
   // Reads what the course and milestone pages show (the courses, and each
   // project's results and aliases) from the local mirror, all at once,
-  // telling `log` how it goes. It doesn't update the mirror: `grader sync`
-  // does.
+  // telling `log` how it goes (each repo is brought up to date as it's
+  // read: see StatusData).
   def warm(log: String => Unit): Unit = {
     def secs(since: Long): String = f"${(System.nanoTime() - since) / 1e9}%.1fs"
     val started = System.nanoTime()

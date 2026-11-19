@@ -4,16 +4,27 @@ import ag.common.given_ReadWriter_SortedMap
 
 import scala.collection.{SortedMap, SortedSet}
 
+// What keeps a Source up to date, if anything (ag.grader.gitolite.LocalMirror:
+// the git server). Asked lazily: a repo is brought up to date when a run
+// first reads it, so what a run reads is as recent as it can be.
+trait Upstream {
+  // the repos there are
+  def repos: SortedSet[String]
+  // brings repo `name` up to date, if it isn't (at most once per process);
+  // throws if it can't
+  def refresh(name: String): Unit
+}
+
 // A directory of bare git repos (e.g. a local mirror of a git server) that
-// no target writes: something outside any State keeps it up to date
-// (possibly while a run reads it), and State only hands out its repos to
-// read (Store.Reads). What targets publish comes back to it that way. Targets see
+// no target writes: `upstream` keeps it up to date as runs read it (or, with
+// none, something outside any State does, possibly while a run reads it),
+// and State only hands out its repos to read (Store.Reads). What targets publish comes back to it that way. Targets see
 // it through snapshots of its refs (repos, refs, ref), which are read again
 // on every run, and read its contents only at the commits a snapshot names
 // (see Context: commit, history, note, and read/list/checkout of a commit's
 // tree), so a run sees one consistent state of each repo even while it's
 // being updated.
-final class Source(val root: os.Path) {
+final class Source(val root: os.Path, upstream: Option[Upstream] = None) {
   private val scope = Scope("sources") / root.relativeTo(os.root)
 
   // A repo's directory: <name>.git, or <name> itself
@@ -22,7 +33,8 @@ final class Source(val root: os.Path) {
     if (os.exists(dotted)) dotted else root / os.RelPath(name)
   }
 
-  // the repos' names (their directories, without .git), nested ones included
+  // the repos' names (their directories, without .git), nested ones
+  // included; the upstream's, if there is one
   lazy val repos: Target[SortedSet[String]] = scope.target(EmptyTuple) {
     (_, _) =>
       def walk(d: os.Path): Seq[os.Path] =
@@ -34,19 +46,24 @@ final class Source(val root: os.Path) {
               os.isDir(p, followLinks = false) && !p.last.startsWith(".")
             )
             .flatMap(walk)
-      if (!os.isDir(root)) SortedSet()
-      else
-        walk(root)
-          .filter(_ != root)
-          .map(_.relativeTo(root).toString.stripSuffix(".git"))
-          .to(SortedSet)
+      upstream match {
+        case Some(u)                 => u.repos
+        case None if !os.isDir(root) => SortedSet()
+        case None                    =>
+          walk(root)
+            .filter(_ != root)
+            .map(_.relativeTo(root).toString.stripSuffix(".git"))
+            .to(SortedSet)
+      }
   }
 
   // A snapshot of repo `name`'s refs (branches, tags, notes, ...): ref ->
-  // id. Empty if there's no such repo.
+  // id, once the upstream has brought it up to date. Empty if there's no
+  // such repo.
   lazy val refs: String => Target[SortedMap[String, String]] = scope.fun {
     (name: String) =>
       scope.target(EmptyTuple) { (producer, _) =>
+        upstream.foreach(_.refresh(name))
         val d = dir(name)
         if (!Source.is_repo(d)) SortedMap[String, String]()
         else producer.state.store_at(Some(d.toString)).refs()
@@ -74,7 +91,8 @@ final class Source(val root: os.Path) {
   def master(name: String): Target[Option[Commit]] = branch(name, "master")
 
   // every repo's master: repo -> id (repos with no master left out), as
-  // the server's `history` lists them, as of the last fetch
+  // the server's `history` lists them, as of the last fetch (with an
+  // upstream, this brings every repo up to date)
   lazy val masters: Target[SortedMap[String, String]] =
     scope.complex_target[SortedMap[String, String]] { tracker =>
       val names = tracker.track(repos).toSeq

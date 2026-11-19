@@ -21,9 +21,8 @@ object SiteHost {
   given ToRelPath[SiteHost] = h => os.RelPath(h.name)
 }
 
-// A course's site, served by `host`: its pages as published (the site
-// branch on the mirror, so what's served is what's on the server). Served
-// again only when they change.
+// A course's site, served by `host`: its pages as `grade` publishes them
+// (see SiteRepo.pages). Served again only when they change.
 final case class SiteDeployment(course: Course, host: SiteHost)
     extends DerivedScope[SiteDeployment] derives ToRelPath {
   val source: Source = course.source

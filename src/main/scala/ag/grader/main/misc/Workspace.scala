@@ -18,10 +18,19 @@ private[main] def outbox_of(workspace: os.Path): ag.grader.Outbox =
     r3_workspace(workspace) / "r3.git"
   )
 
-// what the r3 targets work from: the workspace's local mirror and the
-// dropbox
-private[main] def source_of(workspace: os.Path): ag.rules.Source =
-  ag.rules.Source(mirror_root(workspace))
+// what the r3 targets work from: the workspace's local mirror, each repo
+// brought up to date from the git server when a run first reads it (see
+// ag.grader.gitolite.LocalMirror)
+private[main] def source_of(workspace: os.Path): ag.rules.Source = {
+  val root = mirror_root(workspace)
+  ag.rules.Source(
+    root,
+    Some(
+      ag.grader.gitolite.LocalMirror
+        .of(ag.grader.Config.gitolite_server, root, println)
+    )
+  )
+}
 
 // the active courses -c picks
 private[main] def active_courses(
@@ -48,28 +57,41 @@ private[main] def active_projects(
 private[main] def dropbox_of(): ag.grader.targets.Dropbox =
   ag.grader.targets.Dropbox(ag.grader.Config.dropbox_root)
 
-// The local mirror of the git server: kept up to date by `sync`, read
-// by the status pages.
+// The runs' local mirror of the git server: each repo fetched when a run
+// first reads it (see source_of), or all at once by `sync`.
 private[main] def mirror_root(workspace: os.Path): os.Path =
   workspace / "mirror"
 
-// The grading status, from the local mirror (see ag.grader.web.Status). Its
-// data are r3 targets (ag.grader.web.StatusData) on the mirror, worked out by
-// read-only States in the workspace's status/ directory, which these pages
-// lock for as long as the program runs: a workspace of their own, so they
-// can go on beside runs. They never update the mirror. None if another
-// program has them.
+// The grading status (see ag.grader.web.Status). Its data are r3 targets
+// (ag.grader.web.StatusData) worked out by read-only States in the
+// workspace's status/ directory, which these pages lock for as long as the
+// program runs: a workspace of their own, so they can go on beside runs.
+// They read a mirror of their own there (the runs' is locked by whichever
+// run is reading it), each repo fetched when it's read, with the server's
+// history read again every minute (see LocalMirror.renewing), so they're at
+// most about a minute behind the server. `log` says what's fetched. None if
+// another program has them.
 private[main] def status_pages(
-    workspace: os.Path
+    workspace: os.Path,
+    log: String => Unit
 ): Option[ag.grader.web.Status] = {
   val dir = workspace / "status"
   os.makeDir.all(dir)
   ag.common.RunLock.acquire(dir, s"status pages for $command_line") match {
     case Right(_) =>
-      val states = ag.grader.web.ReadOnlyStates(dir, ttl_ms = 60 * 1000)
+      val ttl_ms = 60 * 1000L
+      val states = ag.grader.web.ReadOnlyStates(dir, ttl_ms)
+      val mirror = dir / "mirror"
+      val source = ag.rules.Source(
+        mirror,
+        Some(
+          ag.grader.gitolite.LocalMirror
+            .renewing(ag.grader.Config.gitolite_server, mirror, ttl_ms, log)
+        )
+      )
       Some(
         ag.grader.web.Status(
-          ag.grader.web.StatusData(ag.rules.Source(mirror_root(workspace))),
+          ag.grader.web.StatusData(source),
           () => states()
         )
       )
@@ -78,21 +100,6 @@ private[main] def status_pages(
       None
   }
 }
-
-// Exits with an explanation if `workspace` has no local mirror (one with
-// courses_config, which everything else is found from), before anything
-// is made there: a run without one would find no courses, and say nothing
-// of why (e.g. one that forgot --workspace, in ./workspace).
-private def require_mirror(workspace: os.Path): Unit =
-  if (!os.exists(source_of(workspace).dir("courses_config"))) {
-    System.err.println(
-      s"""No local mirror in ${workspace.toString} (${mirror_root(
-          workspace
-        ).toString} has no courses_config).
-         |Is --workspace right? `sync --workspace <dir>` makes one.""".stripMargin
-    )
-    sys.exit(2)
-  }
 
 // the command line, for telling a second run who holds the lock
 private[main] var command_line = ""
@@ -107,7 +114,6 @@ private[main] def in_r3_workspace[A](
     args: CommonArgs
 )(f: ag.rules.State => A): A = {
   val workspace = args.workspace
-  require_mirror(workspace)
   os.makeDir.all(workspace)
   RunLock(workspace, command_line) {
     ag.rules.use_std_out_err(workspace / "std_out_err")
@@ -119,7 +125,8 @@ private[main] def in_r3_workspace[A](
       )
     val server = for {
       web <- ag.grader.Config.web
-      pages <- status_pages(workspace)
+      // (quietly: what they fetch isn't the run's)
+      pages <- status_pages(workspace, _ => ())
       server <- ag.web.WebServer.start(workspace, web, Some(pages))
     } yield server
     try

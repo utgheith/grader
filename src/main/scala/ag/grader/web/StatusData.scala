@@ -30,8 +30,8 @@ import scala.collection.SortedMap
 import scala.util.Try
 
 // The status pages' data (see Status), as r3 targets on `source`: a local
-// mirror of the git server, kept up to date by something else (`grader
-// mirror`). Each target depends on the refs it reads and reads only at the
+// mirror of the git server, which brings each repo up to date as it's read
+// (see main.misc.status_pages). Each target depends on the refs it reads and reads only at the
 // commits they name, so it's worked out again only when one of those refs
 // moves. Meant for a read-only State (see ReadOnlyStates): nothing here acts
 // beyond its workspace, and nothing writes to `source`.

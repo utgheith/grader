@@ -411,8 +411,15 @@ class CoursePublishersTests extends FunSuite {
       State(root / "ws").track(deployment.deployed),
       "https://c1.example"
     )
-    // the published pages, without the repo's dot files
-    assertEquals(served.toSeq, Seq(Seq("index.html")))
+    // the pages as grade publishes them (what's on the branch, and the
+    // pages and results worked out on top), without the repo's dot files
+    assertEquals(served.size, 1)
+    assert(
+      Seq("index.html", "c1_p1.html", "results/p1/results_m1.json")
+        .forall(served.head.contains),
+      served.head
+    )
+    assert(!served.head.exists(_.startsWith(".")), served.head)
     // nothing changed: not served again
     val _ = State(root / "ws").track(deployment.deployed)
     assertEquals(served.size, 1)

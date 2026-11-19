@@ -129,8 +129,49 @@ object Main {
   def hash_password(): Unit =
     cmd.HashPassword()
 
+  // A command that fails ends the process (exit 1) with its full stack
+  // trace, causes included, as the last thing it prints, set off so it's
+  // seen at once (mainargs would print it among its own messages). The
+  // loop around it (loop.sh) starts the next round.
   def main(args: Array[String]): Unit = {
     command_line = s"run ${args.mkString(" ")}"
-    val _ = ParserForMethods(this).runOrExit(args.toIndexedSeq)
+    val parser = ParserForMethods(this)
+    if (args.headOption.contains("--help")) {
+      val _ = parser.runOrExit(args.toIndexedSeq)
+    } else
+      parser.runRaw0(args.toIndexedSeq) match {
+        case Right((_, mainargs.Result.Success(_)))           => ()
+        case Right((_, mainargs.Result.Failure.Exception(e))) =>
+          System.out.flush()
+          val line = "=" * 72
+          System.err.println(
+            s"\n$line\nFAILED: $command_line\n$line\n${stack_trace(e)}$line"
+          )
+          System.exit(1)
+        case Right((m, f: mainargs.Result.Failure)) =>
+          System.err.println(
+            mainargs.Renderer.renderResult(
+              m,
+              f,
+              totalWidth = 100,
+              printHelpOnError = true,
+              docsOnNewLine = false,
+              customName = None,
+              customDoc = None,
+              sorted = true,
+              nameMapper = mainargs.Util.kebabCaseNameMapper
+            )
+          )
+          System.exit(1)
+        case Left(early) =>
+          System.err.println(mainargs.Renderer.renderEarlyError(early))
+          System.exit(1)
+      }
+  }
+
+  private def stack_trace(e: Throwable): String = {
+    val w = java.io.StringWriter()
+    e.printStackTrace(java.io.PrintWriter(w, true))
+    w.toString
   }
 }

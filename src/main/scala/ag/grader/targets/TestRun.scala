@@ -140,6 +140,7 @@ object TestRun {
     ag.rules.refuse_if_read_only(
       s"run ${id.external_name} on $what (${n.toString})"
     )
+    stop_check()
     val _ = started_runs.incrementAndGet()
     try {
       if (cores > limit)
@@ -147,6 +148,8 @@ object TestRun {
       // queued on the status screen while it waits for its cores
       producer.waiting(governor.acquire(cores))
       try {
+        // (the round may have ended while it waited)
+        stop_check()
         val root = producer.state.scratch_root
         os.makeDir.all(root)
         val work = os.temp.dir(dir = root, deleteOnExit = false)

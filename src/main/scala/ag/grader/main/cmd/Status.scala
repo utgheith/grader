@@ -2,9 +2,10 @@ package ag.grader.main.cmd
 
 import ag.grader.main.misc.status_pages
 
-// Serves the status pages (and nothing else) until stopped. It only reads
-// the local mirror (see `sync`), in its own workspace, so it can go on
-// beside runs, which serve the same pages while they're up.
+// Serves the status pages (and nothing else) until stopped, from a mirror
+// of their own that they keep up to date as they read it (see
+// status_pages), in their own workspace, so it can go on beside runs,
+// which serve the same pages while they're up.
 object Status {
   def apply(workspace: os.Path): Unit =
     ag.grader.Config.web match {
@@ -15,7 +16,7 @@ object Status {
       case Some(web) =>
         // its own command output: a run may be using the workspace's
         ag.rules.use_std_out_err(workspace / "status" / "std_out_err")
-        status_pages(workspace).foreach { pages =>
+        status_pages(workspace, println).foreach { pages =>
           pages.warm(println)
           if (!ag.web.WebServer.serve_pages(workspace, web, pages))
             println(

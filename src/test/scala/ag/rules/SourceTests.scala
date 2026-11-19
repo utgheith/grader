@@ -57,6 +57,37 @@ class SourceTests extends FunSuite {
     }
   }
 
+  test(
+    "with an upstream: its repos; a repo is brought up to date when first read, and read as it is then"
+  ) {
+    val t = Setup()
+    val work = t.make("a")
+    val first = t.push(work, "1")
+    // a fake upstream: says there are a and b, and (once) pushes "2" to a
+    // when asked to bring it up to date
+    val asked = AtomicInteger(0)
+    var second = ""
+    val up = new Upstream {
+      def repos: SortedSet[String] = SortedSet("a", "b")
+      def refresh(name: String): Unit = {
+        val _ = asked.incrementAndGet()
+        if (name == "a" && second.isEmpty) second = t.push(work, "2")
+      }
+    }
+    val source = Source(t.root, Some(up))
+    val s = State(t.ws)
+    assertEquals(s.track(source.repos), SortedSet("a", "b"))
+    assertEquals(asked.get, 0)
+    assert(second.isEmpty)
+    // reading a: up to date first, so it's "2", not the "1" that was there
+    assertEquals(s.track(source.master("a")).map(_.id), Some(second))
+    assertNotEquals(second, first)
+    assertEquals(asked.get, 1)
+    // b: asked for, and not there
+    assertEquals(s.track(source.master("b")), None)
+    assertEquals(asked.get, 2)
+  }
+
   test("repos: plain, .git and nested ones; refs and ref of a missing repo") {
     val s = Setup()
     val _ = s.make("a")

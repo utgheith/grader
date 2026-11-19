@@ -44,8 +44,23 @@ case class ProcException(
     thread_id: String,
     rc: Int
 ) extends Exception {
-  override def getMessage: String =
-    s"[$thread_id] cmd_id:[$cmd_id] rc:[$rc] std_out_err:[${std_out_err.toString}]"
+  // what failed, its exit code, and the end of what it said on stderr
+  // (all of it is in std_out_err)
+  override def getMessage: String = {
+    def read(ext: String): Option[String] =
+      scala.util.Try(os.read(std_out_err / s"$cmd_id.$ext")).toOption
+    val cmd = read("cmd").getOrElse("?")
+    val err = read("err")
+      .map(_.linesIterator.toSeq.takeRight(ProcException.tail))
+      .filter(_.nonEmpty)
+      .fold("\n(no stderr)")(_.map(l => s"\n  | $l").mkString)
+    s"[$thread_id] exit $rc: $cmd (${std_out_err.toString}/$cmd_id.*)$err"
+  }
+}
+
+object ProcException {
+  // how many lines of stderr a ProcException's message shows
+  val tail = 20
 }
 
 // Set while a read-only State (see State) computes a target. What

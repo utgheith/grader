@@ -46,7 +46,7 @@ object Grade {
     all(project, students, 0)
 
   // each student's own results and prepared code
-  private def own(
+  def own(
       project: Project,
       students: Iterable[CSID],
       n: Int
