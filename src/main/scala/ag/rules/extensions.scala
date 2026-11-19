@@ -84,11 +84,13 @@ lazy val default_cwd = os.pwd
 val default_stdin: os.ProcessInput = ""
 
 extension (p: os.proc) {
+  // `env`: exactly the environment to run in; by default, this process's
   def run(
       cwd: os.Path = default_cwd,
       check: Boolean = default_check,
       timeout: Int = default_timeout,
-      stdin: os.ProcessInput = default_stdin
+      stdin: os.ProcessInput = default_stdin,
+      env: Option[Map[String, String]] = None
   ): (Int, os.Path, Option[os.Path]) = {
     val id = next_std_id.getAndIncrement()
     val stdout = std_dir / s"$id.out"
@@ -113,7 +115,9 @@ extension (p: os.proc) {
       check = false,
       cwd = cwd,
       timeout = timeout,
-      stdin = stdin
+      stdin = stdin,
+      env = env.getOrElse(Map()),
+      propagateEnv = env.isEmpty
     )
     val exit_code = out.exitCode
     if (exit_code != 0) {

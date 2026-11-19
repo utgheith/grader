@@ -100,6 +100,22 @@ final case class TestRun(
 }
 
 object TestRun {
+  // What a test's make runs in: this process's environment, less what a
+  // make the grader runs under would pass down (its level, flags and
+  // jobserver), which would make the test's make a sub-make of it: one that
+  // says "Entering directory" and shares its job slots.
+  val env: Map[String, String] = sys.env.removedAll(
+    Seq(
+      "MAKELEVEL",
+      "MAKEFLAGS",
+      "MFLAGS",
+      "MAKEOVERRIDES",
+      "GNUMAKEFLAGS",
+      "MAKE_TERMOUT",
+      "MAKE_TERMERR"
+    )
+  )
+
   // the outcome of each run so far, and what they ran on
   @upickle.implicits.allowUnknownKeys(false)
   final case class History(
@@ -164,10 +180,12 @@ object TestRun {
           shout(f"running#$n $m on $cores cores (Docker: ${image.toString})")
 
           val start = System.currentTimeMillis()
-          val _ = os.proc("make", "-k", "clean").run(cwd = work, check = false)
+          val _ = os
+            .proc("make", "-k", "clean")
+            .run(cwd = work, check = false, env = Some(TestRun.env))
           val (_, stdout, stderr) = os
             .proc(Docker.dockerCommand(work, image), "make", "-k", s"$tn.test")
-            .run(cwd = work, check = false)
+            .run(cwd = work, check = false, env = Some(TestRun.env))
           val run_time =
             Some((System.currentTimeMillis() - start).toDouble / 1000)
 
